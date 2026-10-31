@@ -1,0 +1,21 @@
+# Changelog
+
+All notable changes are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
+versions follow [Semantic Versioning](https://semver.org/).
+
+## [0.1.0] — 2026-10-31
+
+First public release.
+
+- `openMemory`: records of any kind and conversations, searchable at once with no server and no language model.
+- Local embedding (EmbeddingGemma-300m, 4-bit ONNX, fetched and verified on first use) or any OpenAI-compatible
+  embeddings server; a Qdrant process of its own (pinned, verified) or your Qdrant server.
+- Search: dense keys, chunks and cues plus BM25 keywords, fused by score at the item level; dates first when asked;
+  the best 30 reordered word by word (MaxSim on one-bit token vectors), or by any rerank server.
+- `room`: the best sentences of what was found, for a small context.
+- `open`, `explore` (concept graph, Personalized PageRank), `remove`, `rebuild`, `stats`.
+- Optional, with any language model: `consolidate` (typed items, dated observations, episodes, cues, concepts),
+  `sleep` (merge, supersede, link, archive, profiles), `gather` (sets for counting and listing questions).
+- Agent tools: `memory_search`, `memory_open`, `memory_explore` with zod and JSON schemas.
+- Importers: mbox and .eml, Slack exports, Git history, folders of Markdown, text and HTML, JSONL.
+- Benchmarks and research notes: docs/BENCHMARKS.md, docs/RESEARCH.md.
