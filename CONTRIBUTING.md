@@ -32,6 +32,12 @@ npm run test:integration    # the real model and a real Qdrant (fetched into the
 Include the version, Node and OS, what you called, what you expected and what happened. For search quality issues, a
 small set of records and a query that shows it is the most useful thing you can give.
 
+## Releasing
+
+Bump `version` in package.json and add the release to CHANGELOG.md, commit, then tag and push the tag:
+`git tag v0.1.1 && git push origin v0.1.1`. The Release workflow tests, builds and publishes to npm through trusted
+publishing (no npm token), with provenance.
+
 ## Security
 
 See [SECURITY.md](SECURITY.md). Please do not open public issues for vulnerabilities.
