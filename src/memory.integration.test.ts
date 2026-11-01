@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { openMemory, type Memory, type MemoryOptions } from './memory.js';
 import type { MemoryRecord } from './records.js';
+import type { LlmAnswer, LlmRequest } from './llm.js';
 
 /** The whole library on the real embedding model and a real Qdrant, with no language model and no server.
  *  Both are fetched into the cache on first use; MEMTRAILS_MODEL_DIR and QDRANT_BINARY point at copies instead. */
@@ -116,4 +117,30 @@ describe('openMemory', () => {
     await expect(memory.add({ id: '', text: 'x' })).rejects.toThrow(/id/);
     await expect(memory.add({ id: 'a', text: 'x', at: 'yesterday-ish' })).rejects.toThrow(/time/);
   });
+});
+
+describe('gather', () => {
+  it('reads as many as asked for, and shows what the model kept first', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'memtrails-gather-'));
+    const prompts: string[] = [];
+    // A stand-in for the language model: keeps the cron commit, asks for nothing more.
+    const llm = async (r: LlmRequest): Promise<LlmAnswer> => {
+      prompts.push(r.prompt);
+      const lines = r.prompt.split('\n').filter((l) => l.startsWith('[m'));
+      return { answer: { keep: lines.filter((l) => l.includes('Restore certificate renewal cron')).map((l) => l.slice(1, l.indexOf(']'))), searches: [] } };
+    };
+    const m = await openMemory({ ...opts(home), llm });
+    try {
+      await m.add(mail);
+      const g = await m.gather({ query: 'the commit that restored the certificate renewal cron', limit: 1 });
+      expect(prompts).toHaveLength(1);
+      // A search for a few reads twice as deep as asked (recall.ts): two of five, not all of them.
+      expect(prompts[0]!.split('\n').filter((l) => l.startsWith('[m')).length).toBeLessThanOrEqual(2);
+      expect(g.kept).toHaveLength(1);
+      expect(g.found[0]!.title).toContain('Restore certificate renewal cron');
+    } finally {
+      await m.close();
+      await rm(home, { recursive: true, force: true });
+    }
+  }, 300_000);
 });

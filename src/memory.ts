@@ -264,7 +264,7 @@ export async function openMemory(o: MemoryOptions): Promise<Memory> {
       return sources.length ? { ...p, sources } : p;
     },
     explore: (s) => memoryExplore(deps, s),
-    gather: (s) => memoryGather(deps, s, { ask }),
+    gather: (s) => memoryGather(deps, s, { ask, ...(s.limit ? { limit: s.limit } : {}) }),
     async consolidate() {
       const worker = new Consolidator({ ...base, concurrency: o.concurrency ?? 4 });
       const total: ConsolidationReport = { windows: 0, added: 0, merged: 0, updated: 0, superseded: 0, linked: 0, dropped: 0, episodes: 0, observed: 0, cued: 0 };

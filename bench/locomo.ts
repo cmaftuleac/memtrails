@@ -4,9 +4,10 @@
  * agent reads a search — memory_search's lines, best first until the room is full, shown oldest first.
  *
  *   npx tsx bench/locomo.ts --data locomo10.json --out runs/memtrails [--conversations conv-41,conv-42] \
- *       [--categories 1,2,3,4] [--room 6000] [--limit 20] [--consolidate]
+ *       [--categories 1,2,3,4] [--room 6000] [--limit 20] [--consolidate] [--gather 40]
  *
- * Writes <out>/locomo.jsonl ({ qid, question, answer, category, context, retrieval_ms }). Score it with bench/score.ts
+ * `--gather n` builds each room from `gather` at limit n (a language model reads what was found and keeps what the
+ * answer needs, shown first) instead of `search`. Writes <out>/locomo.jsonl ({ qid, question, answer, category, context, retrieval_ms }). Score it with bench/score.ts
  * (no model) and bench/judge.ts (a reader and a judge). LoCoMo: github.com/snap-research/locomo (CC BY-NC 4.0); bring
  * your own copy of locomo10.json.
  */
@@ -18,11 +19,12 @@ import { openMemory, searchText, type Conversation } from '../src/index.js';
 const { values: a } = parseArgs({ options: {
   data: { type: 'string' }, out: { type: 'string' }, conversations: { type: 'string' }, categories: { type: 'string', default: '1,2,3,4' },
   room: { type: 'string', default: '6000' }, limit: { type: 'string', default: '20' }, consolidate: { type: 'boolean', default: false },
-  threads: { type: 'string', default: '4' },
+  gather: { type: 'string', default: '0' }, threads: { type: 'string', default: '4' },
 } });
 if (!a.data || !a.out) throw new Error('usage: --data locomo10.json --out <dir> [...]');
 const ROOM = Number(a.room);
 const LIMIT = Number(a.limit);
+const GATHER = Number(a.gather);
 const CATS = a.categories!.split(',').map(Number);
 const CATEGORY: Record<number, string> = { 1: 'multi-hop', 2: 'temporal', 3: 'open-domain', 4: 'single-hop' };
 
@@ -62,7 +64,7 @@ for (const conv of data.filter((c) => !want || want.has(c.sample_id))) {
   for (const [i, q] of (conv.qa as Array<{ question: string; answer?: unknown; category: number }>).entries()) {
     if (!CATS.includes(q.category)) continue;
     const t = Date.now();
-    const found = await memory.search({ query: q.question, limit: LIMIT });
+    const found = GATHER ? (await memory.gather({ query: q.question, limit: GATHER })).found : await memory.search({ query: q.question, limit: LIMIT });
     const shown: typeof found = [];
     let used = 0;
     for (const f of found) {
