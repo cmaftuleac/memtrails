@@ -47,9 +47,9 @@ what they tell about themselves counts as much. For each:
 - text: 10 to 60 words that stand alone — the event or fact itself, as told ("Melanie took her family camping in the
   mountains"), never "On <date>, X said that …" (the date has its own field). Name who and what (names, never "he",
   "she", "it", "they"); keep every proper noun, title, number and quoted phrase exactly. A time said relatively stays
-  as said, with the date it means, read off the Calendar line of the day it was said: "last week (the week of 19 June
-  2023)", "yesterday (7 May 2023)". When the part names something only by description ("the book you recommended", "my
-  home country", "the kids") and KNOWN FROM OTHER CONVERSATIONS names it, write the name too ("Becoming Nicole",
+  as said, with the date it means, read off the Calendar line of the day it was said: "last week (the week before 26 June
+  2023)", "yesterday (7 May 2023)", "on Friday (12 April 2024)". When the part names something only by description
+  ("the book you recommended", "my home country", "the kids") and KNOWN FROM OTHER CONVERSATIONS names it, write the name too ("Becoming Nicole",
   "Sweden", "her three children") — never a fact from KNOWN that this part does not tell. What the person or a speaker
   says about their own life is true as told: no commentary on what the conversation did or did not confirm. A plan is
   written as a plan ("Melanie planned to go swimming with the kids"). When it replaces something said before, say both
@@ -57,7 +57,8 @@ what they tell about themselves counts as much. For each:
 - about: who or what it is about, named as the conversation names them ("the person" for the one whose requests these
   are, unless the conversation names them).
 - event_date: when it happened or applies, resolved with the Calendar line of the day its request was made ("yesterday"
-  is that line's yesterday; "last week" its last week's first day; "last month" its last month; "in June" is 2023-06)
+  is that line's yesterday; "last week" the first day of its week before; "last weekend" its last weekend's Saturday;
+  "on Friday" the Friday among its days before; "last month" its last month; "in June" is 2023-06)
   — YYYY-MM-DD, YYYY-MM or
   YYYY, as precise as the conversation makes it; empty when no time is given or implied. A plan's event_date is when it
   is planned for.
@@ -68,7 +69,10 @@ what they tell about themselves counts as much. For each:
   implies no such time, and for a one-off event (its event_date says it).
 - phase: done (it happened), plan (intended, not done yet), ongoing, or state (how things are).
 - requests: the request numbers it comes from.
-- concepts: up to 6 specific things it names — people, places, organisations, products, titles, files, services.`;
+- concepts: up to 6 specific things it names — people, places, organisations, products, titles, files, services.
+- cues: 2 to 4 questions someone may ask later that this answers, in the words they would ask in rather than its own —
+  from the broad ("What instruments does Priya play?", "Who are Priya's siblings?") to the specific ("When did Priya
+  start the cello?"), in the language the conversation is in.`;
 
 const SYSTEM = `You consolidate the long-term memory of a person who works with AI agents (coding, research, writing,
 operations). You get part of one of their conversations: the person's requests (numbered, each with its date), the
@@ -193,12 +197,13 @@ const SCHEMA = {
     observations: {
       type: 'array',
       items: {
-        type: 'object', additionalProperties: false, required: ['text', 'about', 'event_date', 'start_date', 'end_date', 'phase', 'requests', 'concepts'],
+        type: 'object', additionalProperties: false, required: ['text', 'about', 'event_date', 'start_date', 'end_date', 'phase', 'requests', 'concepts', 'cues'],
         properties: {
           text: { type: 'string' }, about: { type: 'string' }, event_date: { type: 'string' },
           start_date: { type: 'string' }, end_date: { type: 'string' },
           phase: { type: 'string', enum: [...PHASES] },
           requests: { type: 'array', items: { type: 'integer' } }, concepts: { type: 'array', items: { type: 'string' } },
+          cues: { type: 'array', items: { type: 'string' } },
         },
       },
     },
@@ -245,6 +250,8 @@ export interface Observation {
   /** Episode uids it was told in. */
   provenance: string[];
   concepts: string[];
+  /** Questions it answers, in the asker's words (searched beside its text, quieter). */
+  cues: string[];
   origin?: MemoryOrigin;
 }
 
@@ -278,7 +285,7 @@ export function cleanConcepts(raw: unknown): string[] {
 export interface Extraction { summary: string; candidates: Candidate[]; episodes: KeptEpisode[]; observations: Observation[]; dropped: number }
 
 const EVENT_DATE = /^\d{4}(-\d{2}(-\d{2})?)?$/;
-type RawObservation = { text?: string; about?: string; event_date?: string; start_date?: string; end_date?: string; phase?: string; requests?: number[]; concepts?: unknown };
+type RawObservation = { text?: string; about?: string; event_date?: string; start_date?: string; end_date?: string; phase?: string; requests?: number[]; concepts?: unknown; cues?: unknown };
 const dateOf = (d: unknown): string => (typeof d === 'string' && EVENT_DATE.test(d.trim()) ? d.trim() : '');
 
 /** The observations as memory keeps them: with text, from a request of this part, scrubbed; a date only when it is one. */
@@ -292,7 +299,7 @@ export function cleanObservations(raw: RawObservation[], uidOf: (n: number) => s
       text, about: redactString((x.about ?? '').trim()), eventAt: dateOf(x.event_date),
       ...(dateOf(x.start_date) ? { startAt: dateOf(x.start_date) } : {}), ...(dateOf(x.end_date) ? { endAt: dateOf(x.end_date) } : {}),
       phase: (PHASES as readonly string[]).includes(String(x.phase)) ? x.phase as Observation['phase'] : 'done',
-      provenance, concepts: cleanConcepts(x.concepts),
+      provenance, concepts: cleanConcepts(x.concepts), cues: cleanCues(x.cues).slice(0, 4),
     });
   }
   return out;

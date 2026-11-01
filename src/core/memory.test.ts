@@ -779,7 +779,7 @@ describe('observations — every dated thing a conversation told', () => {
     const ask = async (a: LlmRequest): Promise<LlmAnswer> => { prompts.push(a.prompt); return answer([]); };
     await new Consolidator({ ...s.base, ask, resolve: true }).run();
     const read = prompts.find((p) => p.includes('the book you recommended'))!;
-    expect(read).toContain('- Fri 2023-10-13: yesterday Thu 2023-10-12 · this week 2023-10-09 to 2023-10-15 · last week 2023-10-02 to 2023-10-08 · last month 2023-09 · last year 2022');
+    expect(read).toContain('- Fri 2023-10-13: yesterday Thu 2023-10-12 · the days before Wed 2023-10-11, Tue 2023-10-10, Mon 2023-10-09, Sun 2023-10-08, Sat 2023-10-07, Fri 2023-10-06 · last week (the week before) 2023-10-06 to 2023-10-12 · last weekend 2023-10-07 to 2023-10-08 · this week 2023-10-09 to 2023-10-15 · last month 2023-09 · last year 2022');
     const known = read.slice(read.indexOf('KNOWN FROM OTHER CONVERSATIONS'), read.indexOf('## Request 1'));
     expect(known).toContain('(2023-07-06) I just finished Becoming Nicole');
     expect(known).not.toContain('reading the book you recommended');

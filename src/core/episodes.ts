@@ -32,19 +32,23 @@ export function episodeBody(e: Pick<ReadableRequest, 'request' | 'reply' | 'file
   return parts.join('\n');
 }
 
-/** For each day a request was made, the days a time said relatively that day means — yesterday, this week, last week,
- *  last month, last year (weeks start on Monday, UTC as the requests' times) — so the model reads "last week" off a line
- *  instead of counting: measured on LoCoMo, "last week" said on Thursday 6 July was written as the week of 3 July. */
+/** For each day a request was made, the days a time said relatively that day means — yesterday, the week before, the
+ *  last weekend, each of the six days before by name, this week, last month, last year (UTC as the requests' times) —
+ *  so the model reads "last week" or "on Friday" off a line instead of counting. "Last week" is the seven days before,
+ *  as people mean it, not the Monday-to-Sunday week before this one: measured on LoCoMo, the calendar week put events
+ *  said on a Sunday thirteen days back, a week early. */
 export function calendarOf(tss: number[]): string {
   const DAY = 86_400_000;
   const iso = (t: number): string => new Date(t).toISOString().slice(0, 10);
   const wd = (t: number): string => new Date(t).toLocaleDateString('en-GB', { weekday: 'short', timeZone: 'UTC' });
   const days = [...new Set(tss.filter((t) => t > 0).map((t) => Math.floor(t / DAY) * DAY))].sort((a, b) => a - b);
   return days.map((d) => {
-    const monday = d - ((new Date(d).getUTCDay() + 6) % 7) * DAY;
     const dt = new Date(d);
+    const monday = d - ((dt.getUTCDay() + 6) % 7) * DAY;
+    const sunday = d - (dt.getUTCDay() === 0 ? 7 : dt.getUTCDay()) * DAY;
     const lastMonth = new Date(Date.UTC(dt.getUTCFullYear(), dt.getUTCMonth() - 1, 1)).toISOString().slice(0, 7);
-    return `- ${wd(d)} ${iso(d)}: yesterday ${wd(d - DAY)} ${iso(d - DAY)} · this week ${iso(monday)} to ${iso(monday + 6 * DAY)} · last week ${iso(monday - 7 * DAY)} to ${iso(monday - DAY)} · last month ${lastMonth} · last year ${dt.getUTCFullYear() - 1}`;
+    const before = [2, 3, 4, 5, 6, 7].map((n) => `${wd(d - n * DAY)} ${iso(d - n * DAY)}`).join(', ');
+    return `- ${wd(d)} ${iso(d)}: yesterday ${wd(d - DAY)} ${iso(d - DAY)} · the days before ${before} · last week (the week before) ${iso(d - 7 * DAY)} to ${iso(d - DAY)} · last weekend ${iso(sunday - DAY)} to ${iso(sunday)} · this week ${iso(monday)} to ${iso(monday + 6 * DAY)} · last month ${lastMonth} · last year ${dt.getUTCFullYear() - 1}`;
   }).join('\n');
 }
 

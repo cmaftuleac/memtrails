@@ -183,7 +183,7 @@ function observationItem(o: Observation, src: StmEntry): MemoryItem {
     engine: src.engine, session: src.session, cwd: src.cwd, where: src.title, ts: src.ts, firstTs: src.ts,
     title: cut(o.text, 100), summary: o.text, body: '', files: [], appliesWhen: '', confidence: 'stated', importance: 2,
     status: 'active', provenance: o.provenance, seen: 1, fingerprint: fingerprint('observation', o.text, o.eventAt),
-    cues: [], concepts: o.concepts, ...(o.eventAt ? { eventAt: o.eventAt } : {}),
+    cues: o.cues ?? [], concepts: o.concepts, ...(o.eventAt ? { eventAt: o.eventAt } : {}),
     ...(o.startAt ? { startAt: o.startAt } : {}), ...(o.endAt ? { endAt: o.endAt } : {}), phase: o.phase, ...(o.about ? { about: o.about } : {}),
     ...(o.origin ? { origin: o.origin } : {}),
   };

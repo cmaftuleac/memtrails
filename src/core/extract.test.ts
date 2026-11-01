@@ -5,7 +5,7 @@
 import { describe, expect, it } from 'vitest';
 import type { LlmAnswer, LlmRequest } from '../llm.js';
 import type { ReadableRequest } from './episodes.js';
-import { EXTRACT_MAX_TOKENS, extractWindow, gate, partsOf, WINDOW_CHARS, windowsOf } from './extract.js';
+import { cleanObservations, EXTRACT_MAX_TOKENS, extractWindow, gate, partsOf, WINDOW_CHARS, windowsOf } from './extract.js';
 import { renderForExtraction } from './episodes.js';
 
 const req = (uid: string, request: string, extra: Partial<ReadableRequest> = {}): ReadableRequest => ({
@@ -46,6 +46,15 @@ describe('the gate', () => {
     expect(new Set(kept[0]!.cues).size).toBe(12);
     expect(kept[0]!.cues.join(' ')).not.toContain('sk-proj-abcdefghijklmnopqrstuvwxyz0123456789ABCD');
     expect(gate([item({ cues: 'not a list' })], uidOf).kept[0]!.cues).toEqual([]);
+  });
+
+  it('keeps up to four cues on an observation, scrubbed, and none when the model wrote none', () => {
+    const cues = ['What instruments does Priya play?', 'When did Priya start the cello?', 'key sk-proj-abcdefghijklmnopqrstuvwxyz0123456789ABCD', 'a', 'b'];
+    const [o] = cleanObservations([{ text: 'Priya started the cello in May.', requests: [1], cues }], uidOf);
+    expect(o!.cues).toHaveLength(4);
+    expect(o!.cues.slice(0, 2)).toEqual(cues.slice(0, 2));
+    expect(o!.cues.join(' ')).not.toContain('sk-proj-abcdefghijklmnopqrstuvwxyz0123456789ABCD');
+    expect(cleanObservations([{ text: 'Priya has a brother.', requests: [1] }], uidOf)[0]!.cues).toEqual([]);
   });
 
   it('keeps a "this works" kind only from a request seen working; other kinds whatever the outcome', () => {

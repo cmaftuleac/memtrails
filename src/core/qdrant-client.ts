@@ -48,6 +48,10 @@ const SMALL = { optimizers_config: { default_segment_number: 2 } } as const;
  *  was the best share on both benchmarks, and CombSUM beat rank fusion at the top of both — LoCoMo requests any@3
  *  71.6 → 74.5, nDCG@10 64.6 → 65.7; LongMemEval-S any@1 63.4 → 64.5, sessions any@1 92.6 → 93.2. */
 const DENSE_SHARE = 0.7;
+/** Cues — the questions an item answers, in the asker's words — search as their own channel at this share of the dense
+ *  weight rather than among the item's points. Measured on LoCoMo's 1,307 held-out questions, together with cues on
+ *  every observation and the seven-days-before calendar: multi-hop 50.6 → 55.2, overall 77.2 → 77.4 (docs/RESEARCH.md). */
+const CUE_SHARE = 0.1;
 
 export interface SparseVector { indices: number[]; values: number[] }
 
@@ -290,15 +294,20 @@ export class QdrantClient {
     const per = q.per ?? Math.max(limit, 50);
     const user = this.user();
     const filter = this.scoped(q.filter, user);
-    const channels: Array<{ query: unknown; using: string; params?: unknown; weight: number }> = [];
+    const channels: Array<{ query: unknown; using: string; params?: unknown; weight: number; filter?: Filter }> = [];
     const sparse = q.sparse?.indices.length ? q.sparse : null;
     const denseWeight = (sparse ? DENSE_SHARE : 1) / Math.max(1, q.dense.length);
-    for (const v of q.dense) channels.push({ query: v, using: 'dense', params: RESCORE, weight: denseWeight });
+    const cueOff: Filter = { ...(filter ?? {}), must_not: [...((filter as { must_not?: unknown[] } | undefined)?.must_not ?? []), { key: 'part', match: { value: 'cue' } }] } as Filter;
+    const cueOnly: Filter = { ...(filter ?? {}), must: [...((filter as { must?: unknown[] } | undefined)?.must ?? []), { key: 'part', match: { value: 'cue' } }] } as Filter;
+    for (const v of q.dense) {
+      channels.push({ query: v, using: 'dense', params: RESCORE, weight: denseWeight * (1 - CUE_SHARE), filter: cueOff });
+      channels.push({ query: v, using: 'dense', params: RESCORE, weight: denseWeight * CUE_SHARE, filter: cueOnly });
+    }
     if (sparse) channels.push({ query: sparse, using: 'bm25', weight: 1 - DENSE_SHARE });
     if (!channels.length) return [];
     const lists = await Promise.all(channels.map((c) => this.call<{ groups: Array<{ id: string; hits: Array<{ id?: string; score: number; payload?: Record<string, unknown> }> }> }>('POST', `/collections/${this.collection}/points/query/groups`, {
       query: c.query, using: c.using, ...(c.params ? { params: c.params } : {}),
-      ...(filter ? { filter } : {}),
+      ...(c.filter ?? filter ? { filter: c.filter ?? filter } : {}),
       group_by: 'item',
       group_size: 1,
       limit: per,
