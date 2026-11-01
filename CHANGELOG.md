@@ -3,7 +3,7 @@
 All notable changes are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 versions follow [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.2.0] — 2026-11-01
 
 - Consolidation reads "last week" as the seven days before it was said, and the calendar line names the last weekend
   and each of the six days before, so "on Friday" is dated without counting. Dates had landed a week early.
