@@ -9,6 +9,8 @@ versions follow [Semantic Versioning](https://semver.org/).
   and each of the six days before, so "on Friday" is dated without counting. Dates had landed a week early.
 - Observations carry 2 to 4 cues (questions they answer, in the asker's words); search reads cues as their own channel
   at a tenth of the dense weight. LoCoMo, all 1,307 held-out questions: multi-hop 50.6 → 55.2, all 77.2 → 77.4.
+- `gather` reads as many as `limit` asks for (it always read 200). At 40, for any question, the rooms it builds score
+  79.5 on LoCoMo against Mem0's 76.5 (+110/−71 per question); `bench/locomo.ts --gather 40` reproduces it.
 
 ## [0.1.0] — 2026-10-31
 

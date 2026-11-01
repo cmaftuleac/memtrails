@@ -40,7 +40,8 @@ await memory.close();
   stored at one bit a number): on 2,011 benchmark questions the answer reached the reader in 53.1% of top-5 lists
   against 50.3% for plain search, and most of a cross-encoder reranker's gain, in about 3 ms on one CPU thread.
 - **Measured, honestly.** On all 1,307 held-out LoCoMo questions with 6,000 characters to read, memtrails alone on a
-  CPU scores 77.4 (strict judge) against Mem0's 76.5 — a tie, reported as one. [Benchmarks](docs/BENCHMARKS.md).
+  CPU scores 77.4 (strict judge) against Mem0's 76.5 — a tie, reported as one; with `gather` reading what search
+  found, 79.5 — ahead beyond chance. [Benchmarks](docs/BENCHMARKS.md).
 - **Explorable.** A concept graph links what records share — people, places, systems, names — so an agent can walk
   from what it found to what a search for the words does not find.
 - **Built for agents.** `memory.tools()` gives `memory_search`, `memory_open` and `memory_explore` with zod and JSON
@@ -188,13 +189,16 @@ the [API reference](docs/API.md), and [what was tried and why](docs/RESEARCH.md)
 
 | | memtrails | Mem0 | Graphiti |
 |---|---|---|---|
-| LoCoMo, all 1,307 held-out questions, 6,000 characters, strict judge | **77.4** (no server) | 76.5 | — |
-| the same, Mem0's own lenient judge | **89.3** | 87.8 | — |
+| LoCoMo, all 1,307 held-out questions, 6,000 characters, strict judge, `gather` at 40 | **79.5** | 76.5 | — |
+| the same, Mem0's own lenient judge | **91.4** | 87.8 | — |
+| the same with `search` alone, no model when searching, strict / lenient | 77.4 / 89.3 | 76.5 / 87.8 | — |
 | LoCoMo, 1,307 held-out questions, 28,000 characters, one search¹ | 79.9 | 80.6 | 42.1 |
 | LoCoMo, the same with an agent using each system's own tools¹ | **79.0** | 77.1 | 47.0 |
 | LongMemEval-S retrieval, strict all sessions @5 (467)² | **96.15** | — | — |
 
-The same reader and judges for every system. The small-room and one-search comparisons are ties; the agent lead is
+The same reader and judges for every system. With `gather` (a model reads what search found and keeps what the answer
+needs) memtrails leads Mem0 beyond chance: +110/−71 questions strict (p 0.005), +78/−32 lenient. With `search` alone,
+the small-room and one-search comparisons are ties; the agent lead is
 small and was judged once. ¹ An earlier build (2026-10-27). ² gbrain-evals publishes 95.96 on the same count: a tie. [Full results, protocol and limitations](docs/BENCHMARKS.md).
 
 ## Limitations
