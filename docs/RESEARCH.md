@@ -144,9 +144,12 @@ Rounds refer to the research log.
 | Relative time kept beside the date it means ("last week (the week of 19 June 2023)") | adopted | same change |
 | Start and end dates for what lasts | adopted | held-out 166, same search: multi-hop 74.1 → 77.8, temporal 76.5 → 78.8 (one pass) |
 | A calendar of "yesterday / last week" ranges in the encoding prompt | adopted | temporal gold fully in context 68 → 69 of 85 |
+| "Last week" as the seven days before it was said, with the last weekend and the six days before by name | adopted | the Monday-to-Sunday week put events a week early; held-out temporal (258) judged 78.3 → 80.2 (+20/−15), level with Mem0 |
 | Naming what other conversations refer to (`resolve`) | tie, off | +2/−2 questions on held-out; one more lookup a window |
 | Profiles: a dated list per concept that ≥ 3 items share, written in sleep, shown whole | adopted | answer @10 59.1 → 61.7 (+56/−16, p < 0.001), temporal 22/1; multi-hop no change (6/6). *Raw memories in this comparison were scored before correction* |
 | Cues (3 questions a memory should answer) as a search voice at weight 0.1 | lead | LoCoMo answer @5 +40/−17 (p 0.003), one of 12 arms, weight chosen after equal weight lost |
+| Cues on every observation (2 to 4), searched as their own channel at 0.1 of the dense weight | adopted | all 1,307 held-out, judged: multi-hop 50.6 → 55.2 (+24/−13, p 0.10), single-hop 89.1 → 87.9, all 77.2 → 77.4 (with the calendar fix above) |
+| Broad first cue ("What instruments does Priya play?" for her cello) | lost | dev answer words 69.5 → 72.5 (+10/−3); held-out 70.2 → 70.1, multi-hop 41.0 → 38.9: not judged |
 | Sleep self-test: store only the cues search fails on | lost | top 3 46.1 → 42.7; saves storage, not cost |
 | A per-memory learned model over its own cues | lost | from failed cues alone: +77/−592 @5 |
 | Scenes: observations clustered and rewritten once (EverMemOS) | lost | dev multi-hop 68.8 → 64.6 |

@@ -11,7 +11,8 @@ Author: Corneliu Maftuleac. Licence: MIT.
   over 1,388 questions). With an agent using each system's own tools, memtrails is ahead (79.0 vs 77.1 on 1,307,
   judged once). On 42 LongMemEval-S questions it is ahead (92.9 vs 86.5). Graphiti trails both by 30+ points.
 - **Judged answers, 6,000 characters, all 1,307 held-out LoCoMo questions.** memtrails as published, alone on a CPU
-  with no server: 77.2 strict, 89.3 lenient; Mem0 76.5 and 87.8. A tie (+102/−93 per question).
+  with no server: 77.4 strict, 89.3 lenient; Mem0 76.5 and 87.8. A tie (+97/−85 per question); ahead on multi-hop
+  questions since cues on observations (55.2 vs 53.6), level on dates.
 - **Retrieval.** On LongMemEval-S, strict sessions all@5 with the official answer sessions: 96.15, against
   gbrain-evals' published 95.96. A tie at the top, with a 300M local embedder and no reranker.
 - **Word-by-word reordering** (MaxSim on the embedder's own token vectors) wins clearly over plain search
@@ -188,15 +189,20 @@ memories dropped to fit the same 6,000 characters.
 
 | 1,307 questions | strict | multi-hop (239) | open-domain (83) | single-hop (727) | temporal (258) | lenient (Mem0's judge) |
 |---|---|---|---|---|---|---|
-| memtrails, no server | **77.2** | 50.6 | **45.8** | **89.1** | 78.3 | **89.3** |
-| Mem0 | 76.5 | **53.6** | 37.3 | 87.1 | **80.6** | 87.8 |
+| memtrails, no server | **77.4** | **55.2** | **42.2** | **87.9** | 79.8 | **89.3** |
+| memtrails 0.1.0 | 77.2 | 50.6 | 45.8 | 89.1 | 78.3 | 89.3 |
+| Mem0 | 76.5 | 53.6 | 37.3 | 87.1 | **80.6** | 87.8 |
 
-Per question: strict +102/−93 (p 0.57), lenient +65/−46 (p 0.09); multi-hop +28/−35, open-domain +10/−3, single-hop
-+44/−29 (p 0.10), temporal +20/−26.
+Per question against Mem0: strict +97/−85 (p 0.42), lenient +62/−43 (p 0.08); multi-hop +31/−27, temporal +16/−18.
+memtrails 0.1.0 against Mem0: strict +102/−93 (p 0.57), lenient +65/−46 (p 0.09); multi-hop +28/−35, open-domain
++10/−3, single-hop +44/−29 (p 0.10), temporal +20/−26.
 
 **A tie.** With little to read, memtrails running alone on a CPU answers as well as Mem0 with its model-written facts —
-not better. It leans ahead on single-hop and open-domain questions and on the lenient judge; Mem0 leans ahead on
-multi-hop questions and dates. None of these differences is significant. Judging cost about $9.5 a system.
+not better. Since 0.1.0, two changes closed the categories Mem0 led: "last week" read as the seven days before it was
+said (dates had landed a week early), and cues on every observation, searched as a quieter channel (answers worded
+apart from the question were stored but not found). Multi-hop moved 50.6 → 55.2 against 0.1.0 (+24/−13, p 0.10) and
+single-hop gave back about as much, so the total barely moves. None of the differences with Mem0 is significant.
+Judging cost about $9.4 a system.
 
 ### (d) Retrieval against gbrain-evals — LongMemEval-S
 

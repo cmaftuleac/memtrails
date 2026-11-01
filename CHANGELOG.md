@@ -3,6 +3,13 @@
 All notable changes are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 versions follow [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+- Consolidation reads "last week" as the seven days before it was said, and the calendar line names the last weekend
+  and each of the six days before, so "on Friday" is dated without counting. Dates had landed a week early.
+- Observations carry 2 to 4 cues (questions they answer, in the asker's words); search reads cues as their own channel
+  at a tenth of the dense weight. LoCoMo, all 1,307 held-out questions: multi-hop 50.6 → 55.2, all 77.2 → 77.4.
+
 ## [0.1.0] — 2026-10-31
 
 First public release.

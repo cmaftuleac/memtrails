@@ -40,7 +40,7 @@ await memory.close();
   stored at one bit a number): on 2,011 benchmark questions the answer reached the reader in 53.1% of top-5 lists
   against 50.3% for plain search, and most of a cross-encoder reranker's gain, in about 3 ms on one CPU thread.
 - **Measured, honestly.** On all 1,307 held-out LoCoMo questions with 6,000 characters to read, memtrails alone on a
-  CPU scores 77.2 (strict judge) against Mem0's 76.5 — a tie, reported as one. [Benchmarks](docs/BENCHMARKS.md).
+  CPU scores 77.4 (strict judge) against Mem0's 76.5 — a tie, reported as one. [Benchmarks](docs/BENCHMARKS.md).
 - **Explorable.** A concept graph links what records share — people, places, systems, names — so an agent can walk
   from what it found to what a search for the words does not find.
 - **Built for agents.** `memory.tools()` gives `memory_search`, `memory_open` and `memory_explore` with zod and JSON
@@ -188,7 +188,7 @@ the [API reference](docs/API.md), and [what was tried and why](docs/RESEARCH.md)
 
 | | memtrails | Mem0 | Graphiti |
 |---|---|---|---|
-| LoCoMo, all 1,307 held-out questions, 6,000 characters, strict judge | **77.2** (no server) | 76.5 | — |
+| LoCoMo, all 1,307 held-out questions, 6,000 characters, strict judge | **77.4** (no server) | 76.5 | — |
 | the same, Mem0's own lenient judge | **89.3** | 87.8 | — |
 | LoCoMo, 1,307 held-out questions, 28,000 characters, one search¹ | 79.9 | 80.6 | 42.1 |
 | LoCoMo, the same with an agent using each system's own tools¹ | **79.0** | 77.1 | 47.0 |
