@@ -61,7 +61,7 @@ interface Conversation {
 | `room(q: SearchQuery & { chars?: number }): Promise<string>` | The best sentences of what was found, in `chars` (6,000). Needs the local model. |
 | `open(id: string)` | One item whole; for something learned, `sources`: the records it was learned from. |
 | `explore({ topic?, from?, collections?, limit? }): Promise<Explored>` | What the concept graph reaches: `found`, `related` (with `via`), `concepts`. |
-| `gather(q: SearchQuery): Promise<Gathered>` | A language model reads what was found and keeps what the answer needs, first; `found` is that, then the rest by rank. `limit` 200 by default (a counting or listing question needs every instance); 40 for any question — on LoCoMo it beats Mem0 (79.5 vs 76.5). Needs a language model. |
+| `gather(q: SearchQuery, o?: { notes?: boolean }): Promise<Gathered>` | A language model reads what was found and keeps what the answer needs, first; `found` is that, then the rest by rank. `limit` 200 by default (a counting or listing question needs every instance); 40 for any question. With `notes`, the same call also writes `notes`: what the kept memories say that answers the question, every instance with its date — show them before the memories. On LoCoMo, at 40 with notes: 80.6 against Mem0's 76.5. Needs a language model. |
 
 ```ts
 interface SearchQuery {

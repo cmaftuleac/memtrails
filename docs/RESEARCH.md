@@ -151,6 +151,8 @@ Rounds refer to the research log.
 | Cues on every observation (2 to 4), searched as their own channel at 0.1 of the dense weight | adopted | all 1,307 held-out, judged: multi-hop 50.6 → 55.2 (+24/−13, p 0.10), single-hop 89.1 → 87.9, all 77.2 → 77.4 (with the calendar fix above) |
 | Raw passages first in the room (the 6 or 8 best requests as said, before what was learned) | lost | held-out answer words 70.2 → 69.5 / 67.3 (+13/−51); they crowd out dated observations |
 | `gather` for every question, at 40 of each (a model keeps what the answer needs, shown first) | adopted, opt-in | held-out answer words 70.2 → 72.0 (+36/−12); judged 77.4 → 79.5, against Mem0 +110/−71 (p 0.005); at 200 no better on the hardest conversation, five times the cost |
+| `gather` notes: what the kept memories say, every instance with its date, before the memories | adopted, opt-in | judged 79.5 → 80.6 (+61/−46), against Mem0 +117/−63; notes that also said what memories lack lost (78.7: the reader believed "they don't say") |
+| One line a memory in the room; a 200-wide read for every-instance questions; kept memories shown first and apart | lost | answer words 72.0 → 71.7 / 72.2 (ties); judged 79.5 → 79.1 |
 | Broad first cue ("What instruments does Priya play?" for her cello) | lost | dev answer words 69.5 → 72.5 (+10/−3); held-out 70.2 → 70.1, multi-hop 41.0 → 38.9: not judged |
 | Sleep self-test: store only the cues search fails on | lost | top 3 46.1 → 42.7; saves storage, not cost |
 | A per-memory learned model over its own cues | lost | from failed cues alone: +77/−592 @5 |

@@ -10,9 +10,9 @@ Author: Corneliu Maftuleac. Licence: MIT.
 - **Judged answers, 28,000 characters of context, held-out data.** A single search ties Mem0 on LoCoMo (80.3 vs 80.5
   over 1,388 questions). With an agent using each system's own tools, memtrails is ahead (79.0 vs 77.1 on 1,307,
   judged once). On 42 LongMemEval-S questions it is ahead (92.9 vs 86.5). Graphiti trails both by 30+ points.
-- **Judged answers, 6,000 characters, all 1,307 held-out LoCoMo questions.** With `gather` (a model reads what search
-  found and keeps what the answer needs): **79.5 strict, 91.4 lenient; Mem0 76.5 and 87.8 — ahead beyond chance**
-  (+110/−71, p 0.005). With `search` alone, no model when searching: 77.4 strict, 89.3 lenient. A tie (+97/−85 per question); ahead on multi-hop
+- **Judged answers, 6,000 characters, all 1,307 held-out LoCoMo questions.** With `gather` and notes (a model reads
+  what search found, keeps what the answer needs and notes what it says): **80.6 strict, 91.8 lenient; Mem0 76.5 and
+  87.8 — ahead beyond chance** (+117/−63, p < 0.001). Without notes: 79.5 and 91.4. With `search` alone, no model when searching: 77.4 strict, 89.3 lenient. A tie (+97/−85 per question); ahead on multi-hop
   questions since cues on observations (55.2 vs 53.6), level on dates.
 - **Retrieval.** On LongMemEval-S, strict sessions all@5 with the official answer sessions: 96.15, against
   gbrain-evals' published 95.96. A tie at the top, with a 300M local embedder and no reranker.
@@ -190,12 +190,15 @@ memories dropped to fit the same 6,000 characters.
 
 | 1,307 questions | strict | multi-hop (239) | open-domain (83) | single-hop (727) | temporal (258) | lenient (Mem0's judge) |
 |---|---|---|---|---|---|---|
-| memtrails, `gather` at 40 | **79.5** | **56.1** | **44.6** | **90.6** | **81.0** | **91.4** |
+| memtrails, `gather` at 40 with notes | **80.6** | **60.3** | **49.4** | **90.9** | 80.6 | **91.8** |
+| memtrails, `gather` at 40 | 79.5 | 56.1 | 44.6 | 90.6 | **81.0** | 91.4 |
 | memtrails, `search` alone | 77.4 | 55.2 | 42.2 | 87.9 | 79.8 | 89.3 |
 | memtrails 0.1.0 | 77.2 | 50.6 | 45.8 | 89.1 | 78.3 | 89.3 |
 | Mem0 | 76.5 | 53.6 | 37.3 | 87.1 | **80.6** | 87.8 |
 
-`gather` against Mem0: strict **+110/−71 (p 0.005)**, lenient **+78/−32 (p < 0.001)**; single-hop +50/−24 (p 0.003),
+`gather` with notes against Mem0: strict **+117/−63 (p < 0.001)**, lenient **+76/−24 (p < 0.001)**; multi-hop +38/−22
+(p 0.05), open-domain +14/−4 (p 0.03), single-hop +47/−19 (p 0.001), temporal +18/−18. Notes against `gather` alone:
++61/−46 (p 0.18). `gather` alone against Mem0: strict **+110/−71 (p 0.005)**, lenient **+78/−32 (p < 0.001)**; single-hop +50/−24 (p 0.003),
 open-domain +10/−4, multi-hop +31/−25, temporal +19/−18. `search` alone against Mem0: strict +97/−85 (p 0.42), lenient +62/−43 (p 0.08); multi-hop +31/−27, temporal +16/−18.
 memtrails 0.1.0 against Mem0: strict +102/−93 (p 0.57), lenient +65/−46 (p 0.09); multi-hop +28/−35, open-domain
 +10/−3, single-hop +44/−29 (p 0.10), temporal +20/−26.
@@ -205,7 +208,11 @@ kind, a language model (GPT-6 Luna, low effort) reads them in two parts and keep
 searches are read the same way, and the room packs what it kept first. The gain is mostly single-hop: the one memory
 that answers is shown first instead of crowded out by similar ones. It costs a model call when searching (about
 $0.0014 a question) and time (5.6 s median against 0.4 s); Mem0's search asks no model, and both ask one when writing.
-Read and judged once. With `search` alone, memtrails running alone on a CPU answers as well as Mem0 with its model-written facts —
+With `notes` the same call also writes what the kept memories say that answers the question — every instance with
+its date, only what they state, never what they lack — and the room opens with them: a list spread over many memories
+reaches the reader as one line (multi-hop 56.1 → 60.3). Notes that also said what the memories do not say lost (the
+reader took "they don't say when" over the memory below that did); stating only what they say won. Read and judged
+once; one read flips about 60 of 1,307 answers. With `search` alone, memtrails running alone on a CPU answers as well as Mem0 with its model-written facts —
 not better. Since 0.1.0, two changes closed the categories Mem0 led: "last week" read as the seven days before it was
 said (dates had landed a week early), and cues on every observation, searched as a quieter channel (answers worded
 apart from the question were stored but not found). Multi-hop moved 50.6 → 55.2 against 0.1.0 (+24/−13, p 0.10) and

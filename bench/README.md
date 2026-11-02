@@ -10,8 +10,8 @@ npx tsx bench/locomo.ts --data locomo10.json --out runs/memtrails --room 6000
 #    The same with consolidation and sleep (a language model; about $0.07 a conversation with GPT-6 Luna):
 MEMTRAILS_MODEL=gpt-6-luna OPENAI_API_KEY=… npx tsx bench/locomo.ts --data locomo10.json --out runs/memtrails-llm --consolidate
 
-#    Each room from gather instead of search (one model call a question, about $0.0014 with GPT-6 Luna):
-MEMTRAILS_MODEL=gpt-6-luna OPENAI_API_KEY=… npx tsx bench/locomo.ts --data locomo10.json --out runs/memtrails-gather --consolidate --gather 40
+#    Each room from gather with notes instead of search (one model call a question, about $0.0015 with GPT-6 Luna):
+MEMTRAILS_MODEL=gpt-6-luna OPENAI_API_KEY=… npx tsx bench/locomo.ts --data locomo10.json --out runs/memtrails-gather --consolidate --gather 40 --notes
 
 # 2. Score with no model: do the gold answer's words reach the reader? Against another run, per question.
 npx tsx bench/score.ts runs/memtrails/locomo.jsonl runs/memtrails-llm/locomo.jsonl

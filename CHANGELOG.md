@@ -3,6 +3,12 @@
 All notable changes are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 versions follow [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+- `gather(q, { notes: true })`: the same model call also writes what the kept memories say that answers the question,
+  every instance with its date and only what they state. Shown before the memories, LoCoMo 79.5 → 80.6 (Mem0 76.5);
+  `bench/locomo.ts --gather 40 --notes` reproduces it.
+
 ## [0.2.0] — 2026-11-01
 
 - Consolidation reads "last week" as the seven days before it was said, and the calendar line names the last weekend
