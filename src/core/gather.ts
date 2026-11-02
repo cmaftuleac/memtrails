@@ -21,6 +21,9 @@ import { cut } from './text.js';
 
 /** Candidates the model reads in one ask. */
 const PART = 40;
+/** With notes, all of them in one ask, so a question's notes are written once: on LoCoMo the same accuracy as two parts
+ *  of 40 (80.9 against 80.6), at 58% of the cost and 2.9 s against 7.5 s median. */
+const NOTES_PART = 80;
 /** Searches it may ask for. */
 const MORE = 6;
 
@@ -72,7 +75,8 @@ function line(h: RecalledItem, n: number): string {
 
 async function pick(ask: Ask, question: string, list: RecalledItem[], notes = false): Promise<{ keep: Set<string>; searches: string[]; notes: string[] }> {
   const parts: RecalledItem[][] = [];
-  for (let i = 0; i < list.length; i += PART) parts.push(list.slice(i, i + PART));
+  const size = notes ? NOTES_PART : PART;
+  for (let i = 0; i < list.length; i += size) parts.push(list.slice(i, i + size));
   const answers = await Promise.all(parts.map(async (part) => {
     const prompt = `Question: ${question}\n\nMemories:\n${part.map((h, n) => line(h, n + 1)).join('\n')}`;
     const a = await ask({
@@ -85,7 +89,7 @@ async function pick(ask: Ask, question: string, list: RecalledItem[], notes = fa
     const ids = Array.isArray(got.keep) ? got.keep.filter((x): x is string => typeof x === 'string') : [];
     const keep = ids.map((x) => part[Number(x.replace(/^m/, '')) - 1]?.id).filter((x): x is string => !!x);
     const searches = Array.isArray(got.searches) ? got.searches.filter((x): x is string => typeof x === 'string' && !!x.trim()) : [];
-    const said = Array.isArray(got.notes) ? got.notes.filter((x): x is string => typeof x === 'string' && !!x.trim()).map((x) => redactString(x.trim())) : [];
+    const said = notes && Array.isArray(got.notes) ? got.notes.filter((x): x is string => typeof x === 'string' && !!x.trim()).map((x) => redactString(x.trim())) : [];
     return { keep, searches, notes: said };
   }));
   return { keep: new Set(answers.flatMap((a) => a.keep)), searches: [...new Set(answers.flatMap((a) => a.searches.map((s) => s.trim())))],
@@ -100,7 +104,7 @@ export interface Gathered {
   /** The searches the model asked for. */
   searches: string[];
   /** With `notes`: what the kept memories say that answers the question, a few short lines (empty otherwise). Show them
-   *  before the memories, as notes on them: on LoCoMo this took 79.5 to 80.6 (docs/BENCHMARKS.md). */
+   *  before the memories, as notes on them: on LoCoMo this took 79.5 to 80.9 (docs/BENCHMARKS.md). */
   notes: string[];
 }
 
