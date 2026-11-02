@@ -863,6 +863,25 @@ describe('observations — every dated thing a conversation told', () => {
     expect(g.found.map((h) => h.id)).toContain('obs:1');
   });
 
+  it('writes notes on what it kept only when asked, scrubbed, and asks for none otherwise', async () => {
+    const s = setup();
+    await writeLtm(s.base, [item({ uid: 'obs:0', kind: 'observation', title: 'Tim read The Hobbit', summary: 'Tim read The Hobbit', eventAt: '2023-12', scope: 'person' })]);
+    const asked: LlmRequest[] = [];
+    const ask = async (a: LlmRequest): Promise<LlmAnswer> => {
+      asked.push(a);
+      return { answer: { keep: ['m1'], searches: [], notes: ['Books Tim has read: The Hobbit (2023-12)', ' ', 'key sk-proj-abcdefghijklmnopqrstuvwxyz0123456789ABCD'] } };
+    };
+    const g = await memoryGather(deps(s), { query: 'what books has Tim read' }, { ask, notes: true });
+    expect(g.notes[0]).toBe('Books Tim has read: The Hobbit (2023-12)');
+    expect(g.notes).toHaveLength(2);
+    expect(g.notes.join(' ')).not.toContain('sk-proj-abcdefghijklmnopqrstuvwxyz0123456789ABCD');
+    expect(asked[0]!.system).toContain('never write that something is not said');
+    expect(JSON.stringify(asked[0]!.schema)).toContain('"notes"');
+    const plain = await memoryGather(deps(s), { query: 'what books has Tim read' }, { ask });
+    expect(plain.notes).toEqual([]);
+    expect(JSON.stringify(asked.at(-1)!.schema)).not.toContain('"notes"');
+  });
+
   it('gathers what happened in the question\'s dates first, and still what lies outside them', async () => {
     const s = setup();
     const said = [['adopted a puppy named Toby', '2023-07'], ['adopted a second dog named Buddy', '2023-10'], ['adopted Scout, a third dog', '2023-11']];

@@ -44,6 +44,21 @@ const SCHEMA = {
   },
 } as const;
 
+/** With notes: the same reading also writes down what the kept memories say that answers the question, so a list spread
+ *  over many memories reaches the reader as one line. */
+const NOTES_RULE = `
+
+In "notes", write what the memories you kept say that answers the question, in a few short lines: every instance with
+its date as the memories give it ("Books Tim has read: Harry Potter (2023-08-02), The Name of the Wind (2023-08-11)"),
+names, numbers and words as written. Only what they state, as plain statements: never write that something is not said,
+not given, unclear or unknown — leave it out instead, since other memories may hold it — and never a guess. Leave notes
+empty when the memories you kept say nothing about it. In the language of the question.`;
+
+const NOTES_SCHEMA = {
+  type: 'object', additionalProperties: false, required: ['keep', 'searches', 'notes'],
+  properties: { ...SCHEMA.properties, notes: { type: 'array', items: { type: 'string' } } },
+} as const;
+
 const day = (ts: number): string => (ts ? new Date(ts).toISOString().slice(0, 10) : '');
 
 /** One candidate as the model reads it: when it happened (from when to when, for what lasted) and when it was told, its
@@ -55,23 +70,26 @@ function line(h: RecalledItem, n: number): string {
   return `[m${n}] (${when}) ${text}${h.match ? `\n    … ${cut(h.match, 600)}` : ''}`;
 }
 
-async function pick(ask: Ask, question: string, list: RecalledItem[]): Promise<{ keep: Set<string>; searches: string[] }> {
+async function pick(ask: Ask, question: string, list: RecalledItem[], notes = false): Promise<{ keep: Set<string>; searches: string[]; notes: string[] }> {
   const parts: RecalledItem[][] = [];
   for (let i = 0; i < list.length; i += PART) parts.push(list.slice(i, i + PART));
   const answers = await Promise.all(parts.map(async (part) => {
     const prompt = `Question: ${question}\n\nMemories:\n${part.map((h, n) => line(h, n + 1)).join('\n')}`;
     const a = await ask({
-      purpose: 'memory', system: SYSTEM, prompt: redactString(prompt), schema: SCHEMA as unknown as Record<string, unknown>,
-      name: 'memory_gather', maxTokens: 40 * part.length + 600, timeoutMs: 120_000, consequence: 'so these memories are kept unread',
+      purpose: 'memory', system: notes ? SYSTEM + NOTES_RULE : SYSTEM, prompt: redactString(prompt),
+      schema: (notes ? NOTES_SCHEMA : SCHEMA) as unknown as Record<string, unknown>,
+      name: 'memory_gather', maxTokens: 40 * part.length + (notes ? 1400 : 600), timeoutMs: 120_000, consequence: 'so these memories are kept unread',
     });
-    if (!('answer' in a)) return { keep: part.map((h) => h.id), searches: [] as string[] };
-    const got = a.answer as { keep?: unknown; searches?: unknown };
+    if (!('answer' in a)) return { keep: part.map((h) => h.id), searches: [] as string[], notes: [] as string[] };
+    const got = a.answer as { keep?: unknown; searches?: unknown; notes?: unknown };
     const ids = Array.isArray(got.keep) ? got.keep.filter((x): x is string => typeof x === 'string') : [];
     const keep = ids.map((x) => part[Number(x.replace(/^m/, '')) - 1]?.id).filter((x): x is string => !!x);
     const searches = Array.isArray(got.searches) ? got.searches.filter((x): x is string => typeof x === 'string' && !!x.trim()) : [];
-    return { keep, searches };
+    const said = Array.isArray(got.notes) ? got.notes.filter((x): x is string => typeof x === 'string' && !!x.trim()).map((x) => redactString(x.trim())) : [];
+    return { keep, searches, notes: said };
   }));
-  return { keep: new Set(answers.flatMap((a) => a.keep)), searches: [...new Set(answers.flatMap((a) => a.searches.map((s) => s.trim())))] };
+  return { keep: new Set(answers.flatMap((a) => a.keep)), searches: [...new Set(answers.flatMap((a) => a.searches.map((s) => s.trim())))],
+    notes: answers.flatMap((a) => a.notes) };
 }
 
 export interface Gathered {
@@ -81,28 +99,31 @@ export interface Gathered {
   kept: string[];
   /** The searches the model asked for. */
   searches: string[];
+  /** With `notes`: what the kept memories say that answers the question, a few short lines (empty otherwise). Show them
+   *  before the memories, as notes on them: on LoCoMo this took 79.5 to 80.6 (docs/BENCHMARKS.md). */
+  notes: string[];
 }
 
 /** `from`/`to`: the time the question asks about ("on 10 April 2022", "in October 2023"). What happened then is searched
  *  for besides everything else and read first — not instead: a question also names dates it only counts from ("as of
  *  November 2023"), and a date filter alone would hide the event it counts. */
-export async function memoryGather(d: RecallDeps, q: SearchQuery, o: { ask?: Ask; limit?: number }): Promise<Gathered> {
+export async function memoryGather(d: RecallDeps, q: SearchQuery, o: { ask?: Ask; limit?: number; notes?: boolean }): Promise<Gathered> {
   const ask = o.ask ?? defaultAsk;
   const limit = o.limit ?? MAX_SEARCH;
   const { from, to, ...open } = q;
   const [inDates, wide] = await Promise.all([from || to ? memorySearch(d, { ...q, limit }) : [], memorySearch(d, { ...open, limit })]);
   const dated = new Set(inDates.map((h) => h.id));
   const first = [...inDates, ...wide.filter((h) => !dated.has(h.id))];
-  const one = await pick(ask, q.query, first);
+  const one = await pick(ask, q.query, first, o.notes);
   const searches = one.searches.slice(0, MORE);
   const have = new Set(first.map((h) => h.id));
   const more: RecalledItem[] = [];
   for (const found of await Promise.all(searches.map((s) => memorySearch(d, { ...open, query: s, limit: 30 })))) {
     for (const h of found) if (!have.has(h.id)) { have.add(h.id); more.push(h); }
   }
-  const two = more.length ? await pick(ask, q.query, more) : { keep: new Set<string>(), searches: [] };
+  const two = more.length ? await pick(ask, q.query, more, o.notes) : { keep: new Set<string>(), searches: [], notes: [] };
   const all = [...first, ...more];
   const kept = all.filter((h) => one.keep.has(h.id) || two.keep.has(h.id));
   const keptIds = new Set(kept.map((h) => h.id));
-  return { found: [...kept, ...all.filter((h) => !keptIds.has(h.id))], kept: kept.map((h) => h.id), searches };
+  return { found: [...kept, ...all.filter((h) => !keptIds.has(h.id))], kept: kept.map((h) => h.id), searches, notes: [...one.notes, ...two.notes] };
 }

@@ -85,7 +85,7 @@ export interface Memory {
   /** Around a topic, or around items you found: what the concept graph reaches that search did not, and its concepts. */
   explore(q: { topic?: string; from?: string[]; collections?: string[]; limit?: number }): Promise<Explored>;
   /** A set for a question that counts, lists or totals: a wide search, then the language model keeps every instance. */
-  gather(q: SearchQuery): Promise<Gathered>;
+  gather(q: SearchQuery, o?: { notes?: boolean }): Promise<Gathered>;
   /** Read what was added since last time and keep typed knowledge, dated observations and kept episodes. Needs a
    *  language model. Returns how many windows were read. */
   consolidate(): Promise<ConsolidationReport>;
@@ -264,7 +264,7 @@ export async function openMemory(o: MemoryOptions): Promise<Memory> {
       return sources.length ? { ...p, sources } : p;
     },
     explore: (s) => memoryExplore(deps, s),
-    gather: (s) => memoryGather(deps, s, { ask, ...(s.limit ? { limit: s.limit } : {}) }),
+    gather: (s, g) => memoryGather(deps, s, { ask, ...(s.limit ? { limit: s.limit } : {}), ...(g?.notes ? { notes: true } : {}) }),
     async consolidate() {
       const worker = new Consolidator({ ...base, concurrency: o.concurrency ?? 4 });
       const total: ConsolidationReport = { windows: 0, added: 0, merged: 0, updated: 0, superseded: 0, linked: 0, dropped: 0, episodes: 0, observed: 0, cued: 0 };
