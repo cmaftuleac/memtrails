@@ -197,6 +197,7 @@ the [API reference](docs/API.md), and [what was tried and why](docs/RESEARCH.md)
 | the same with `search` alone, no model when searching, strict / lenient | 77.4 / 89.3 | 76.5 / 87.8 | — |
 | LoCoMo, 1,307 held-out questions, 28,000 characters, one search¹ | 79.9 | 80.6 | 42.1 |
 | LoCoMo, the same with an agent using each system's own tools¹ | **79.0** | 77.1 | 47.0 |
+| LongMemEval-S, 60-question sample, 6,000 characters, strict judge, `gather` at 40 with notes (a tie) | 90.0 | 88.3 | — |
 | LongMemEval-S retrieval, strict all sessions @5 (467)² | **96.15** | — | — |
 
 The same reader and judges for every system. With `gather` (a model reads what search found, keeps what the answer

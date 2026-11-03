@@ -13,7 +13,8 @@ Author: Corneliu Maftuleac. Licence: MIT.
 - **Judged answers, 6,000 characters, all 1,307 held-out LoCoMo questions.** With `gather` and notes (a model reads
   what search found, keeps what the answer needs and notes what it says): **80.9 strict, 91.9 lenient; Mem0 76.5 and
   87.8 — ahead beyond chance** (+113/−55, p < 0.001). Without the 80 questions whose golden answer an independent
-  audit found wrong: **84.8 against 79.9** (+109/−49, p < 0.001). Without notes: 79.5 and 91.4. With `search` alone, no model when searching: 77.4 strict, 89.3 lenient. A tie (+97/−85 per question); ahead on multi-hop
+  audit found wrong: **84.8 against 79.9** (+109/−49, p < 0.001). The same setting on the 60-question LongMemEval-S
+  sample, each question's memory built from nothing: 90.0 against Mem0's 88.3 (+4/−3) — a tie. Without notes: 79.5 and 91.4. With `search` alone, no model when searching: 77.4 strict, 89.3 lenient. A tie (+97/−85 per question); ahead on multi-hop
   questions since cues on observations (55.2 vs 53.6), level on dates.
 - **Retrieval.** On LongMemEval-S, strict sessions all@5 with the official answer sessions: 96.15, against
   gbrain-evals' published 95.96. A tie at the top, with a 300M local embedder and no reranker.
@@ -238,6 +239,21 @@ Against Mem0 on the audited questions: **+109/−49 (p < 0.001)**; multi-hop +36
 80): the judge accepts near answers. Temporal moves most: 23 of the 80 are wrong dates. Read by hand, most of
 memtrails' remaining temporal misses are LoCoMo taking a plan for the event ("a game in Seattle next month" → gold
 "early August"), answered as a plan.
+
+**The same on LongMemEval-S.** The seeded 60-question sample (10 of each of 6 types; 18 of them were looked at while
+tuning), each question's ~50 sessions built into its own memory from nothing with consolidation and sleep, 6,000
+characters, strict judge, read and judged once. Mem0 is its own store of the same sessions, cut to the same room.
+
+| 60 questions | all | knowledge update | multi-session | assistant said | preference | user said | temporal |
+|---|---|---|---|---|---|---|---|
+| memtrails, `gather` at 40 with notes | **90.0** | **10** | 9 | **10** | 8 | 10 | 7 |
+| memtrails, `search` alone | 86.7 | **10** | 7 | 8 | **9** | 10 | **8** |
+| Mem0 | 88.3 | 9 | 9 | 9 | 8 | 10 | **8** |
+
+Notes against Mem0 +4/−3, `search` alone against Mem0 +2/−3, notes against `search` +5/−3 (multi-session 7 → 9): ties
+all, as 60 questions can only show a gap of about 10 points. Building cost about the same as Mem0's in model calls
+($0.10 against $0.10 a question with GPT-6 Luna); `gather` with notes took 3.5 s median to search, `search` 0.6 s,
+Mem0 0.9 s.
 
 ### (d) Retrieval against gbrain-evals — LongMemEval-S
 
