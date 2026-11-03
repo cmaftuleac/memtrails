@@ -3,6 +3,12 @@
 All notable changes are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 versions follow [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+- `bench/audited.ts`: judged LoCoMo answers without the questions whose golden answer an independent audit
+  ([locomo-audit](https://github.com/dial481/locomo-audit)) found wrong, dropped for every system alike. As shipped,
+  84.8 against Mem0's 79.9 (+109/−49).
+
 ## [0.3.0] — 2026-11-02
 
 - `gather(q, { notes: true })`: the same model call also writes what the kept memories say that answers the question,

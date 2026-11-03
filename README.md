@@ -41,7 +41,8 @@ await memory.close();
   against 50.3% for plain search, and most of a cross-encoder reranker's gain, in about 3 ms on one CPU thread.
 - **Measured, honestly.** On all 1,307 held-out LoCoMo questions with 6,000 characters to read, memtrails alone on a
   CPU scores 77.4 (strict judge) against Mem0's 76.5 — a tie, reported as one; with `gather` reading what search
-  found and noting what it says, 80.9 — ahead beyond chance. [Benchmarks](docs/BENCHMARKS.md).
+  found and noting what it says, 80.9 — ahead beyond chance; 84.8 against 79.9 without the questions whose official
+  answer an independent audit found wrong. [Benchmarks](docs/BENCHMARKS.md).
 - **Explorable.** A concept graph links what records share — people, places, systems, names — so an agent can walk
   from what it found to what a search for the words does not find.
 - **Built for agents.** `memory.tools()` gives `memory_search`, `memory_open` and `memory_explore` with zod and JSON
@@ -191,6 +192,7 @@ the [API reference](docs/API.md), and [what was tried and why](docs/RESEARCH.md)
 |---|---|---|---|
 | LoCoMo, all 1,307 held-out questions, 6,000 characters, strict judge, `gather` at 40 with notes | **80.9** | 76.5 | — |
 | the same, Mem0's own lenient judge | **91.9** | 87.8 | — |
+| the same, strict, without the 80 questions whose golden answer is wrong³ | **84.8** | 79.9 | — |
 | the same, `gather` without notes, strict / lenient | 79.5 / 91.4 | 76.5 / 87.8 | — |
 | the same with `search` alone, no model when searching, strict / lenient | 77.4 / 89.3 | 76.5 / 87.8 | — |
 | LoCoMo, 1,307 held-out questions, 28,000 characters, one search¹ | 79.9 | 80.6 | 42.1 |
@@ -201,7 +203,9 @@ The same reader and judges for every system. With `gather` (a model reads what s
 needs and notes what it says) memtrails leads Mem0 beyond chance: +113/−55 questions strict, +78/−25 lenient (both
 p < 0.001). With `search` alone,
 the small-room and one-search comparisons are ties; the agent lead is
-small and was judged once. ¹ An earlier build (2026-10-27). ² gbrain-evals publishes 95.96 on the same count: a tie. [Full results, protocol and limitations](docs/BENCHMARKS.md).
+small and was judged once. ¹ An earlier build (2026-10-27). ² gbrain-evals publishes 95.96 on the same count: a tie. ³ As found by an
+independent audit of LoCoMo ([locomo-audit](https://github.com/dial481/locomo-audit)), dropped for both systems;
++109/−49 (p < 0.001), `bench/audited.ts` reproduces it. [Full results, protocol and limitations](docs/BENCHMARKS.md).
 
 ## Limitations
 

@@ -1,7 +1,7 @@
 # Benchmarks
 
 What memtrails was measured on, how, and what the numbers do and do not show. Every number here comes from the
-project's own research logs (2026-10-27 to 2026-10-31). Nothing is copied from a vendor's paper unless it says so.
+project's own research logs (2026-10-27 to 2026-11-03). Nothing is copied from a vendor's paper unless it says so.
 
 Author: Corneliu Maftuleac. Licence: MIT.
 
@@ -12,7 +12,8 @@ Author: Corneliu Maftuleac. Licence: MIT.
   judged once). On 42 LongMemEval-S questions it is ahead (92.9 vs 86.5). Graphiti trails both by 30+ points.
 - **Judged answers, 6,000 characters, all 1,307 held-out LoCoMo questions.** With `gather` and notes (a model reads
   what search found, keeps what the answer needs and notes what it says): **80.9 strict, 91.9 lenient; Mem0 76.5 and
-  87.8 — ahead beyond chance** (+113/−55, p < 0.001). Without notes: 79.5 and 91.4. With `search` alone, no model when searching: 77.4 strict, 89.3 lenient. A tie (+97/−85 per question); ahead on multi-hop
+  87.8 — ahead beyond chance** (+113/−55, p < 0.001). Without the 80 questions whose golden answer an independent
+  audit found wrong: **84.8 against 79.9** (+109/−49, p < 0.001). Without notes: 79.5 and 91.4. With `search` alone, no model when searching: 77.4 strict, 89.3 lenient. A tie (+97/−85 per question); ahead on multi-hop
   questions since cues on observations (55.2 vs 53.6), level on dates.
 - **Retrieval.** On LongMemEval-S, strict sessions all@5 with the official answer sessions: 96.15, against
   gbrain-evals' published 95.96. A tie at the top, with a 300M local embedder and no reranker.
@@ -221,6 +222,22 @@ said (dates had landed a week early), and cues on every observation, searched as
 apart from the question were stored but not found). Multi-hop moved 50.6 → 55.2 against 0.1.0 (+24/−13, p 0.10) and
 single-hop gave back about as much, so the total barely moves. None of the differences with Mem0 is significant.
 Judging cost about $9.4 a system.
+
+**The audited answers.** An independent audit of LoCoMo ([locomo-audit](https://github.com/dial481/locomo-audit),
+`errors.json`) checked every golden answer against its conversation and found 99 of 1,540 wrong — invented, the wrong
+day, the wrong person, ambiguous or incomplete (57 more only cite the wrong turn; their answers stand). 80 of them are
+among the 1,307 held-out questions. Dropped for both systems, nothing judged again (`bench/audited.ts`):
+
+| strict, read once | all 1,307 | audited 1,227 | multi-hop (217) | open-domain (76) | single-hop (700) | temporal (234) |
+|---|---|---|---|---|---|---|
+| memtrails, `gather` at 40 with notes | 80.9 | **84.8** | **65.9** | **44.7** | **93.7** | **88.5** |
+| Mem0 | 76.5 | 79.9 | 57.1 | 39.5 | 89.3 | 85.9 |
+
+Against Mem0 on the audited questions: **+109/−49 (p < 0.001)**; multi-hop +36/−17 (p 0.01), single-hop +48/−17
+(p < 0.001), temporal +18/−12, open-domain +7/−3. Each system was marked right on some wrong golds (18 and 20 of the
+80): the judge accepts near answers. Temporal moves most: 23 of the 80 are wrong dates. Read by hand, most of
+memtrails' remaining temporal misses are LoCoMo taking a plan for the event ("a game in Seattle next month" → gold
+"early August"), answered as a plan.
 
 ### (d) Retrieval against gbrain-evals — LongMemEval-S
 

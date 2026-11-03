@@ -18,6 +18,9 @@ npx tsx bench/score.ts runs/memtrails/locomo.jsonl runs/memtrails-llm/locomo.jso
 
 # 3. Judged answers: one reader, LongMemEval's yes/no judge.
 OPENAI_API_KEY=… npx tsx bench/judge.ts runs/memtrails/locomo.jsonl --reader gpt-6-luna --judge gpt-5.5 --chars 6000
+
+# 4. The same without the questions whose golden answer is wrong (errors.json from github.com/dial481/locomo-audit).
+npx tsx bench/audited.ts --data locomo10.json --errors errors.json runs/memtrails/locomo.judged.jsonl runs/other/locomo.judged.jsonl
 ```
 
 The published comparisons used the held-out conversations conv-41, 42, 43, 44, 47, 48, 49 and 50 (`--conversations`),
