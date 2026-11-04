@@ -61,15 +61,15 @@ interface Conversation {
 | `room(q: SearchQuery & { chars?: number }): Promise<string>` | The best sentences of what was found, in `chars` (6,000). Needs the local model. |
 | `open(id: string)` | One item whole; for something learned, `sources`: the records it was learned from. |
 | `explore({ topic?, from?, collections?, limit? }): Promise<Explored>` | What the concept graph reaches: `found`, `related` (with `via`), `concepts`. |
-| `gather(q: SearchQuery, o?: { notes?: boolean }): Promise<Gathered>` | A language model reads what was found and keeps what the answer needs, first; `found` is that, then the rest by rank. `limit` 200 by default (a counting or listing question needs every instance); 40 for any question. With `notes`, the same call also writes `notes`: what the kept memories say that answers the question, every instance with its date — show them before the memories. On LoCoMo, at 40 with notes: 80.9 against Mem0's 76.5. Needs a language model. |
+| `gather(q: SearchQuery, o?: { notes?: boolean }): Promise<Gathered>` | A language model reads what was found and keeps what the answer needs, first; `found` is that, then the rest by rank. `limit` 200 by default (a counting or listing question needs every instance); 40 for any question. With `notes`, the same call also writes `notes`: what the kept memories say that answers the question, every instance with its date — show them before the memories. On LoCoMo, at 40 with notes: 80.9 against Mem0's 76.5. Needs a language model; without one, `paused` says so and everything found is kept by rank. |
 
 ```ts
 interface SearchQuery {
   query: string;
   collections?: string[];   // only these
-  kinds?: string[];         // only these kinds: record kinds, or learned ones (fact, observation, profile, …)
-  limit?: number;           // default 8, at most 200
-  from?: string; to?: string;   // YYYY-MM-DD, YYYY-MM or YYYY: within them first, then the rest
+  kinds?: string[];         // only these kinds: a record's own kind (email, note, …) or a learned one (fact, observation, profile, …)
+  limit?: number;           // default 8, at most 200; the list goes up to twice as deep, the best first
+  from?: string; to?: string;   // YYYY-MM-DD, YYYY-MM or YYYY: within them first, then the rest; anything else throws
 }
 
 interface RecalledItem {
@@ -90,7 +90,7 @@ interface RecalledItem {
 | Method | |
 |---|---|
 | `consolidate(): Promise<ConsolidationReport>` | Reads every settled thread not yet read. `{ windows, added, merged, updated, superseded, linked, dropped, episodes, observed, cued, paused? }`. |
-| `sleep(): Promise<SleepReport>` | One offline pass. Call once a day. |
+| `sleep(): Promise<SleepReport>` | One offline pass. Call once a day. `paused` says why the model did not read, when it did not. |
 
 A thread is read once it has settled: quiet for an hour, or a day old.
 
@@ -101,7 +101,7 @@ A thread is read once it has settled: quiet for an hour, or a day old.
 | `indexWords()` | Encodes word vectors not stored yet (runs after add, consolidate and sleep). |
 | `rebuild()` | Writes the index again from the logs. |
 | `stats()` | `{ records, items, words }`. |
-| `tools(): AgentTool[]` | `memory_search`, `memory_open`, `memory_explore`: `{ name, description, inputSchema (zod), jsonSchema, handler }`. |
+| `tools(): AgentTool[]` | `memory_search`, `memory_open`, `memory_explore`: `{ name, description, inputSchema (zod), jsonSchema, handler }`. Texts up to 2,000 characters, up to 50 collections; the handler checks too. |
 | `close()` | Stops what it started. |
 
 ## Language models
