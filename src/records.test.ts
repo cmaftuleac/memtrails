@@ -6,14 +6,14 @@ const NOW = Date.parse('2026-05-01T00:00:00Z');
 
 describe('records', () => {
   it('keeps a titled record as title and text, its author, kind, collection, thread and reference', () => {
-    const e = entryOf({ id: 'm1', source: 'mailbox', kind: 'email', title: 'Gateway certificate', author: 'Ana',
+    const e = entryOf({ id: 'm1', source: 'mailbox', kind: 'email', title: 'Proxy certificate', author: 'Ana',
       text: 'It expired on the 1st.\nThe renewal job had been removed.', collection: 'Ops team', thread: 't-9', at: '2026-04-02', url: 'mid:1', metadata: { to: 'ops' } }, NOW);
-    expect(e).toMatchObject({ engine: 'email', session: 't-9', project: 'Ops-team', title: 'Gateway certificate', request: 'Gateway certificate',
+    expect(e).toMatchObject({ engine: 'email', session: 't-9', project: 'Ops-team', title: 'Proxy certificate', request: 'Proxy certificate',
       reply: 'Ana: It expired on the 1st.\nThe renewal job had been removed.', ts: Date.parse('2026-04-02'), files: ['mid:1'],
       record: { id: 'm1', source: 'mailbox', author: 'Ana', url: 'mid:1', metadata: { to: 'ops' } } });
     expect(e.uid).toBe(recordUid({ id: 'm1', source: 'mailbox' }));
-    expect(episodeBody(e)).toBe('Gateway certificate\nAna: It expired on the 1st.\nThe renewal job had been removed.');
-    expect(renderForExtraction(e, 3)).toBe('## Record 3 · 2026-04-02 00:00 · email\nGateway certificate\nAna: It expired on the 1st.\nThe renewal job had been removed.');
+    expect(episodeBody(e)).toBe('Proxy certificate\nAna: It expired on the 1st.\nThe renewal job had been removed.');
+    expect(renderForExtraction(e, 3)).toBe('## Record 3 · 2026-04-02 00:00 · email\nProxy certificate\nAna: It expired on the 1st.\nThe renewal job had been removed.');
   });
 
   it('takes the first line as the title of an untitled record, without saying it twice, in any script', () => {

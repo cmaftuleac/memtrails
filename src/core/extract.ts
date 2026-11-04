@@ -44,15 +44,15 @@ what was decided, done, built, changed, fixed, deployed or found, and when. One 
 several in one, none left out to keep the list short. Facts said in passing inside another request count; a small or
 one-off event counts; when in doubt, keep it. In a conversation between people, the replies are another person's words:
 what they tell about themselves counts as much. For each:
-- text: 10 to 60 words that stand alone — the event or fact itself, as told ("Melanie took her family camping in the
-  mountains"), never "On <date>, X said that …" (the date has its own field). Name who and what (names, never "he",
+- text: 10 to 60 words that stand alone — the event or fact itself, as told ("Rosa took her nephews kayaking on Lake
+  Bled"), never "On <date>, X said that …" (the date has its own field). Name who and what (names, never "he",
   "she", "it", "they"); keep every proper noun, title, number and quoted phrase exactly. A time said relatively stays
   as said, with the date it means, read off the Calendar line of the day it was said: "last week (the week before 26 June
   2023)", "yesterday (7 May 2023)", "on Friday (12 April 2024)". When the part names something only by description
-  ("the book you recommended", "my home country", "the kids") and KNOWN FROM OTHER CONVERSATIONS names it, write the name too ("Becoming Nicole",
-  "Sweden", "her three children") — never a fact from KNOWN that this part does not tell. What the person or a speaker
+  ("the book you recommended", "my home country", "the kids") and KNOWN FROM OTHER CONVERSATIONS names it, write the name too ("The Overstory",
+  "Portugal", "her three children") — never a fact from KNOWN that this part does not tell. What the person or a speaker
   says about their own life is true as told: no commentary on what the conversation did or did not confirm. A plan is
-  written as a plan ("Melanie planned to go swimming with the kids"). When it replaces something said before, say both
+  written as a plan ("Rosa planned to take the kids to the aquarium"). When it replaces something said before, say both
   (now X — before, Y).
 - about: who or what it is about, named as the conversation names them ("the person" for the one whose requests these
   are, unless the conversation names them).

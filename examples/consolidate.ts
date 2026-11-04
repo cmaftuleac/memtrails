@@ -11,8 +11,8 @@ const memory = await openMemory({
 
 console.log(await memory.consolidate());
 console.log(await memory.sleep());
-const set = await memory.gather({ query: 'every decision we made about the gateway' });
+const set = await memory.gather({ query: 'every decision we made about the proxy' });
 console.log(set.kept.length, 'kept of', set.found.length);
-console.log(await memory.searchText({ query: 'gateway', kinds: ['decision', 'observation', 'profile'], limit: 10 }));
+console.log(await memory.searchText({ query: 'proxy', kinds: ['decision', 'observation', 'profile'], limit: 10 }));
 console.log('tokens used:', tokens);
 await memory.close();

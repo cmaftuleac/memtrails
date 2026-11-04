@@ -7,7 +7,7 @@
  * the same knowledge stored twice, a changed decision kept beside the new one, junk kept, an old unused item never
  * leaving, a superseded or throwaway item shown, a turn held up by a slow or missing judge.
  */
-import { mkdtempSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -149,22 +149,22 @@ describe('nothing lost', () => {
 
   it('gives a typed memory the files its requests changed, read from their steps, not from the model', async () => {
     const s = setup();
-    s.stm.put([entry('conv:f:0', 'wire the deploy script', { session: 'f', files: ['/p/deploy.sh', '/p/Jenkinsfile'] })]);
+    s.stm.put([entry('conv:f:0', 'wire the deploy script', { session: 'f', files: ['/p/deploy.sh', '/p/Buildfile'] })]);
     const ask = async (): Promise<LlmAnswer> => ({ answer: { segment_summary: 'x', episodes: [{ request: 1, outcome: 'success', keep: false, title: '', summary: '', cues: [], concepts: [] }],
       items: [{ kind: 'procedure', title: 'deploy through the script', summary: 'run deploy sh after pushing', body: 'b', applies_when: '', scope: 'project', requests: [1], confidence: 'verified', importance: 4, contested: false, ambiguous: false, cues: [], concepts: [] }] } });
     await new Consolidator({ ...s.base, ask }).run();
     const made = [...s.ltm.all()].find((x) => x.title === 'deploy through the script')!;
-    expect(made.files).toEqual(['/p/deploy.sh', '/p/Jenkinsfile']);
+    expect(made.files).toEqual(['/p/deploy.sh', '/p/Buildfile']);
   });
 
   it('a merge keeps both texts: the new item, and the known one before its rewrite, as records the item lists', async () => {
     const s = setup();
-    const known = item({ uid: 'mem:k', title: 'deploy api jenkins', summary: 'deploy the api by pushing main jenkins builds and deploys it', body: 'the first text' });
+    const known = item({ uid: 'mem:k', title: 'deploy api buildbot', summary: 'deploy the api by pushing main buildbot builds and deploys it', body: 'the first text' });
     await writeLtm(s.base, [known]);
     s.ltm.put([known]);
     const w = new Consolidator(s.base);
-    const fresh = item({ uid: 'mem:n', title: 'deploy api jenkins', summary: 'deploy the api with jenkins', body: 'the second text, with a detail' });
-    await w.merge(s.ltm.get('mem:k')!, fresh, { title: 'Deploy the API through Jenkins', summary: 'merged', body: 'merged text' });
+    const fresh = item({ uid: 'mem:n', title: 'deploy api buildbot', summary: 'deploy the api with buildbot', body: 'the second text, with a detail' });
+    await w.merge(s.ltm.get('mem:k')!, fresh, { title: 'Deploy the API through Buildbot', summary: 'merged', body: 'merged text' });
     const merged = s.ltm.get('mem:k')!;
     expect(merged.body).toBe('merged text');
     expect(merged.absorbed?.sort()).toEqual([`mem:k@${known.fingerprint}`, 'mem:n'].sort());
@@ -231,7 +231,7 @@ describe('remote embedding failure', () => {
 describe('consolidation — long-term memory', () => {
   it('keeps what matters once: merges the known, supersedes the changed, adds the new, drops the junk, empties the queue', async () => {
     const s = setup();
-    const known = item({ uid: 'mem:known', title: 'deploy api jenkins', summary: 'deploy the api by pushing main jenkins builds and deploys it' });
+    const known = item({ uid: 'mem:known', title: 'deploy api buildbot', summary: 'deploy the api by pushing main buildbot builds and deploys it' });
     const old = item({ uid: 'mem:old', kind: 'decision', title: 'database choice postgres', summary: 'alpha beta gamma delta epsilon zeta eta theta' });
     await writeLtm(s.base, [known, old]);
     s.ltm.put([known, old]);
@@ -246,7 +246,7 @@ describe('consolidation — long-term memory', () => {
           segment_summary: 'Deploy and database work.',
           episodes: [{ request: 1, keep: false, title: '', summary: '', cues: [] }, { request: 2, keep: true, title: 'database switched', summary: 'the database was switched to sqlite after load tests', cues: ['de ce am trecut pe sqlite', 'which database do we use'] }],
           items: [
-            { ...base, kind: 'fact', title: 'deploy api jenkins', summary: 'deploy the api by pushing main jenkins builds and deploys it' },
+            { ...base, kind: 'fact', title: 'deploy api buildbot', summary: 'deploy the api by pushing main buildbot builds and deploys it' },
             { ...base, kind: 'decision', title: 'database choice postgres', summary: 'alpha beta gamma delta epsilon zeta eta iota', requests: [1] },
             { ...base, kind: 'pitfall', title: 'flaky e2e on wifi', summary: 'the e2e suite times out on hotel wifi run it wired', cues: ['the e2e tests keep timing out', 'testele e2e cad pe wifi', 'run the suite wired'] },
             { ...base, kind: 'fact', title: 'a guess', summary: 'probably redis', confidence: 'inferred' },
@@ -331,18 +331,18 @@ describe('consolidation — long-term memory', () => {
   it('gives a saved note its cues and concepts, and keeps both sides\' cues when a memory is learned again', async () => {
     const s = setup();
     const note = item({ uid: 'note:/m/deploy.md', kind: 'note', title: 'deploy rule', summary: 'deploys go through ci never rsync' });
-    const known = item({ uid: 'mem:k', title: 'deploy api jenkins', summary: 'deploy the api by pushing main jenkins builds and deploys it', cues: ['how is the api deployed'] });
+    const known = item({ uid: 'mem:k', title: 'deploy api buildbot', summary: 'deploy the api by pushing main buildbot builds and deploys it', cues: ['how is the api deployed'] });
     await writeLtm(s.base, [note, known]);
     s.ltm.put([note, known]);
     s.stm.put([entry('conv:s9:0', 'how do we deploy', { session: 's9' })]);
     const ask = async (a: LlmRequest): Promise<LlmAnswer> => {
       if (a.name === 'memory_cues') {
         const ids = [...a.prompt.matchAll(/\[(i\d+)\]/g)].map((m) => m[1]!);
-        return { answer: { items: ids.map((id) => ({ id, cues: ['how do deploys run here', 'cum facem deploy'], concepts: ['Jenkins', 'deploy.sh', ' jenkins '] })) } };
+        return { answer: { items: ids.map((id) => ({ id, cues: ['how do deploys run here', 'cum facem deploy'], concepts: ['Buildbot', 'deploy.sh', ' buildbot '] })) } };
       }
       const base = { body: 'b', applies_when: '', scope: 'project', requests: [1], confidence: 'verified', importance: 4, contested: false, ambiguous: false };
       return { answer: { segment_summary: 'deploy', episodes: [{ request: 1, keep: false, title: '', summary: '', cues: [] }],
-        items: [{ ...base, kind: 'fact', title: 'deploy api jenkins', summary: 'deploy the api by pushing main jenkins builds and deploys it', cues: ['push to main to ship the api'] }] } };
+        items: [{ ...base, kind: 'fact', title: 'deploy api buildbot', summary: 'deploy the api by pushing main buildbot builds and deploys it', cues: ['push to main to ship the api'] }] } };
     };
     const r = await new Consolidator({ ...s.base, ask }).run();
     expect(r.merged).toBe(1);
@@ -354,9 +354,9 @@ describe('consolidation — long-term memory', () => {
     expect(cuePoints('note:/m/deploy.md')).toBe(2);
     expect(r.cued).toBeGreaterThanOrEqual(1);
     // Concepts: one per key however it was spelled, on the item's key point.
-    expect(s.ltm.get('note:/m/deploy.md')!.concepts).toEqual(['Jenkins', 'deploy.sh']);
+    expect(s.ltm.get('note:/m/deploy.md')!.concepts).toEqual(['Buildbot', 'deploy.sh']);
     expect(s.ltm.meta('note:/m/deploy.md')?.mapped).toBe(true);
-    expect(s.points.get(pointId('note:/m/deploy.md', 0))!.payload.concepts).toEqual(['jenkins', 'deploy.sh']);
+    expect(s.points.get(pointId('note:/m/deploy.md', 0))!.payload.concepts).toEqual(['buildbot', 'deploy.sh']);
     expect([...s.points.values()].filter((p) => p.payload.part === 'concept')).toHaveLength(0); // concepts are not embedded
   });
 
@@ -420,8 +420,8 @@ describe('sleep — reorganising', () => {
   it('merges a fresh near-duplicate into the older item and archives what is old and unused', async () => {
     const s = setup();
     const usage = new UsageBook(join(s.dir, 'usage.json'));
-    const a = item({ uid: 'mem:a', title: 'ports', summary: 'the gateway listens on port 8080 behind nginx', ts: NOW - 10 * 86_400_000 });
-    const b = item({ uid: 'mem:b', title: 'ports', summary: 'the gateway listens on port 8080 behind nginx', ts: NOW - 3600_000 });
+    const a = item({ uid: 'mem:a', title: 'ports', summary: 'the proxy listens on port 8080 behind caddy', ts: NOW - 10 * 86_400_000 });
+    const b = item({ uid: 'mem:b', title: 'ports', summary: 'the proxy listens on port 8080 behind caddy', ts: NOW - 3600_000 });
     const stale = item({ uid: 'ep:old', kind: 'episode', title: 'one-off fix', summary: 'fixed a typo in a readme long ago', importance: 2, ts: NOW - 400 * 86_400_000 });
     const lasting = item({ uid: 'mem:arch', kind: 'architecture', title: 'how sync works', summary: 'sync runs in the background worker not the client', ts: NOW - 400 * 86_400_000 });
     await writeLtm(s.base, [a, b, stale, lasting]);
@@ -439,7 +439,7 @@ describe('sleep — reorganising', () => {
     const usage = new UsageBook(join(s.dir, 'usage.json'));
     // A one-word title and nine shared words of eleven: cosine 9/11 ≈ 0.82 inside a cluster — below the 0.90 the pass
     // used to start at; the clusters share nothing.
-    const deploy = 'deploy jenkins pipeline main branch build docker image registry';
+    const deploy = 'deploy buildbot pipeline main branch build docker image registry';
     const db = 'database postgres cluster replica failover backup nightly snapshot restore';
     const pdf = 'invoice pdf render service template header footer locale font';
     const day = 86_400_000;
@@ -476,16 +476,16 @@ describe('sleep — reorganising', () => {
 });
 
 describe('sleep — profiles', () => {
-  // A project of 15 items: three about the brigade (on 3 of 15, under a fifth), John on all of them (too broad), and a
-  // profile of the brigade asked for once — then again only when one of its items changed.
+  // A project of 15 items: three about the club (on 3 of 15, under a fifth), Marco on all of them (too broad), and a
+  // profile of the club asked for once — then again only when one of its items changed.
   function project(): MemoryItem[] {
     const day = 86_400_000;
     return [
-      item({ uid: 'obs:join', kind: 'observation', title: 'John joined the brigade', summary: 'John joined the fire-fighting brigade', eventAt: '2023-05-08', provenance: ['c:s1:0'], concepts: ['John', 'fire-fighting brigade'], ts: NOW - 30 * day }),
-      item({ uid: 'mem:drill', title: 'brigade drill', summary: 'the brigade drills every Tuesday at 7pm', provenance: ['c:s2:3'], concepts: ['John', 'Fire-fighting brigade '], ts: NOW - 20 * day }),
-      item({ uid: 'obs:rescue', kind: 'observation', title: 'first rescue', summary: 'John helped rescue a family from a flood', eventAt: '2023-06-02', provenance: ['c:s3:1', 'c:s3:2'], concepts: ['John', 'fire-fighting brigade', 'flood'], ts: NOW - 10 * day }),
+      item({ uid: 'obs:join', kind: 'observation', title: 'Marco joined the club', summary: 'Marco joined the harbour rowing club', eventAt: '2023-05-08', provenance: ['c:s1:0'], concepts: ['Marco', 'harbour rowing club'], ts: NOW - 30 * day }),
+      item({ uid: 'mem:drill', title: 'club drill', summary: 'the club drills every Tuesday at 7pm', provenance: ['c:s2:3'], concepts: ['Marco', 'Harbour rowing club '], ts: NOW - 20 * day }),
+      item({ uid: 'obs:rescue', kind: 'observation', title: 'first regatta', summary: 'Marco won the autumn regatta', eventAt: '2023-06-02', provenance: ['c:s3:1', 'c:s3:2'], concepts: ['Marco', 'harbour rowing club', 'flood'], ts: NOW - 10 * day }),
       // Twelve unlike each other (no words shared), so sleep merges none of them.
-      ...Array.from({ length: 12 }, (_, k) => item({ uid: `mem:other${k}`, title: `topic${k}`, summary: `w${k}a w${k}b w${k}c w${k}d`, concepts: ['John'], ts: NOW - (40 + k) * day })),
+      ...Array.from({ length: 12 }, (_, k) => item({ uid: `mem:other${k}`, title: `topic${k}`, summary: `w${k}a w${k}b w${k}c w${k}d`, concepts: ['Marco'], ts: NOW - (40 + k) * day })),
     ];
   }
 
@@ -498,35 +498,35 @@ describe('sleep — profiles', () => {
     const ask = async (a: LlmRequest): Promise<LlmAnswer> => {
       if (a.name !== 'memory_profile') return { answer: { pairs: [] } };
       asked.push(a.prompt);
-      return { answer: { title: 'John and the fire-fighting brigade', facts: ['2023-05-08: John joined the fire-fighting brigade', '2023-06-02: John helped rescue a family from a flood'] } };
+      return { answer: { title: 'Marco and the harbour rowing club', facts: ['2023-05-08: Marco joined the harbour rowing club', '2023-06-02: Marco won the autumn regatta'] } };
     };
     const sleep = () => new Sleep({ ...s.base, ask, usage: new UsageBook(join(s.dir, 'usage.json')), statePath: join(s.dir, 'sleep.json') }).run();
     const r = await sleep();
     expect(r).toMatchObject({ profiled: 1, unprofiled: 0 });
-    // One ask, for the brigade — as most items spell it, its items oldest first with their dates — not John.
+    // One ask, for the club — as most items spell it, its items oldest first with their dates — not Marco.
     expect(asked).toHaveLength(1);
-    expect(asked[0]!.startsWith('SUBJECT: fire-fighting brigade\n\nMEMORIES:\n- (2023-05-08) John joined the brigade: John joined the fire-fighting brigade\n')).toBe(true);
-    expect(asked[0]).toContain('- (2023-06-02) first rescue: John helped rescue a family from a flood');
+    expect(asked[0]!.startsWith('SUBJECT: harbour rowing club\n\nMEMORIES:\n- (2023-05-08) Marco joined the club: Marco joined the harbour rowing club\n')).toBe(true);
+    expect(asked[0]).toContain('- (2023-06-02) first regatta: Marco won the autumn regatta');
     const profiles = [...s.ltm.entries()].filter(([, m]) => m.kind === 'profile');
     expect(profiles).toHaveLength(1);
     const profile = s.ltm.get(profiles[0]![0])!;
-    expect(profile).toMatchObject({ kind: 'profile', status: 'active', title: 'John and the fire-fighting brigade', concepts: ['fire-fighting brigade'], project: '-p' });
-    expect(profile.summary).toBe('2023-05-08: John joined the fire-fighting brigade\n2023-06-02: John helped rescue a family from a flood');
+    expect(profile).toMatchObject({ kind: 'profile', status: 'active', title: 'Marco and the harbour rowing club', concepts: ['harbour rowing club'], project: '-p' });
+    expect(profile.summary).toBe('2023-05-08: Marco joined the harbour rowing club\n2023-06-02: Marco won the autumn regatta');
     expect(profile.provenance.sort()).toEqual(['c:s1:0', 'c:s2:3', 'c:s3:1', 'c:s3:2']);
     // Searchable like any item.
-    const hits = await memorySearch({ client: s.client, embed }, { query: 'fire-fighting brigade flood rescue', limit: 5 });
+    const hits = await memorySearch({ client: s.client, embed }, { query: 'harbour rowing club regatta', limit: 5 });
     expect(hits.map((h) => h.id)).toContain(profile.uid);
 
     // Nothing changed: nothing asked. An item changed: asked again, from the items — never from the profile.
     expect(await sleep()).toMatchObject({ profiled: 0 });
     expect(asked).toHaveLength(1);
-    const drill = { ...s.ltm.get('mem:drill')!, summary: 'the brigade drills every Wednesday at 7pm now' };
+    const drill = { ...s.ltm.get('mem:drill')!, summary: 'the club drills every Wednesday at 7pm now' };
     await writeLtm(s.base, [drill]);
     s.ltm.put([drill]);
     expect(await sleep()).toMatchObject({ profiled: 1 });
     expect(asked).toHaveLength(2);
     expect(asked[1]).toContain('drills every Wednesday at 7pm now');
-    expect(asked[1]).not.toContain('2023-06-02: John helped');
+    expect(asked[1]).not.toContain('2023-06-02: Marco helped');
 
     // The subject no longer qualifies (two of its items retired): its profile is archived.
     const retired = ['obs:rescue', 'mem:drill'].map((u) => ({ ...s.ltm.get(u)!, status: 'superseded' as const }));
@@ -545,7 +545,7 @@ describe('sleep — profiles', () => {
     let up = false;
     const ask = async (a: LlmRequest): Promise<LlmAnswer> => {
       if (a.name !== 'memory_profile') return { answer: { pairs: [] } };
-      return up ? { answer: { title: 'the brigade', facts: ['2023-05-08: John joined'] } } : { unavailable: 'no route' };
+      return up ? { answer: { title: 'the club', facts: ['2023-05-08: Marco joined'] } } : { unavailable: 'no route' };
     };
     const sleep = () => new Sleep({ ...s.base, ask, usage: new UsageBook(join(s.dir, 'usage.json')), statePath: join(s.dir, 'sleep.json') }).run();
     expect(await sleep()).toMatchObject({ profiled: 0 });
@@ -558,11 +558,11 @@ describe('concept graph — exploring', () => {
   async function seeded() {
     const s = setup();
     const items = [
-      item({ uid: 'mem:image', title: 'gateway config baked into the image', summary: 'the gateway config is baked into the image rebuild it after edits', concepts: ['gateway.conf', 'fg-gateway:dev'] }),
-      item({ uid: 'mem:reload', title: 'nginx reload ignores host edits', summary: 'reloading inside the container keeps the old file', concepts: ['Gateway.conf', 'nginx'] }),
-      item({ uid: 'mem:recreate', title: 'recreate after env changes', summary: 'restart keeps stale env use force recreate', concepts: ['docker compose'], related: ['mem:image'] }),
+      item({ uid: 'mem:image', title: 'proxy config baked into the image', summary: 'the proxy config is baked into the image rebuild it after edits', concepts: ['proxy.conf', 'acme-proxy:dev'] }),
+      item({ uid: 'mem:reload', title: 'a reload ignores host edits', summary: 'reloading inside the container keeps the old file', concepts: ['Proxy.conf', 'caddy'] }),
+      item({ uid: 'mem:recreate', title: 'recreate after settings change', summary: 'a restart keeps the old settings, recreate it', concepts: ['docker compose'], related: ['mem:image'] }),
       item({ uid: 'mem:invoice', title: 'invoice pdf', summary: 'invoices render with the pdf service', concepts: ['pdf service'] }),
-      item({ uid: 'mem:alias', title: 'gateway file location', summary: 'it lives in the project folder', concepts: ['gateway.conf file'] }),
+      item({ uid: 'mem:alias', title: 'proxy file location', summary: 'it lives in the project folder', concepts: ['proxy.conf file'] }),
     ];
     items[0]!.related = ['mem:recreate'];
     await writeLtm(s.base, items);
@@ -578,9 +578,9 @@ describe('concept graph — exploring', () => {
     expect(ids).not.toContain('mem:image');
     expect(ids).not.toContain('mem:invoice');
     expect(ids).not.toContain('mem:alias'); // another spelling, and not near: concepts match by spelling only
-    expect(r.related.find((x) => x.id === 'mem:reload')?.via).toBe('shares "gateway.conf"');
-    expect(r.related.find((x) => x.id === 'mem:recreate')?.via).toBe('linked to "gateway config baked into the image"');
-    expect(r.concepts).toContain('gateway.conf');
+    expect(r.related.find((x) => x.id === 'mem:reload')?.via).toBe('shares "proxy.conf"');
+    expect(r.related.find((x) => x.id === 'mem:recreate')?.via).toBe('linked to "proxy config baked into the image"');
+    expect(r.concepts).toContain('proxy.conf');
   });
 });
 
@@ -592,8 +592,8 @@ describe('recall', () => {
   async function seeded() {
     const s = setup();
     const items = [
-      item({ uid: 'mem:deploy', title: 'deploy through jenkins', summary: 'deploy the api by pushing main jenkins deploys it' }),
-      item({ uid: 'mem:deploy2', title: 'deploy rollback', summary: 'roll back a bad api deploy from the jenkins job history' }),
+      item({ uid: 'mem:deploy', title: 'deploy through buildbot', summary: 'deploy the api by pushing main buildbot deploys it' }),
+      item({ uid: 'mem:deploy2', title: 'deploy rollback', summary: 'roll back a bad api deploy from the buildbot job history' }),
       item({ uid: 'mem:old-deploy', title: 'deploy by rsync', summary: 'deploy the api by rsync to the server', status: 'superseded' }),
       item({ uid: 'mem:other', title: 'invoice pdf', summary: 'invoices render with the pdf service' }),
     ];
@@ -680,7 +680,7 @@ describe('recall', () => {
 });
 
 describe('observations — every dated thing a conversation told', () => {
-  const obs = (text: string, event_date: string, over: Record<string, unknown> = {}) => ({ text, about: 'Melanie', event_date, phase: 'done', requests: [1], concepts: ['Melanie', 'beach'], ...over });
+  const obs = (text: string, event_date: string, over: Record<string, unknown> = {}) => ({ text, about: 'Nadia', event_date, phase: 'done', requests: [1], concepts: ['Nadia', 'beach'], ...over });
   const answer = (observations: unknown[], items: unknown[] = []) => ({ via: 'endpoint' as const, answer: { segment_summary: 's', episodes: [], items, observations } });
   const deps = (s: ReturnType<typeof setup>): RecallDeps => ({ client: s.client, embed, now: () => NOW });
 
@@ -688,18 +688,18 @@ describe('observations — every dated thing a conversation told', () => {
     const s = setup();
     const first = [entry('conv:sess-1:0', 'we went camping')];
     s.stm.put(first);
-    const camping = 'Melanie went camping with her family at the beach and roasted marshmallows';
+    const camping = 'Nadia went camping with her family at the beach and roasted marshmallows';
     const fact = { kind: 'fact', title: 'camping at the beach', summary: camping, body: camping, applies_when: '', scope: 'person', requests: [1], confidence: 'stated', importance: 3, contested: false, ambiguous: false, cues: [], concepts: [] };
     let ask = async (): Promise<LlmAnswer> => answer([
-      obs(camping, '2023-06-20'), obs(camping, '2023-07-10'), obs('Melanie painted a sunset over the lake', 'last summer'),
-      obs('', '2023-06-20'), obs('Melanie read a book', '2023-06-01', { requests: [9] }),
+      obs(camping, '2023-06-20'), obs(camping, '2023-07-10'), obs('Nadia painted a sunset over the lake', 'last summer'),
+      obs('', '2023-06-20'), obs('Nadia read a book', '2023-06-01', { requests: [9] }),
     ], [fact]);
     const r = await new Consolidator({ ...s.base, ask }).run();
     expect(r.observed).toBe(3);
     const active = () => [...s.ltm.all()].filter((x) => x.status === 'active');
     const observations = () => active().filter((x) => x.kind === 'observation');
     expect(observations().map((o) => o.eventAt ?? '').sort()).toEqual(['', '2023-06-20', '2023-07-10']);
-    expect(observations().every((o) => o.about === 'Melanie' && o.provenance[0] === 'conv:sess-1:0')).toBe(true);
+    expect(observations().every((o) => o.about === 'Nadia' && o.provenance[0] === 'conv:sess-1:0')).toBe(true);
     // The fact says the same words, and is still its own item: knowledge is never folded into a dated event.
     expect(active().filter((x) => x.kind === 'fact')).toHaveLength(1);
 
@@ -719,31 +719,31 @@ describe('observations — every dated thing a conversation told', () => {
     expect(observations()).toHaveLength(3);
 
     // memory_search finds them with the date they happened, apart from when they were told.
-    const hits = await memorySearch(deps(s), { query: 'where did Melanie camp', limit: 50 });
+    const hits = await memorySearch(deps(s), { query: 'where did Nadia camp', limit: 50 });
     expect(hits.filter((h) => h.kind === 'observation').map((h) => h.eventAt ?? '').sort()).toEqual(['', '2023-06-20', '2023-07-10']);
   });
 
   it('keeps when what lasts began and ended, and a search by dates finds it while it went on', async () => {
     const s = setup();
-    s.stm.put([entry('conv:sess-1:0', 'I have been playing drums again for about a month')]);
-    const drums = 'John has been playing drums again for about a month';
+    s.stm.put([entry('conv:sess-1:0', 'I have been playing cello again for about a month')]);
+    const cello = 'Marco has been playing cello again for about a month';
     const ask = async (): Promise<LlmAnswer> => answer([
-      obs(drums, '2022-03-27', { about: 'John', phase: 'ongoing', start_date: '2022-02', end_date: '' }),
-      obs('John played drums in a recording studio', '2022-03-20', { about: 'John', start_date: 'a while ago', end_date: '' }),
+      obs(cello, '2022-03-27', { about: 'Marco', phase: 'ongoing', start_date: '2022-02', end_date: '' }),
+      obs('Marco played cello in a recording studio', '2022-03-20', { about: 'Marco', start_date: 'a while ago', end_date: '' }),
     ]);
     await new Consolidator({ ...s.base, ask }).run();
     const kept = [...s.ltm.all()].filter((x) => x.kind === 'observation');
-    expect(kept.find((o) => o.summary === drums)).toMatchObject({ eventAt: '2022-03-27', startAt: '2022-02' });
-    expect(kept.find((o) => o.summary !== drums)?.startAt).toBeUndefined();
+    expect(kept.find((o) => o.summary === cello)).toMatchObject({ eventAt: '2022-03-27', startAt: '2022-02' });
+    expect(kept.find((o) => o.summary !== cello)?.startAt).toBeUndefined();
     // Asked about February: the one that was going on then first — and the other still after it (a date can be off).
-    const hits = await memorySearch(deps(s), { query: 'John drums', from: '2022-02-10', to: '2022-02-20', limit: 10 });
-    expect(hits.filter((h) => h.kind === 'observation').map((h) => [h.summary, h.startAt ?? ''])).toEqual([[drums, '2022-02'], ['John played drums in a recording studio', '']]);
+    const hits = await memorySearch(deps(s), { query: 'Marco cello', from: '2022-02-10', to: '2022-02-20', limit: 10 });
+    expect(hits.filter((h) => h.kind === 'observation').map((h) => [h.summary, h.startAt ?? ''])).toEqual([[cello, '2022-02'], ['Marco played cello in a recording studio', '']]);
   });
 
   it('tells one twice when a window says it twice (the window\'s observations are written together)', async () => {
     const s = setup();
     s.stm.put([entry('conv:sess-1:0', 'we went camping'), entry('conv:sess-1:1', 'the camping again', { turn: 1 })]);
-    const camping = 'Melanie went camping with her family at the beach and roasted marshmallows';
+    const camping = 'Nadia went camping with her family at the beach and roasted marshmallows';
     const ask = async (): Promise<LlmAnswer> => answer([obs(camping, '2023-06-20'), obs(camping, '2023-06-20', { requests: [2] }), obs(camping, '2023-07-10')]);
     const r = await new Consolidator({ ...s.base, ask }).run();
     expect(r).toMatchObject({ observed: 2, merged: 1 });
@@ -756,7 +756,7 @@ describe('observations — every dated thing a conversation told', () => {
 
   it('reconciles windows at once and loses nothing of an item two of them tell again at the same time', async () => {
     const s = setup();
-    const camping = 'Melanie went camping with her family at the beach and roasted marshmallows';
+    const camping = 'Nadia went camping with her family at the beach and roasted marshmallows';
     const known = item({ uid: 'obs:known', kind: 'observation', title: camping, summary: camping, eventAt: '2023-06-20', scope: 'person' });
     await writeLtm(s.base, [known]);
     s.ltm.put([known]);
@@ -771,7 +771,7 @@ describe('observations — every dated thing a conversation told', () => {
 
   it('reads a window with its calendar and with what other conversations say it refers to — never its own', async () => {
     const s = setup();
-    const older = entry('conv:sess-0:0', 'I just finished Becoming Nicole by Amy Ellis Nutt, I recommend it to you', { session: 'sess-0', ts: Date.parse('2023-07-06T10:00:00Z') });
+    const older = entry('conv:sess-0:0', 'I just finished The Overstory by Richard Powers, I recommend it to you', { session: 'sess-0', ts: Date.parse('2023-07-06T10:00:00Z') });
     const later = entry('conv:sess-1:0', 'I am reading the book you recommended about Nicole', { ts: Date.parse('2023-10-13T10:00:00Z') });
     s.stm.put([older, later]);
     await writeStm(s.base, [older, later]);
@@ -781,20 +781,20 @@ describe('observations — every dated thing a conversation told', () => {
     const read = prompts.find((p) => p.includes('the book you recommended'))!;
     expect(read).toContain('- Fri 2023-10-13: yesterday Thu 2023-10-12 · the days before Wed 2023-10-11, Tue 2023-10-10, Mon 2023-10-09, Sun 2023-10-08, Sat 2023-10-07, Fri 2023-10-06 · last week (the week before) 2023-10-06 to 2023-10-12 · last weekend 2023-10-07 to 2023-10-08 · this week 2023-10-09 to 2023-10-15 · last month 2023-09 · last year 2022');
     const known = read.slice(read.indexOf('KNOWN FROM OTHER CONVERSATIONS'), read.indexOf('## Request 1'));
-    expect(known).toContain('(2023-07-06) I just finished Becoming Nicole');
+    expect(known).toContain('(2023-07-06) I just finished The Overstory');
     expect(known).not.toContain('reading the book you recommended');
   });
 
   it('searches within dates first — an observation by when it happened, a request by when it was made — then the rest', async () => {
     const s = setup();
     const at = (uid: string, eventAt: string, summary: string) => item({ uid, kind: 'observation', title: summary, summary, eventAt, scope: 'person', ts: Date.parse('2023-08-01T00:00:00Z') });
-    const june = at('obs:june', '2023-06-19', 'Melanie went camping with her family in the mountains');
-    const july = at('obs:july', '2023-07', 'Melanie went camping with her family at the beach');
-    const year = at('obs:year', '2022', 'Melanie went camping with her family in the forest');
+    const june = at('obs:june', '2023-06-19', 'Nadia went camping with her family in the mountains');
+    const july = at('obs:july', '2023-07', 'Nadia went camping with her family at the beach');
+    const year = at('obs:year', '2022', 'Nadia went camping with her family in the forest');
     await writeLtm(s.base, [june, july, year]);
-    const req = entry('conv:sess-1:0', 'Melanie went camping with her family again', { ts: Date.parse('2023-06-28T10:00:00Z') });
+    const req = entry('conv:sess-1:0', 'Nadia went camping with her family again', { ts: Date.parse('2023-06-28T10:00:00Z') });
     await writeStm(s.base, [req]);
-    const search = (from?: string, to?: string) => memorySearch(deps(s), { query: 'Melanie camping family', limit: 20, from, to });
+    const search = (from?: string, to?: string) => memorySearch(deps(s), { query: 'Nadia camping family', limit: 20, from, to });
     // The first `n` found are the ones within the dates; every one is still found.
     const lead = async (n: number, from?: string, to?: string) => {
       const hits = await search(from, to);
@@ -811,10 +811,10 @@ describe('observations — every dated thing a conversation told', () => {
     const s = setup();
     const june = Date.parse('2023-06-15T10:00:00Z');
     const rows = ['deploy the api now', 'deploy the api today', 'deploy the api again'].map((t, i) => entry(`conv:j${i}:0`, t, { session: `j${i}`, ts: june }));
-    const older = entry('conv:o:0', 'deploy the api through jenkins safely', { session: 'o', ts: Date.parse('2022-03-01T00:00:00Z') });
+    const older = entry('conv:o:0', 'deploy the api through buildbot safely', { session: 'o', ts: Date.parse('2022-03-01T00:00:00Z') });
     await writeStm(s.base, [...rows, older]);
     // The reranker prefers the older one above all; it still comes after every hit within June.
-    const rerank = async (_q: string, docs: string[]) => docs.map((t) => (t.includes('jenkins') ? 10 : 0));
+    const rerank = async (_q: string, docs: string[]) => docs.map((t) => (t.includes('buildbot') ? 10 : 0));
     const hits = (await memorySearch({ ...deps(s), rerank }, { query: 'deploy the api', limit: 8, from: '2023-06', to: '2023-06' })).map((h) => h.id);
     expect(hits.indexOf('stm:conv:o:0')).toBe(3);
   });
@@ -836,10 +836,10 @@ describe('observations — every dated thing a conversation told', () => {
     const long = Array.from({ length: 4 }, (_, n) => entry(`conv:sess-1:${n}`, `camping hiking trail plans ${filler}`, { turn: n, said: filler }));
     await writeStm(s.base, long);
     const obs = ['went camping in the forest', 'went hiking on a mountain trail', 'went camping at the beach'].map((t, n) =>
-      item({ uid: `obs:${n}`, kind: 'observation', title: `Melanie ${t}`, summary: `Melanie ${t}`, eventAt: `2023-0${n + 6}`, scope: 'person' }));
+      item({ uid: `obs:${n}`, kind: 'observation', title: `Nadia ${t}`, summary: `Nadia ${t}`, eventAt: `2023-0${n + 6}`, scope: 'person' }));
     await writeLtm(s.base, obs);
     // A search for many (past SINGLE_LIST_UP_TO) interleaves the two kinds; a search for a few ranks one fused list.
-    const hits = await memorySearch(deps(s), { query: 'Melanie camping hiking trail', limit: 30 });
+    const hits = await memorySearch(deps(s), { query: 'Nadia camping hiking trail', limit: 30 });
     expect(hits.filter((h) => h.kind === 'observation').map((h) => h.id).sort()).toEqual(['obs:0', 'obs:1', 'obs:2']);
     expect(hits.some((h) => h.id.startsWith('stm:'))).toBe(true);
   });
@@ -847,17 +847,17 @@ describe('observations — every dated thing a conversation told', () => {
   it('gathers a set: what the model kept first, and what its own searches found that the first one did not', async () => {
     const s = setup();
     const said = ['bought an evening gown for $800', 'went camping at the beach', 'bought a Gucci handbag for $1,200', 'bought leather boots for $500'];
-    await writeLtm(s.base, said.map((t, n) => item({ uid: `obs:${n}`, kind: 'observation', title: `Melanie ${t}`, summary: `Melanie ${t}`, eventAt: '2023-05', scope: 'person' })));
+    await writeLtm(s.base, said.map((t, n) => item({ uid: `obs:${n}`, kind: 'observation', title: `Nadia ${t}`, summary: `Nadia ${t}`, eventAt: '2023-05', scope: 'person' })));
     const asked: string[] = [];
     const ask = async (a: LlmRequest): Promise<LlmAnswer> => {
       asked.push(a.prompt);
       const lines = a.prompt.split('\n').filter((l) => l.startsWith('[m'));
-      return { answer: { keep: lines.filter((l) => l.includes('bought')).map((l) => l.slice(1, l.indexOf(']'))), searches: asked.length === 1 ? ['Melanie leather boots'] : [] } };
+      return { answer: { keep: lines.filter((l) => l.includes('bought')).map((l) => l.slice(1, l.indexOf(']'))), searches: asked.length === 1 ? ['Nadia leather boots'] : [] } };
     };
     // A first room of two: one asked for, which a search for a few answers twice as deep in one list.
-    const g = await memoryGather(deps(s), { query: 'how much did Melanie spend on luxury items' }, { ask, limit: 1 });
+    const g = await memoryGather(deps(s), { query: 'how much did Nadia spend on designer goods' }, { ask, limit: 1 });
     expect(asked).toHaveLength(2);
-    expect(g.searches).toEqual(['Melanie leather boots']);
+    expect(g.searches).toEqual(['Nadia leather boots']);
     expect(g.kept).toContain('obs:3');
     expect(g.found.slice(0, g.kept.length).every((h) => h.summary.includes('bought'))).toBe(true);
     expect(g.found.map((h) => h.id)).toContain('obs:1');
@@ -865,53 +865,53 @@ describe('observations — every dated thing a conversation told', () => {
 
   it('writes notes on what it kept only when asked, scrubbed, and asks for none otherwise', async () => {
     const s = setup();
-    await writeLtm(s.base, [item({ uid: 'obs:0', kind: 'observation', title: 'Tim read The Hobbit', summary: 'Tim read The Hobbit', eventAt: '2023-12', scope: 'person' })]);
+    await writeLtm(s.base, [item({ uid: 'obs:0', kind: 'observation', title: 'Leo read The Hobbit', summary: 'Leo read The Hobbit', eventAt: '2023-12', scope: 'person' })]);
     const asked: LlmRequest[] = [];
     const ask = async (a: LlmRequest): Promise<LlmAnswer> => {
       asked.push(a);
-      return { answer: { keep: ['m1'], searches: [], notes: ['Books Tim has read: The Hobbit (2023-12)', ' ', 'key sk-proj-abcdefghijklmnopqrstuvwxyz0123456789ABCD'] } };
+      return { answer: { keep: ['m1'], searches: [], notes: ['Books Leo has read: The Hobbit (2023-12)', ' ', 'key sk-proj-abcdefghijklmnopqrstuvwxyz0123456789ABCD'] } };
     };
-    const g = await memoryGather(deps(s), { query: 'what books has Tim read' }, { ask, notes: true });
-    expect(g.notes[0]).toBe('Books Tim has read: The Hobbit (2023-12)');
+    const g = await memoryGather(deps(s), { query: 'what books has Leo read' }, { ask, notes: true });
+    expect(g.notes[0]).toBe('Books Leo has read: The Hobbit (2023-12)');
     expect(g.notes).toHaveLength(2);
     expect(g.notes.join(' ')).not.toContain('sk-proj-abcdefghijklmnopqrstuvwxyz0123456789ABCD');
     expect(asked[0]!.system).toContain('never write that something is not said');
     expect(JSON.stringify(asked[0]!.schema)).toContain('"notes"');
-    const plain = await memoryGather(deps(s), { query: 'what books has Tim read' }, { ask });
+    const plain = await memoryGather(deps(s), { query: 'what books has Leo read' }, { ask });
     expect(plain.notes).toEqual([]);
     expect(JSON.stringify(asked.at(-1)!.schema)).not.toContain('"notes"');
   });
 
   it('takes a kept memory a small model quoted whole by its label', async () => {
     const s = setup();
-    await writeLtm(s.base, ['bought an evening gown', 'went camping'].map((t, n) => item({ uid: `obs:${n}`, kind: 'observation', title: `Melanie ${t}`, summary: `Melanie ${t}`, eventAt: '2023-05', scope: 'person' })));
+    await writeLtm(s.base, ['bought an evening gown', 'went camping'].map((t, n) => item({ uid: `obs:${n}`, kind: 'observation', title: `Nadia ${t}`, summary: `Nadia ${t}`, eventAt: '2023-05', scope: 'person' })));
     const ask = async (a: LlmRequest): Promise<LlmAnswer> => ({ answer: {
       keep: a.prompt.split('\n').filter((l) => l.startsWith('[m') && l.includes('gown')), searches: [] } });
-    const g = await memoryGather(deps(s), { query: 'what did Melanie buy' }, { ask });
+    const g = await memoryGather(deps(s), { query: 'what did Nadia buy' }, { ask });
     expect(g.kept).toEqual(['obs:0']);
   });
 
   it('gathers what happened in the question\'s dates first, and still what lies outside them', async () => {
     const s = setup();
-    const said = [['adopted a puppy named Toby', '2023-07'], ['adopted a second dog named Buddy', '2023-10'], ['adopted Scout, a third dog', '2023-11']];
-    await writeLtm(s.base, said.map(([t, d], n) => item({ uid: `obs:${n}`, kind: 'observation', title: `Andrew ${t}`, summary: `Andrew ${t}`, eventAt: d, scope: 'person' })));
+    const said = [['adopted a puppy named Pixel', '2023-07'], ['adopted a second dog named Mochi', '2023-10'], ['adopted Bean, a third dog', '2023-11']];
+    await writeLtm(s.base, said.map(([t, d], n) => item({ uid: `obs:${n}`, kind: 'observation', title: `Pavel ${t}`, summary: `Pavel ${t}`, eventAt: d, scope: 'person' })));
     const read: string[][] = [];
     const ask = async (a: LlmRequest): Promise<LlmAnswer> => {
       read.push(a.prompt.split('\n').filter((l) => l.startsWith('[m')));
       return { answer: { keep: [], searches: [] } };
     };
-    const g = await memoryGather(deps(s), { query: 'how many dogs did Andrew adopt, as of November 2023', from: '2023-11', to: '2023-11' }, { ask, limit: 10 });
-    expect(read[0]![0]).toContain('Scout');
+    const g = await memoryGather(deps(s), { query: 'how many dogs did Pavel adopt, as of November 2023', from: '2023-11', to: '2023-11' }, { ask, limit: 10 });
+    expect(read[0]![0]).toContain('Bean');
     expect(g.found.map((h) => h.id).sort()).toEqual(['obs:0', 'obs:1', 'obs:2']);
   });
 
   it('shows a kept episode and its captured request once, not twice', async () => {
     const s = setup();
-    const e = entry('conv:sess-1:0', 'rotate the gateway certificate on staging');
+    const e = entry('conv:sess-1:0', 'rotate the proxy certificate on staging');
     await writeStm(s.base, [e]);
-    const ep = item({ uid: `ep:${e.uid}`, kind: 'episode', title: 'rotate the gateway certificate on staging', summary: 'rotate the gateway certificate on staging', ts: OLD });
+    const ep = item({ uid: `ep:${e.uid}`, kind: 'episode', title: 'rotate the proxy certificate on staging', summary: 'rotate the proxy certificate on staging', ts: OLD });
     await writeLtm(s.base, [ep]);
-    const hits = await memorySearch(deps(s), { query: 'rotate the gateway certificate', limit: 10 });
+    const hits = await memorySearch(deps(s), { query: 'rotate the proxy certificate', limit: 10 });
     expect(hits.filter((h) => h.id.endsWith(e.uid))).toHaveLength(1);
   });
 });

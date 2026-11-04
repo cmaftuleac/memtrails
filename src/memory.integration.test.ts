@@ -15,9 +15,9 @@ const opts = (home: string): MemoryOptions => ({
 });
 
 const mail: MemoryRecord[] = [
-  { id: '<a1@ops>', source: 'mail', kind: 'email', collection: 'ops', thread: 'cert', author: 'Ana Popescu', title: 'Gateway certificate expired',
-    text: 'The TLS certificate of the gateway expired on the 1st. Renewal stopped because the cron job was removed in March.', at: '2026-04-02' },
-  { id: '<a2@ops>', source: 'mail', kind: 'email', collection: 'ops', thread: 'cert', author: 'Ion', title: 'Re: Gateway certificate expired',
+  { id: '<a1@ops>', source: 'mail', kind: 'email', collection: 'ops', thread: 'cert', author: 'Ana Popescu', title: 'Proxy certificate expired',
+    text: 'The TLS certificate of the proxy expired on the 1st. Renewal stopped because the cron job was removed in March.', at: '2026-04-02' },
+  { id: '<a2@ops>', source: 'mail', kind: 'email', collection: 'ops', thread: 'cert', author: 'Ion', title: 'Re: Proxy certificate expired',
     text: 'I added the cron job back and renewed it by hand. It is valid until July.', at: '2026-04-03' },
   { id: 'n1', source: 'notes', kind: 'note', collection: 'home', title: 'Router', text: 'Parola routerului este în caietul albastru din sertarul de la birou.', at: '2026-04-04' },
   { id: 'c9f1e2', source: 'repo', kind: 'commit', collection: 'ops', author: 'Ion', title: 'Restore certificate renewal cron', text: 'Files: deploy/cron/renew.sh', at: '2026-04-03' },
@@ -88,7 +88,7 @@ describe('openMemory', () => {
     expect(String((await memory.open(hit!.id))?.body)).toContain('Italian');
     const search = memory.tools().find((t) => t.name === 'memory_search')!;
     expect(search.jsonSchema).toMatchObject({ type: 'object' });
-    const out = await search.handler({ query: 'gateway certificate' });
+    const out = await search.handler({ query: 'proxy certificate' });
     expect(out.content[0]!.text).toContain('certificate');
   }, 60_000);
 

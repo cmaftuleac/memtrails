@@ -34,10 +34,10 @@ describe('the sentence room', () => {
   it('keeps the sentence that answers, from deep in a memory, over the start of every other', async () => {
     const filler = 'We talked about many different and unrelated things for a long while that afternoon. ';
     const items: RoomItem[] = [
-      { id: 'a', head: '(1 Mar)', ts: 2, text: `${filler.repeat(6)}The gateway certificate expired because the renewal cron was removed.` },
+      { id: 'a', head: '(1 Mar)', ts: 2, text: `${filler.repeat(6)}The proxy certificate expired because the renewal cron was removed.` },
       { id: 'b', head: '(2 Mar)', ts: 1, text: filler.repeat(8) },
     ];
-    const room = await sentenceRoom('why did the gateway certificate expire', items, encode, new WordStore(), 160);
+    const room = await sentenceRoom('why did the proxy certificate expire', items, encode, new WordStore(), 160);
     expect(room).toContain('certificate expired');
     expect(room.length).toBeLessThanOrEqual(160);
     expect(room.startsWith('(1 Mar)')).toBe(true);

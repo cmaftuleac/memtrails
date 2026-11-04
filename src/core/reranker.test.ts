@@ -12,8 +12,8 @@ describe('a rerank server', () => {
       seen.push({ url, body: JSON.parse(Buffer.from(init.body).toString('utf8')), headers: init.headers });
       return new Response(JSON.stringify(ok), { status: 200 });
     }) as unknown as typeof fetch;
-    expect(await remoteReranker({ route: route(), fetchImpl })('deploy the api', ['invoices', 'jenkins deploys it'], 1000)).toEqual([-2, 0.9]);
-    expect(seen[0]).toMatchObject({ url: 'http://rerank.test/v1/rerank', body: { model: 'bge-reranker-v2-m3', query: 'deploy the api', documents: ['invoices', 'jenkins deploys it'] } });
+    expect(await remoteReranker({ route: route(), fetchImpl })('deploy the api', ['invoices', 'buildbot deploys it'], 1000)).toEqual([-2, 0.9]);
+    expect(seen[0]).toMatchObject({ url: 'http://rerank.test/v1/rerank', body: { model: 'bge-reranker-v2-m3', query: 'deploy the api', documents: ['invoices', 'buildbot deploys it'] } });
     expect(seen[0]!.headers.authorization).toBe('Bearer k');
   });
 

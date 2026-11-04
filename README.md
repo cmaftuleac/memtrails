@@ -17,7 +17,7 @@ import { openMemory } from 'memtrails';
 const memory = await openMemory({ home: './memory' });
 
 await memory.add([
-  { id: 'msg-1', kind: 'email', author: 'Ana', title: 'Gateway certificate expired', at: '2026-04-02',
+  { id: 'msg-1', kind: 'email', author: 'Ana', title: 'Proxy certificate expired', at: '2026-04-02',
     text: 'The TLS certificate expired on the 1st. Renewal stopped because the cron job was removed in March.' },
   { id: 'c9f1e2', kind: 'commit', author: 'Ion', title: 'Restore certificate renewal cron', at: '2026-04-03',
     text: 'Files: deploy/cron/renew.sh' },
@@ -68,9 +68,9 @@ await memory.add({
   source: 'work-mailbox',          // part of the identity
   kind: 'email',                   // any word: email, message, note, memo, article, commit, ticket, …
   collection: 'ops',               // search can be scoped to collections
-  thread: 'gateway-cert',          // records that belong together
+  thread: 'proxy-cert',          // records that belong together
   author: 'Ana Popescu',
-  title: 'Gateway certificate expired',
+  title: 'Proxy certificate expired',
   text: '…',
   at: '2026-04-02T09:14:00Z',      // ms, ISO string or Date
   url: 'https://mail.example/…',
@@ -112,7 +112,7 @@ await memory.search({ query: 'who renewed the certificate?', limit: 8 });
 await memory.search({ query: 'standup notes', collections: ['ops'], kinds: ['message'], from: '2026-04', to: '2026-04' });
 
 // The same results as a reader is shown them: one line a memory, best first or oldest first.
-await memory.searchText({ query: 'what happened with the gateway?', order: 'time' });
+await memory.searchText({ query: 'what happened with the proxy?', order: 'time' });
 
 // The best sentences of what was found, for a small context window.
 await memory.room({ query: 'what made the renewal stop?', chars: 6000 });
@@ -121,7 +121,7 @@ await memory.room({ query: 'what made the renewal stop?', chars: 6000 });
 await memory.open(hits[0].id);
 
 // What the concept graph reaches from a topic or from items, that search did not find.
-await memory.explore({ topic: 'the gateway' });
+await memory.explore({ topic: 'the proxy' });
 ```
 
 With dates, what happened within them comes first and the rest follows: a question that names a time is rarely only

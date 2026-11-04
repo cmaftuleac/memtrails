@@ -8,8 +8,8 @@ import { children, conceptKey, docSparse, firstWords, querySparse, termId, token
 
 describe('keyword channel', () => {
   it('keeps identifiers whole and also by their parts, lower-cased', () => {
-    const t = tokens('Run deploy.sh on ai-backoffice_api; see apps/desktop/main.ts');
-    expect(t).toEqual(expect.arrayContaining(['run', 'deploy.sh', 'deploy', 'sh', 'ai-backoffice_api', 'backoffice', 'api', 'apps/desktop/main.ts', 'desktop', 'main', 'ts']));
+    const t = tokens('Run deploy.sh on billing_api; see apps/web/main.ts');
+    expect(t).toEqual(expect.arrayContaining(['run', 'deploy.sh', 'deploy', 'sh', 'billing_api', 'billing', 'api', 'apps/web/main.ts', 'web', 'main', 'ts']));
     expect(t).not.toContain('');
   });
 
@@ -90,9 +90,9 @@ describe('children', () => {
 
 describe('concept keys', () => {
   it('are one node however a concept is typed: case, accents, spacing, stray punctuation — identifiers kept', () => {
-    expect(conceptKey(' Gateway.conf ')).toBe('gateway.conf');
+    expect(conceptKey(' Proxy.conf ')).toBe('proxy.conf');
     expect(conceptKey('"Bază   de date",')).toBe('baza de date');
-    expect(conceptKey('fg-gateway:dev')).toBe('fg-gateway:dev');
+    expect(conceptKey('acme-proxy:dev')).toBe('acme-proxy:dev');
     expect(conceptKey('网关 镜像')).toBe('网关 镜像');
     expect(conceptKey('...')).toBe('');
   });
