@@ -571,6 +571,10 @@ fn parse_legacy(s: &str) -> Option<f64> {
                 }
                 date.push((*n, *len));
                 i += 1;
+                // A date's own separator: `2026-04-02` after a time is a date, not an offset.
+                if matches!(at(i), Some(Tok::Sym('-'))) {
+                    i += 1;
+                }
             }
             Tok::Sym(c @ ('+' | '-')) if !time.is_empty() || tz.is_some() => {
                 // An offset after the time: +hhmm, +hh:mm or +hh.
@@ -598,7 +602,12 @@ fn parse_legacy(s: &str) -> Option<f64> {
                     pm = Some(w == "pm");
                 } else if let Some(z) = zone(w) {
                     tz = Some(z);
-                } else if w == "t" && seen_number {
+                } else if w == "t" {
+                    // Only between a date and its time.
+                    let time_next = matches!((at(i), at(i + 1)), (Some(Tok::Num(..)), Some(Tok::Sym(':'))));
+                    if !seen_number || !time_next {
+                        return None;
+                    }
                 } else if w.len() >= 3 {
                     if let Some(m) = MONTH_NAMES
                         .iter()
@@ -668,7 +677,7 @@ fn parse_legacy(s: &str) -> Option<f64> {
         }
         h = if p { h % 12 + 12 } else { h % 12 };
     }
-    if h > 24 || mi > 59 || sec > 59 {
+    if h > 24 || mi > 59 || sec > 59 || (h == 24 && (mi > 0 || sec > 0)) {
         return None;
     }
     match tz {
