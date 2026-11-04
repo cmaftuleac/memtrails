@@ -1,0 +1,23 @@
+[
+  {
+    "id": "U1",
+    "name": "ana",
+    "real_name": "Ana Popescu",
+    "profile": {
+      "real_name": "Ana Popescu",
+      "display_name": "ana"
+    }
+  },
+  {
+    "id": "U2",
+    "name": "tanaka",
+    "profile": {
+      "real_name": "",
+      "display_name": "田中"
+    }
+  },
+  {
+    "id": "U3",
+    "name": "omar"
+  }
+]

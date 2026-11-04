@@ -1,0 +1,973 @@
+{
+ "note": "Inputs in conformance/inputs/importers. `file://<root>` is that folder as a file URL; `<mtime>` a file's modification time.",
+ "jsonl": {
+  "records": [
+   {
+    "id": "ja",
+    "text": "会議は火曜日に延期されました 🎉",
+    "title": "会議",
+    "at": "2024-05-01T10:00:00Z",
+    "metadata": {
+     "room": "B",
+     "n": 2,
+     "ok": null
+    },
+    "source": "notes",
+    "kind": "record"
+   },
+   {
+    "id": "7",
+    "text": "Întâlnirea de mâine e la București.",
+    "kind": "note",
+    "source": "notes"
+   },
+   {
+    "id": "ar",
+    "text": "تم تأجيل الاجتماع",
+    "at": 1714557600000,
+    "collection": "echipa",
+    "source": "notes",
+    "kind": "record"
+   },
+   {
+    "id": "empty-time",
+    "text": "x",
+    "source": "notes",
+    "kind": "record"
+   },
+   {
+    "id": "no-text",
+    "text": "",
+    "title": "only a title",
+    "source": "notes",
+    "kind": "record"
+   }
+  ],
+  "skipped": [
+   {
+    "line": 2,
+    "reason": "not JSON"
+   },
+   {
+    "line": 3,
+    "reason": "a record needs an id"
+   },
+   {
+    "line": 7,
+    "reason": "record bad-time: its time cannot be read (whenever)"
+   },
+   {
+    "line": 9,
+    "reason": "record null-time: its time cannot be read (null)"
+   },
+   {
+    "line": 11,
+    "reason": "record blank: it has no text and no title"
+   },
+   {
+    "line": 12,
+    "reason": "not an object"
+   },
+   {
+    "line": 13,
+    "reason": "not an object"
+   },
+   {
+    "line": 14,
+    "reason": "not JSON"
+   }
+  ]
+ },
+ "files": {
+  "options": {
+   "collection": "docs",
+   "maxChars": 1500
+  },
+  "records": [
+   {
+    "id": "atx.md",
+    "text": "intro\n# Plan   ##  \nbody",
+    "title": "Plan",
+    "kind": "note",
+    "source": "files",
+    "collection": "docs",
+    "at": "<mtime>",
+    "url": "file://<root>/files/atx.md"
+   },
+   {
+    "id": "big.md#1",
+    "text": "# Big\n\nParagraph 0: lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet — ação, 漢字.\n\nParagraph 1: lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet — ação, 漢字.\n\nParagraph 2: lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet — ação, 漢字.\n\nParagraph 3: lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet — ação, 漢字.",
+    "title": "Big (1/3)",
+    "kind": "note",
+    "source": "files",
+    "collection": "docs",
+    "at": "<mtime>",
+    "url": "file://<root>/files/big.md",
+    "thread": "big.md",
+    "metadata": {
+     "part": 1,
+     "parts": 3
+    }
+   },
+   {
+    "id": "big.md#2",
+    "text": "Paragraph 4: lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet — ação, 漢字.\n\nParagraph 5: lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet — ação, 漢字.\n\nParagraph 6: lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet — ação, 漢字.\n\nParagraph 7: lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet — ação, 漢字.",
+    "title": "Big (2/3)",
+    "kind": "note",
+    "source": "files",
+    "collection": "docs",
+    "at": "<mtime>",
+    "url": "file://<root>/files/big.md",
+    "thread": "big.md",
+    "metadata": {
+     "part": 2,
+     "parts": 3
+    }
+   },
+   {
+    "id": "big.md#3",
+    "text": "Paragraph 8: lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet — ação, 漢字.\n\nParagraph 9: lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet — ação, 漢字.\n\nParagraph 10: lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet — ação, 漢字.\n\nParagraph 11: lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet — ação, 漢字.",
+    "title": "Big (3/3)",
+    "kind": "note",
+    "source": "files",
+    "collection": "docs",
+    "at": "<mtime>",
+    "url": "file://<root>/files/big.md",
+    "thread": "big.md",
+    "metadata": {
+     "part": 3,
+     "parts": 3
+    }
+   },
+   {
+    "id": "cjk.txt",
+    "text": "今日は晴れです。今日は晴れです。今日は晴れです。今日は晴れです。今日は晴れです。今日は晴れです。今日は晴れです。今日は晴れです。今日は晴れです。今日は晴れです。今日は晴れです。今日は晴れです。今日は晴れです。今日は晴れです。今日は晴れです。今日は晴れです。今日は晴れです。今日は晴れです。今日は晴れです。今日は晴れです。今日は晴れです。今日は晴れです。今日は晴れです。今日は晴れです。今日は晴れです。今日は晴れです。今日は晴れです。今日は晴れです。今日は晴れです。今日は晴れです。今日は晴れです。今日は晴れです。今日は晴れです。今日は晴れです。今日は晴れです。今日は晴れです。今日は晴れです。今日は晴れです。今日は晴れです。今日は晴れです。今日は晴れです。今日は晴れです。今日は晴れです。今日は晴れです。今日は晴れです。今日は晴れです。今日は晴れです。今日は晴れです。今日は晴れです。今日は晴れです。今日は晴れです。今日は晴れです。今日は晴れです。今日は晴れです。今日は晴れです。今日は晴れです。今日は晴れです。今日は晴れです。今日は晴れです。今日は晴れです。😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+    "title": "cjk",
+    "kind": "note",
+    "source": "files",
+    "collection": "docs",
+    "at": "<mtime>",
+    "url": "file://<root>/files/cjk.txt"
+   },
+   {
+    "id": "cp1252.txt",
+    "text": "Café – €10",
+    "title": "cp1252",
+    "kind": "note",
+    "source": "files",
+    "collection": "docs",
+    "at": "<mtime>",
+    "url": "file://<root>/files/cp1252.txt"
+   },
+   {
+    "id": "doc.adoc",
+    "text": "== Sub\n= Documentul principal  \nText.",
+    "title": "Documentul principal",
+    "kind": "note",
+    "source": "files",
+    "collection": "docs",
+    "at": "<mtime>",
+    "url": "file://<root>/files/doc.adoc"
+   },
+   {
+    "id": "heading.org",
+    "text": "text\n** Capitol 2\nmai mult",
+    "title": "Capitol 2",
+    "kind": "note",
+    "source": "files",
+    "collection": "docs",
+    "at": "<mtime>",
+    "url": "file://<root>/files/heading.org"
+   },
+   {
+    "id": "notes.org",
+    "text": "#+TITLE:  Notițe de birou\n* Head\nText.",
+    "title": "Notițe de birou",
+    "kind": "note",
+    "source": "files",
+    "collection": "docs",
+    "at": "<mtime>",
+    "url": "file://<root>/files/notes.org"
+   },
+   {
+    "id": "page.html",
+    "text": "Menu\n\nPrix : 3 € — très bon\n\n- Thé\n- 🍵 matcha – 抹茶 – Αως šÜ&unknown;\n\na b\n\nx\ny\n\nquoted\n\nÜnïcödé <ok>",
+    "title": "Café & Crème",
+    "kind": "note",
+    "source": "files",
+    "collection": "docs",
+    "at": "<mtime>",
+    "url": "file://<root>/files/page.html"
+   },
+   {
+    "id": "plan.md",
+    "text": "# Not the title\n\nBugetul pentru țară crește cu 5%.",
+    "title": "Planul pe trimestrul trei: priorități",
+    "kind": "note",
+    "source": "files",
+    "collection": "docs",
+    "author": "Ioana Mărgărit",
+    "at": 1719792000000,
+    "url": "file://<root>/files/plan.md",
+    "metadata": {
+     "date": "2024-07-01",
+     "author": "Ioana Mărgărit",
+     "tags": "buget, echipă, 3, true",
+     "reviewers": "Ana, Mihai",
+     "summary": "Prima linie\na doua",
+     "folded": "unu doi",
+     "draft": true,
+     "version": 3,
+     "ratio": 0.25,
+     "none": null,
+     "note": "value"
+    }
+   },
+   {
+    "id": "setext.md",
+    "text": "Planul   \n=====\nbody",
+    "title": "Planul",
+    "kind": "note",
+    "source": "files",
+    "collection": "docs",
+    "at": "<mtime>",
+    "url": "file://<root>/files/setext.md"
+   },
+   {
+    "id": "sub dir/a #1%.md",
+    "text": "# Nume ciudat\n\ntext",
+    "title": "Nume ciudat",
+    "kind": "note",
+    "source": "files",
+    "collection": "docs",
+    "at": "<mtime>",
+    "url": "file://<root>/files/sub%20dir/a%20%231%25.md"
+   },
+   {
+    "id": "title.rst",
+    "text": "=====\n Titlu \n=====\n\nCorpul documentului.",
+    "title": "Titlu",
+    "kind": "note",
+    "source": "files",
+    "collection": "docs",
+    "at": "<mtime>",
+    "url": "file://<root>/files/title.rst"
+   },
+   {
+    "id": "toml.md",
+    "text": "Corp\nal doilea rând",
+    "title": "Din TOML",
+    "kind": "note",
+    "source": "files",
+    "collection": "docs",
+    "at": 1672531200000,
+    "url": "file://<root>/files/toml.md",
+    "metadata": {
+     "date": 2023,
+     "n": 2,
+     "list": "a, b, 7"
+    }
+   },
+   {
+    "id": "utf16.txt",
+    "text": "Text în UTF-16 🎉",
+    "title": "utf16",
+    "kind": "note",
+    "source": "files",
+    "collection": "docs",
+    "at": "<mtime>",
+    "url": "file://<root>/files/utf16.txt"
+   }
+  ],
+  "skipped": [
+   {
+    "path": "binary.md",
+    "reason": "not text"
+   }
+  ]
+ },
+ "slack": {
+  "records": [
+   {
+    "id": "C1:1709290800.000200",
+    "text": "Planul: @田中 preia #proiecte, vezi documentul (https://example.org/doc) și https://example.org/raw. 1 < 2 && ok",
+    "kind": "message",
+    "source": "slack",
+    "author": "Ana Popescu",
+    "collection": "general",
+    "thread": "general:1709290800.000200",
+    "at": 1709290800000,
+    "url": "https://example.slack.com/archives/C1/p1709290800000200",
+    "metadata": {
+     "channel": "general",
+     "ts": "1709290800.000200",
+     "threadTs": "1709290800.000200",
+     "replies": 1
+    }
+   },
+   {
+    "id": "C1:1709291000.000300",
+    "text": "了解しました @Ana Popescu 👍 @ghost @ops @subteam @channel Ana b@example.org #C9",
+    "kind": "message",
+    "source": "slack",
+    "author": "田中",
+    "collection": "general",
+    "thread": "general:1709290800.000200",
+    "at": 1709291000000,
+    "url": "https://example.slack.com/archives/C1/p1709291000000300",
+    "metadata": {
+     "channel": "general",
+     "ts": "1709291000.000300",
+     "threadTs": "1709290800.000200"
+    }
+   },
+   {
+    "id": "C1:1709291100.000400",
+    "text": "File: التقرير الشهري\nFile: raw.txt",
+    "kind": "message",
+    "source": "slack",
+    "author": "omar",
+    "collection": "general",
+    "thread": "general:1709291100.000400",
+    "at": 1709291100000,
+    "url": "https://example.slack.com/archives/C1/p1709291100000400",
+    "metadata": {
+     "channel": "general",
+     "ts": "1709291100.000400"
+    }
+   },
+   {
+    "id": "C1:1709291200.000500",
+    "text": "Deployed @here\nAttachment: Build 42 (https://example.org/b/42)\nAttachment: see https://example.org/x",
+    "kind": "message",
+    "source": "slack",
+    "author": "deploy-bot",
+    "collection": "general",
+    "thread": "general:1709291200.000500",
+    "at": 1709291200001,
+    "url": "https://example.slack.com/archives/C1/p1709291200000500",
+    "metadata": {
+     "channel": "general",
+     "ts": "1709291200.000500",
+     "subtype": "bot_message"
+    }
+   },
+   {
+    "id": "C1:1709291300.000600",
+    "text": "beep",
+    "kind": "message",
+    "source": "slack",
+    "author": "Helper",
+    "collection": "general",
+    "thread": "general:1709291300.000600",
+    "at": 1709291300001,
+    "url": "https://example.slack.com/archives/C1/p1709291300000600",
+    "metadata": {
+     "channel": "general",
+     "ts": "1709291300.000600"
+    }
+   },
+   {
+    "id": "C1:1709291400.000700",
+    "text": "hello",
+    "kind": "message",
+    "source": "slack",
+    "author": "Guest Person",
+    "collection": "general",
+    "thread": "general:1709291400.000700",
+    "at": 1709291400001,
+    "url": "https://example.slack.com/archives/C1/p1709291400000700",
+    "metadata": {
+     "channel": "general",
+     "ts": "1709291400.000700"
+    }
+   },
+   {
+    "id": "C1:1709377200.000100",
+    "text": "Mulțumesc! #general",
+    "kind": "message",
+    "source": "slack",
+    "author": "Ana Popescu",
+    "collection": "general",
+    "thread": "general:1709377200.000100",
+    "at": 1709377200000,
+    "url": "https://example.slack.com/archives/C1/p1709377200000100",
+    "metadata": {
+     "channel": "general",
+     "ts": "1709377200.000100"
+    }
+   },
+   {
+    "id": "C2:1709290900.000100",
+    "text": "مرحبا بالجميع",
+    "kind": "message",
+    "source": "slack",
+    "author": "omar",
+    "collection": "proiecte",
+    "thread": "proiecte:1709290900.000100",
+    "at": 1709290900000,
+    "url": "https://example.slack.com/archives/C2/p1709290900000100",
+    "metadata": {
+     "channel": "proiecte",
+     "ts": "1709290900.000100"
+    }
+   },
+   {
+    "id": "D1:1709463600.000100",
+    "text": "direct",
+    "kind": "message",
+    "source": "slack",
+    "author": "U9",
+    "collection": "Ana Popescu, U9",
+    "thread": "Ana Popescu, U9:1709463600.000100",
+    "at": 1709463600000,
+    "url": "https://example.slack.com/archives/D1/p1709463600000100",
+    "metadata": {
+     "channel": "Ana Popescu, U9",
+     "ts": "1709463600.000100"
+    }
+   }
+  ],
+  "filtered": [
+   {
+    "id": "C1:1709290800.000200",
+    "text": "Planul: @田中 preia #proiecte, vezi documentul (https://example.org/doc) și https://example.org/raw. 1 < 2 && ok",
+    "kind": "message",
+    "source": "ws",
+    "author": "Ana Popescu",
+    "collection": "team",
+    "thread": "general:1709290800.000200",
+    "at": 1709290800000,
+    "metadata": {
+     "channel": "general",
+     "ts": "1709290800.000200",
+     "threadTs": "1709290800.000200",
+     "replies": 1
+    }
+   },
+   {
+    "id": "C1:1709291000.000300",
+    "text": "了解しました @Ana Popescu 👍 @ghost @ops @subteam @channel Ana b@example.org #C9",
+    "kind": "message",
+    "source": "ws",
+    "author": "田中",
+    "collection": "team",
+    "thread": "general:1709290800.000200",
+    "at": 1709291000000,
+    "metadata": {
+     "channel": "general",
+     "ts": "1709291000.000300",
+     "threadTs": "1709290800.000200"
+    }
+   },
+   {
+    "id": "C1:1709291100.000400",
+    "text": "File: التقرير الشهري\nFile: raw.txt",
+    "kind": "message",
+    "source": "ws",
+    "author": "omar",
+    "collection": "team",
+    "thread": "general:1709291100.000400",
+    "at": 1709291100000,
+    "metadata": {
+     "channel": "general",
+     "ts": "1709291100.000400"
+    }
+   },
+   {
+    "id": "C1:1709291400.000700",
+    "text": "hello",
+    "kind": "message",
+    "source": "ws",
+    "author": "Guest Person",
+    "collection": "team",
+    "thread": "general:1709291400.000700",
+    "at": 1709291400001,
+    "metadata": {
+     "channel": "general",
+     "ts": "1709291400.000700"
+    }
+   },
+   {
+    "id": "C1:1709377200.000100",
+    "text": "Mulțumesc! #general",
+    "kind": "message",
+    "source": "ws",
+    "author": "Ana Popescu",
+    "collection": "team",
+    "thread": "general:1709377200.000100",
+    "at": 1709377200000,
+    "metadata": {
+     "channel": "general",
+     "ts": "1709377200.000100"
+    }
+   },
+   {
+    "id": "D1:1709463600.000100",
+    "text": "direct",
+    "kind": "message",
+    "source": "ws",
+    "author": "U9",
+    "collection": "team",
+    "thread": "Ana Popescu, U9:1709463600.000100",
+    "at": 1709463600000,
+    "metadata": {
+     "channel": "Ana Popescu, U9",
+     "ts": "1709463600.000100"
+    }
+   }
+  ]
+ },
+ "mbox": {
+  "records": [
+   {
+    "id": "m1@example.org",
+    "title": "会議の議事録 — 2024年",
+    "text": "Bună ziua,\n\nAtașez procesul-verbal al ședinței — vă rog să-l citiți până mâine. 🙏\n\nAttachments: 議事録.pdf, fișier.bin, părti.txt",
+    "kind": "email",
+    "source": "Inbox",
+    "author": "André Lefèvre",
+    "at": 1704099600000,
+    "thread": "m1@example.org",
+    "metadata": {
+     "from": "André Lefèvre <andre@example.org>",
+     "to": "\"Ioana Mărgărit\" <ioana@example.org>, bob@example.org",
+     "cc": "Łukasz <lukasz@example.org>"
+    }
+   },
+   {
+    "id": "m2@example.org",
+    "title": "Re: 会議の議事録",
+    "text": "Mulțumesc, am citit totdocumentul.\nFrom the start it was clear.\n\nAndré Lefèvre wrote:",
+    "kind": "email",
+    "source": "Inbox",
+    "author": "Ioana Mărgărit",
+    "at": 1704106800000,
+    "thread": "m0@example.org",
+    "metadata": {
+     "from": "Ioana Mărgărit <ioana@example.org>",
+     "to": "andre@example.org",
+     "inReplyTo": "m1@example.org"
+    }
+   },
+   {
+    "id": "664473b802d6797f01946201e493c759",
+    "title": "中文Привет",
+    "text": "Привет, мир",
+    "kind": "email",
+    "source": "Inbox",
+    "author": "Сергей",
+    "at": 1704186000000,
+    "thread": "664473b802d6797f01946201e493c759",
+    "metadata": {
+     "from": "sergey@example.org (Сергей)"
+    }
+   },
+   {
+    "id": "6db4f00bb300ec08e1590c1b7e0fc4b5",
+    "title": "Forwarded",
+    "text": "From: Inner <inner@example.org>\nDate: Tue, 2 Jan 2024 07:00:00 +0000\nSubject: The inner one\n\nDziękuję bardzo",
+    "kind": "email",
+    "source": "Inbox",
+    "author": "Dana",
+    "at": 1704286800000,
+    "thread": "6db4f00bb300ec08e1590c1b7e0fc4b5",
+    "metadata": {
+     "from": "\"Dana\" <dana@example.org>"
+    }
+   }
+  ],
+  "kept": [
+   {
+    "id": "m1@example.org",
+    "title": "会議の議事録 — 2024年",
+    "text": "Bună ziua,\n\nAtașez procesul-verbal al ședinței — vă rog să-l citiți până mâine. 🙏\n\n> Ce s-a hotărât?\n\n-- \nAndré, București\n\nAttachments: 議事録.pdf, fișier.bin, părti.txt",
+    "kind": "email",
+    "source": "box",
+    "collection": "work",
+    "author": "André Lefèvre",
+    "at": 1704099600000,
+    "thread": "m1@example.org",
+    "metadata": {
+     "from": "André Lefèvre <andre@example.org>",
+     "to": "\"Ioana Mărgărit\" <ioana@example.org>, bob@example.org",
+     "cc": "Łukasz <lukasz@example.org>"
+    }
+   },
+   {
+    "id": "m2@example.org",
+    "title": "Re: 会議の議事録",
+    "text": "Mulțumesc, am citit totdocumentul.\nFrom the start it was clear.\n> From a quoted line, kept escaped once.\n\nAndré Lefèvre wrote:\n> Bună ziua,",
+    "kind": "email",
+    "source": "box",
+    "collection": "work",
+    "author": "Ioana Mărgărit",
+    "at": 1704106800000,
+    "thread": "m0@example.org",
+    "metadata": {
+     "from": "Ioana Mărgărit <ioana@example.org>",
+     "to": "andre@example.org",
+     "inReplyTo": "m1@example.org"
+    }
+   },
+   {
+    "id": "4c19ae82624aeda42848f9ac4e60ad60",
+    "title": "中文Привет",
+    "text": "Привет, мир\n\nold text",
+    "kind": "email",
+    "source": "box",
+    "collection": "work",
+    "author": "Сергей",
+    "at": 1704186000000,
+    "thread": "4c19ae82624aeda42848f9ac4e60ad60",
+    "metadata": {
+     "from": "sergey@example.org (Сергей)"
+    }
+   },
+   {
+    "id": "6db4f00bb300ec08e1590c1b7e0fc4b5",
+    "title": "Forwarded",
+    "text": "From: Inner <inner@example.org>\nDate: Tue, 2 Jan 2024 07:00:00 +0000\nSubject: The inner one\n\nDziękuję bardzo",
+    "kind": "email",
+    "source": "box",
+    "collection": "work",
+    "author": "Dana",
+    "at": 1704286800000,
+    "thread": "6db4f00bb300ec08e1590c1b7e0fc4b5",
+    "metadata": {
+     "from": "\"Dana\" <dana@example.org>"
+    }
+   }
+  ],
+  "skipped": [
+   4
+  ]
+ },
+ "eml": [
+  {
+   "id": "m1@example.org",
+   "title": "会議の議事録 — 2024年",
+   "text": "Bună ziua,\n\nAtașez procesul-verbal al ședinței — vă rog să-l citiți până mâine. 🙏\n\nAttachments: 議事録.pdf, fișier.bin, părti.txt",
+   "kind": "email",
+   "source": "note",
+   "author": "André Lefèvre",
+   "at": 1704099600000,
+   "thread": "m1@example.org",
+   "metadata": {
+    "from": "André Lefèvre <andre@example.org>",
+    "to": "\"Ioana Mărgărit\" <ioana@example.org>, bob@example.org",
+    "cc": "Łukasz <lukasz@example.org>"
+   }
+  },
+  {
+   "id": "cdad3b571ac376db2b9a7735057630fc",
+   "title": "Doar un subiect",
+   "text": "",
+   "kind": "email",
+   "source": "bare",
+   "thread": "cdad3b571ac376db2b9a7735057630fc"
+  }
+ ],
+ "html": [
+  {
+   "html": "<p>a</p><SCRIPT type=\"x\">b</script ><p>c</p>",
+   "text": "a\n\nc",
+   "dropQuotes": "a\n\nc",
+   "title": null
+  },
+  {
+   "html": "<p>a</p><iframe src=x>keep<p>b</p>",
+   "text": "a\nkeep\nb",
+   "dropQuotes": "a\nkeep\nb",
+   "title": null
+  },
+  {
+   "html": "a <script>var x = 1; <p>never</p>",
+   "text": "a",
+   "dropQuotes": "a",
+   "title": null
+  },
+  {
+   "html": "<pre>  open   <p>x</p>",
+   "text": "open\nx",
+   "dropQuotes": "open\nx",
+   "title": null
+  },
+  {
+   "html": "<![CDATA[x < y]]> z",
+   "text": "x < y z",
+   "dropQuotes": "x < y z",
+   "title": null
+  },
+  {
+   "html": "a <![CDATA[ unclosed",
+   "text": "a <![CDATA[ unclosed",
+   "dropQuotes": "a <![CDATA[ unclosed",
+   "title": null
+  },
+  {
+   "html": "<ul><li>one<li>two</ul>x<br>y<hr>z",
+   "text": "- one\n- two\nx\ny\nz",
+   "dropQuotes": "- one\n- two\nx\ny\nz",
+   "title": null
+  },
+  {
+   "html": "<p>  lead  \t space </p>\n\n\n\n<p>end</p>",
+   "text": "lead space\n\nend",
+   "dropQuotes": "lead space\n\nend",
+   "title": null
+  },
+  {
+   "html": "<a href=\"x\">link</a> <!x> <?php ?> < 3",
+   "text": "link < 3",
+   "dropQuotes": "link < 3",
+   "title": null
+  },
+  {
+   "html": "<p>a</p><!-- open comment",
+   "text": "a",
+   "dropQuotes": "a",
+   "title": null
+  }
+ ],
+ "titles": [
+  {
+   "html": "<title>T &amp; U</title>",
+   "title": "T & U"
+  },
+  {
+   "html": "<h1>Only <i>h1</i></h1>",
+   "title": "Only h1"
+  },
+  {
+   "html": "<TITLE>Upper</TITLE >",
+   "title": "Upper"
+  },
+  {
+   "html": "<title>  </title>",
+   "title": null
+  }
+ ],
+ "entities": [
+  {
+   "s": "&amp;&lt;&gt;&quot;&apos;",
+   "text": "&<>\"'"
+  },
+  {
+   "s": "&#233;&#xe9;&#X1F600;&#150;&#0;&#xD800;&#1114112;",
+   "text": "éé😀–���"
+  },
+  {
+   "s": "&eacute;&Ccedil;&zcaron;&qacute;&Theta;&thetasym;",
+   "text": "éÇž&qacute;Θ&thetasym;"
+  },
+  {
+   "s": "&nope; & ;&#;",
+   "text": "&nope; & ;&#;"
+  }
+ ],
+ "bytes": [
+  {
+   "bytes": [
+    67,
+    97,
+    102,
+    195,
+    169
+   ],
+   "charset": null,
+   "text": "Café"
+  },
+  {
+   "bytes": [
+    67,
+    97,
+    102,
+    233
+   ],
+   "charset": null,
+   "text": "Café"
+  },
+  {
+   "bytes": [
+    239,
+    187,
+    191,
+    65
+   ],
+   "charset": "utf-8",
+   "text": "A"
+  },
+  {
+   "bytes": [
+    214,
+    208,
+    206,
+    196
+   ],
+   "charset": "gb2312",
+   "text": "中文"
+  },
+  {
+   "bytes": [
+    240,
+    210
+   ],
+   "charset": "\"koi8-r\"",
+   "text": "Пр"
+  },
+  {
+   "bytes": [
+    233
+   ],
+   "charset": "iso-8859-1*fr",
+   "text": "é"
+  },
+  {
+   "bytes": [
+    65,
+    233
+   ],
+   "charset": "x-nonsense",
+   "text": "Aé"
+  },
+  {
+   "bytes": [
+    65,
+    128
+   ],
+   "charset": "iso-2022-kr",
+   "text": "A€"
+  },
+  {
+   "bytes": [
+    255,
+    254,
+    65,
+    0
+   ],
+   "charset": "utf-16",
+   "text": "A"
+  },
+  {
+   "bytes": [
+    65
+   ],
+   "charset": "US-ASCII",
+   "text": "A"
+  }
+ ],
+ "split": [
+  {
+   "text": "Para one. Para one. Para one. Para one. Para one. Para one. Para one. Para one. Para one. Para one. Para one. Para one. Para one. Para one. Para one. Para one. Para one. Para one. Para one. Para one. Para one. Para one. Para one. Para one. Para one. Para one. Para one. Para one. Para one. Para one. \n\nPara two. Para two. Para two. Para two. Para two. Para two. Para two. Para two. Para two. Para two. Para two. Para two. Para two. Para two. Para two. Para two. Para two. Para two. Para two. Para two. Para two. Para two. Para two. Para two. Para two. Para two. Para two. Para two. Para two. Para two. ",
+   "max": 200,
+   "parts": [
+    "Para one. Para one. Para one. Para one. Para one. Para one. Para one. Para one. Para one. Para one. Para one. Para one. Para one. Para one. Para one. Para one. Para one. Para one. Para one. Para one.",
+    "Para one. Para one. Para one. Para one. Para one. Para one. Para one. Para one. Para one. Para one.",
+    "Para two. Para two. Para two. Para two. Para two. Para two. Para two. Para two. Para two. Para two. Para two. Para two. Para two. Para two. Para two. Para two. Para two. Para two. Para two.",
+    "Para two. Para two. Para two. Para two. Para two. Para two. Para two. Para two. Para two. Para two. Para two."
+   ]
+  },
+  {
+   "text": "line line line line line line line line line line line line line line line line line line line line line line line line line line line line line line line line line line line line line line line line line line line line line line line line line line line line line line line line line line line line line line line line line line line line line line line line line line line line line line line line ",
+   "max": 150,
+   "parts": [
+    "line line line line line line line line line line line line line line line line line line line line line line line line line line line line line line",
+    "line line line line line line line line line line line line line line line line line line line line line line line line line line line line line",
+    "line line line line line line line line line line line line line line line line line line line line line"
+   ]
+  },
+  {
+   "text": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+   "max": 100,
+   "parts": [
+    "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+   ]
+  },
+  {
+   "text": "今日は晴れです。今日は晴れです。今日は晴れです。今日は晴れです。今日は晴れです。今日は晴れです。今日は晴れです。今日は晴れです。今日は晴れです。今日は晴れです。今日は晴れです。今日は晴れです。今日は晴れです。今日は晴れです。今日は晴れです。今日は晴れです。今日は晴れです。今日は晴れです。今日は晴れです。今日は晴れです。今日は晴れです。今日は晴れです。今日は晴れです。今日は晴れです。今日は晴れです。今日は晴れです。今日は晴れです。今日は晴れです。今日は晴れです。今日は晴れです。今日は晴れです。今日は晴れです。今日は晴れです。今日は晴れです。今日は晴れです。今日は晴れです。今日は晴れです。今日は晴れです。今日は晴れです。今日は晴れです。😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+   "max": 150,
+   "parts": [
+    "今日は晴れです。今日は晴れです。今日は晴れです。今日は晴れです。今日は晴れです。今日は晴れです。今日は晴れです。今日は晴れです。今日は晴れです。今日は晴れです。今日は晴れです。今日は晴れです。今日は晴れです。今日は晴れです。今日は晴れです。今日は晴れです。今日は晴れです。今日は晴れです。",
+    "今日は晴れです。今日は晴れです。今日は晴れです。今日は晴れです。今日は晴れです。今日は晴れです。今日は晴れです。今日は晴れです。今日は晴れです。今日は晴れです。今日は晴れです。今日は晴れです。今日は晴れです。今日は晴れです。今日は晴れです。今日は晴れです。今日は晴れです。今日は晴れです。",
+    "今日は晴れです。今日は晴れです。今日は晴れです。今日は晴れです。😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+    "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+    "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀"
+   ]
+  },
+  {
+   "text": "short",
+   "max": 10,
+   "parts": [
+    "short"
+   ]
+  }
+ ],
+ "encodedWords": [
+  {
+   "s": "=?utf-8?Q?Gr=C3=BC=C3=9Fe_aus?= =?utf-8?Q?_K=C3=B6ln?= und mehr",
+   "text": "Grüße aus Köln und mehr"
+  },
+  {
+   "s": "=?unknown-x?Q?abc?=",
+   "text": "abc"
+  },
+  {
+   "s": "a =?UTF-8?B?w6k=?= b =?iso-8859-1?q?=E9?=",
+   "text": "a é b é"
+  },
+  {
+   "s": "=?utf-8*ro?B?ZMOp?=",
+   "text": "dé"
+  },
+  {
+   "s": "plain",
+   "text": "plain"
+  }
+ ],
+ "slackText": [
+  {
+   "s": "<@U1> <@U2|x> <#C1> <#C2|named> <!here> <!subteam^S1> <https://a.org|https://a.org> <mailto:x@y.org> <> &lt;&amp;",
+   "text": "@Ana @x #general #named @here @subteam https://a.org x@y.org <> <&"
+  }
+ ],
+ "frontMatter": [
+  {
+   "s": "---\ntitle: T # a comment\nurl: http://x.org/a:b\nk:v\ncount: 3\n---\nbody",
+   "fields": {
+    "title": "T",
+    "url": "http://x.org/a:b",
+    "count": 3
+   },
+   "body": "body"
+  },
+  {
+   "s": "+++\ntitle = \"TOML\"\nn = 2 # c\n+++\nbody",
+   "fields": {
+    "title": "TOML",
+    "n": 2
+   },
+   "body": "body"
+  },
+  {
+   "s": "---\nlist:\n  - a\n  - 1\nblock: >-\n  one\n\n  two\n---\n",
+   "fields": {
+    "list": "a, 1",
+    "block": "one  two"
+   },
+   "body": ""
+  },
+  {
+   "s": "no front matter",
+   "fields": {},
+   "body": "no front matter"
+  },
+  {
+   "s": "---\nunclosed: yes\n",
+   "fields": {},
+   "body": "---\nunclosed: yes\n"
+  }
+ ]
+}

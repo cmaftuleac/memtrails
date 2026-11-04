@@ -1,0 +1,50 @@
+From: =?iso-8859-1?Q?Andr=E9_Lef=E8vre?= <andre@example.org>
+To: "Ioana Mărgărit" <ioana@example.org>,
+	bob@example.org
+Cc: =?utf-8?q?=C5=81ukasz?= <lukasz@example.org>
+Subject: =?UTF-8?B?5Lya6A==?=
+ =?UTF-8?B?rbDjga7orbDkuovpjLIg4oCUIDIwMjTlubQ=?=
+Date: Mon, 1 Jan 2024 10:00:00 +0100 (CET)
+Message-ID: <m1@example.org>
+Content-Type: multipart/mixed; boundary="outer"
+
+preamble
+--outer
+Content-Type: multipart/alternative;
+ boundary=inner
+
+--inner
+Content-Type: text/plain; charset=utf-8
+Content-Transfer-Encoding: quoted-printable
+
+Bun=C4=83 ziua,
+
+Ata=C8=99ez procesul-verbal al =C8=99edin=C8=9Bei =E2=80=94 v=C4=83 rog =
+s=C4=83-l citi=C8=9Bi p=C3=A2n=C4=83 m=C3=A2ine. =F0=9F=99=8F
+
+> Ce s-a hot=C4=83r=C3=A2t?
+
+--=20
+Andr=C3=A9, Bucure=C8=99ti
+--inner
+Content-Type: text/html; charset=utf-8
+Content-Transfer-Encoding: base64
+
+PHA+QnVuxIMgeml1YSw8L3A+PHA+QXRhyJllei48L3A+
+--inner--
+--outer
+Content-Type: application/pdf
+Content-Disposition: attachment; filename*=UTF-8''%E8%AD%B0%E4%BA%8B%E9%8C%B2.pdf
+Content-Transfer-Encoding: base64
+
+JVBERi0xLjQgbm90IHJlYWxseQ==
+--outer
+Content-Type: application/octet-stream; name="=?utf-8?B?ZmnImWllci5iaW4=?="
+
+xx
+--outer
+Content-Type: text/plain; name*0*=utf-8''p%C4%83rti; name*1=".txt"
+Content-Disposition: attachment
+
+data
+--outer--

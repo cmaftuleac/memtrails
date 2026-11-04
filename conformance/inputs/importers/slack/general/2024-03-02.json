@@ -1,0 +1,15 @@
+[
+  {
+    "type": "message",
+    "user": "U1",
+    "text": "Mulțumesc! <#C1>",
+    "ts": "1709377200.000100"
+  },
+  {
+    "type": "message",
+    "subtype": "channel_topic",
+    "user": "U1",
+    "text": "set the topic",
+    "ts": "1709377300.000200"
+  }
+]

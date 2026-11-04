@@ -1,0 +1,13 @@
+﻿{"id":"ja","text":"会議は火曜日に延期されました 🎉","title":"会議","at":"2024-05-01T10:00:00Z","metadata":{"room":"B","empty":"","n":2,"ok":null}}
+{ not json
+{"text":"no id here"}
+
+{"id":7,"text":"Întâlnirea de mâine e la București.","author":"","kind":"note"}
+{"id":"ar","text":"تم تأجيل الاجتماع","at":1714557600000,"collection":"echipa"}
+{"id":"bad-time","text":"x","at":"whenever"}
+{"id":"empty-time","text":"x","at":""}
+{"id":"null-time","text":"x","at":null}
+{"id":"no-text","text":"","title":"only a title"}
+{"id":"blank","text":"   "}
+[1, 2]
+"a string"last

@@ -1,0 +1,94 @@
+[
+  {
+    "type": "message",
+    "subtype": "channel_join",
+    "user": "U3",
+    "text": "<@U3> has joined the channel",
+    "ts": "1709290000.000100"
+  },
+  {
+    "type": "message",
+    "user": "U1",
+    "text": "Planul: <@U2> preia <#C2|proiecte>, vezi <https://example.org/doc|documentul> și <https://example.org/raw>. 1 &lt; 2 &amp;&amp; ok",
+    "ts": "1709290800.000200",
+    "thread_ts": "1709290800.000200",
+    "reply_count": 1
+  },
+  {
+    "type": "message",
+    "user": "U2",
+    "text": "了解しました <@U1|ana> 👍 <@U7|ghost> <!subteam^S1|@ops> <!subteam^S2> <!channel> <mailto:a@example.org|Ana> <mailto:b@example.org> <#C9>",
+    "ts": "1709291000.000300",
+    "thread_ts": "1709290800.000200"
+  },
+  {
+    "type": "message",
+    "user": "U3",
+    "text": "",
+    "ts": "1709291100.000400",
+    "files": [
+      {
+        "name": "تقرير.pdf",
+        "title": "التقرير الشهري"
+      },
+      {
+        "name": "raw.txt"
+      }
+    ]
+  },
+  {
+    "type": "message",
+    "user": "U3",
+    "text": "",
+    "ts": "1709291150.000450"
+  },
+  {
+    "type": "message",
+    "subtype": "bot_message",
+    "bot_id": "B1",
+    "username": "deploy-bot",
+    "text": "Deployed <!here>",
+    "attachments": [
+      {
+        "title": "Build 42",
+        "title_link": "https://example.org/b/42"
+      },
+      {
+        "fallback": "see https://example.org/x",
+        "from_url": "https://example.org/x"
+      }
+    ],
+    "ts": "1709291200.000500"
+  },
+  {
+    "type": "message",
+    "bot_id": "B2",
+    "bot_profile": {
+      "name": "Helper"
+    },
+    "text": "beep",
+    "ts": "1709291300.000600"
+  },
+  {
+    "type": "message",
+    "user": "U5",
+    "user_profile": {
+      "real_name": "Guest Person"
+    },
+    "text": "hello",
+    "ts": "1709291400.000700"
+  },
+  {
+    "type": "message",
+    "hidden": true,
+    "user": "U1",
+    "text": "hidden",
+    "ts": "1709291500.000800"
+  },
+  {
+    "type": "event",
+    "user": "U1",
+    "text": "not a message",
+    "ts": "1709291600.000900"
+  }
+]
