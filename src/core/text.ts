@@ -111,7 +111,7 @@ export function cut(s: string, n: number): string {
 }
 
 /** One spelling per concept, the graph's key: folded like a word (case, accents, compatibility forms), inner spaces
- *  collapsed, stray punctuation off the ends — "Gateway.conf " and "gateway.conf" are one node. */
+ *  collapsed, stray punctuation off the ends — "Proxy.conf " and "proxy.conf" are one node. */
 export function conceptKey(name: string): string {
   return fold(name).replace(/\s+/g, ' ').replace(/^[\s.,:;"'`()[\]]+|[\s.,:;"'`()[\]]+$/g, '');
 }

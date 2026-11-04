@@ -1,7 +1,7 @@
 /**
  * Gathering: a SET of memories for a question, not a top-k.
  *
- * A question that counts, lists, totals or compares ("how many doctors did I see", "what did I spend on luxury items")
+ * A question that counts, lists, totals or compares ("how many plumbers did we call", "what did I spend on camera gear")
  * needs every instance, and one ranked below the cut is a wrong answer however good the rest are — measured on
  * LongMemEval's multi-session questions: every fact our answers missed was in the store, as a dated observation, and not
  * in the room. Mem0 and Graphiti hand the reader a fixed number by similarity; here the fast model reads them:
@@ -36,7 +36,7 @@ cancelled, sold, replaced, ended, a new amount) or dates it. When unsure, keep i
 wrong, an extra one does not.
 
 In "searches", write up to ${MORE} short searches for instances the question could count that none of these memories
-shows — other kinds, other words for the same thing (for "luxury items": "designer handbag", "jewelry", "watch") —
+shows — other kinds, other words for the same thing (for "camera gear": "lens", "tripod", "memory card") —
 in the language of the question. Leave it empty when nothing is missing. Never translate.`;
 
 const SCHEMA = {
@@ -52,7 +52,7 @@ const SCHEMA = {
 const NOTES_RULE = `
 
 In "notes", write what the memories you kept say that answers the question, in a few short lines: every instance with
-its date as the memories give it ("Books Tim has read: Harry Potter (2023-08-02), The Name of the Wind (2023-08-11)"),
+its date as the memories give it ("Concerts Lena went to: a jazz trio at the Blue Room (2024-03-02), the orchestra's Mahler night (2024-04-19)"),
 names, numbers and words as written. Only what they state, as plain statements: never write that something is not said,
 not given, unclear or unknown — leave it out instead, since other memories may hold it — and never a guess. Leave notes
 empty when the memories you kept say nothing about it. In the language of the question.`;

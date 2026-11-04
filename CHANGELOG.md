@@ -5,6 +5,17 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+- Prompt examples are invented now. The extraction and gathering prompts had a few example sentences taken from LoCoMo
+  conversations, one of them (in `gather`'s notes rule) from a held-out conversation. Their effect on the published
+  results, measured on the judged answers: leaving out every held-out question that mentions any of those words or
+  people (48 questions) gives 81.1 against Mem0's 76.6 (+111/−55), against 80.9 and 76.5 on all 1,307. The question
+  the example came from was answered wrong by both systems.
+- The search index layout is 7: `kinds` now selects records by their kind on every point and learned items by theirs,
+  so an existing index is rebuilt from the logs on the next open.
+- Fixes: a crash in the middle of a write no longer loses the records added after it; consolidation no longer
+  overwrites records changed or removed while the model answers; a title cut through an emoji no longer fails a write;
+  a thread that never goes quiet is consolidated; imported history is related and kept like new knowledge (`learnedAt`);
+  a malformed `from`/`to` is an error; `gather` and `sleep` report `paused` when the model did not read.
 - `bench/audited.ts`: judged LoCoMo answers without the questions whose golden answer an independent audit
   ([locomo-audit](https://github.com/dial481/locomo-audit)) found wrong, dropped for every system alike. As shipped,
   84.8 against Mem0's 79.9 (+109/−49).

@@ -209,8 +209,8 @@ describe('history imported after a sleep', () => {
     const s = setup();
     const learned = NOW - 3600_000;
     // Two copies of one fact from old records, both learned an hour ago; the last sleep was two hours ago.
-    const a = { ...item({ uid: 'mem:a', title: 'ports', summary: 'the gateway listens on port 8080 behind nginx', ts: OLD - 30 * DAY }), learnedAt: learned } as MemoryItem;
-    const b = { ...item({ uid: 'mem:b', title: 'ports', summary: 'the gateway listens on port 8080 behind nginx', ts: OLD }), learnedAt: learned } as MemoryItem;
+    const a = { ...item({ uid: 'mem:a', title: 'ports', summary: 'the proxy listens on port 8080 behind caddy', ts: OLD - 30 * DAY }), learnedAt: learned } as MemoryItem;
+    const b = { ...item({ uid: 'mem:b', title: 'ports', summary: 'the proxy listens on port 8080 behind caddy', ts: OLD }), learnedAt: learned } as MemoryItem;
     const old = { ...item({ uid: 'ep:old', kind: 'episode', title: 'one-off fix', summary: 'fixed a typo in a readme long ago', importance: 2, ts: NOW - 400 * DAY }), learnedAt: learned } as MemoryItem;
     await writeLtm(s.base, [a, b, old]);
     s.ltm.put([a, b, old]);

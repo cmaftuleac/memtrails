@@ -1,8 +1,8 @@
 /**
  * Profiles — what memory knows about one subject, gathered in one place (sleep's last step).
  *
- * A question about a subject whose facts were told over many conversations ("when did John join the brigade, and what
- * did he do there?") needs the dated facts of all of them, and a top 10 holds a few. For every concept enough long-term
+ * A question about a subject whose facts were told over many conversations ("when did Dana join the choir, and what
+ * did she sing there?") needs the dated facts of all of them, and a top 10 holds a few. For every concept enough long-term
  * items share — at least PROFILE_MIN_ITEMS of a project's items, and on at most PROFILE_BROAD of them (not the person
  * themselves, not the project's own name) — the fast model gathers what they say into one dated list of facts, word for
  * word: a `profile` item, keyed and searched like any other, whose provenance is every source it read.

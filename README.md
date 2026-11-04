@@ -142,7 +142,7 @@ const memory = await openMemory({
 });
 await memory.consolidate();   // after adding
 await memory.sleep();         // once a day
-await memory.gather({ query: 'every doctor I saw this year' });   // a set, for counting and listing questions
+await memory.gather({ query: 'every plumber we called this year' });   // a set, for counting and listing questions
 ```
 
 Any provider works: pass `llm: { baseUrl, model, apiKey }` for an OpenAI-compatible server (a hosted model, vLLM,
