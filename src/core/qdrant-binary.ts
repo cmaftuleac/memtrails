@@ -1,15 +1,19 @@
 /**
  * The Qdrant binary memory runs when you give it no Qdrant server of your own: one pinned release, fetched on first use
  * from Qdrant's GitHub release, verified against the size and SHA-256 pinned below, unpacked next to it (cache dir,
- * paths.ts), and trusted after that through a `.verified` marker.
+ * paths.ts), and trusted after that through a `.verified` marker while the folder is this user's alone.
  *
  * Qdrant publishes no checksums, so the hashes are pinned here from its release. Upgrading means a new version and new
  * hashes; Qdrant reads storage only from the minor version before it, so after a version change the index is written
  * again from the logs (rebuild.ts) rather than migrated: it is derived data.
  */
-import { createHash } from 'node:crypto';
-import { chmodSync, createWriteStream, existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { createHash, randomBytes } from 'node:crypto';
+import {
+  chmodSync, closeSync, createReadStream, createWriteStream, existsSync, lstatSync, mkdirSync, mkdtempSync, openSync, readFileSync,
+  renameSync, rmSync, statSync, utimesSync, writeFileSync, writeSync,
+} from 'node:fs';
+import { hostname } from 'node:os';
+import { dirname, join } from 'node:path';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { spawn } from 'node:child_process';
@@ -49,73 +53,199 @@ export function qdrantBinaryPath(a: QdrantAsset | null = qdrantAsset()): string 
 export const QDRANT_RELEASE_BASE = `https://github.com/qdrant/qdrant/releases/download/v${QDRANT_VERSION}`;
 const assetUrl = (a: QdrantAsset): string => `${QDRANT_RELEASE_BASE}/${a.asset}`;
 
-/** The binary is in place and its archive was verified when it was unpacked. */
+/**
+ * Run only what this user alone could have put there: the folder, the binary and its marker owned by this user, no
+ * symlink, writable by no one else. The archive's hash is pinned but not the unpacked binary's (that needs every
+ * platform's archive to compute), so on a shared machine this is what stops a binary swapped in after unpacking.
+ * Windows has no owner bits; there the user's profile ACLs keep others out.
+ */
+function ownedSafely(path: string): boolean {
+  if (typeof process.getuid !== 'function') return true;
+  const st = lstatSync(path);
+  return !st.isSymbolicLink() && st.uid === process.getuid() && (st.mode & 0o022) === 0;
+}
+
+/** The binary is in place, its archive was verified when it was unpacked, and no one else could have changed it since. */
 export function qdrantReady(a: QdrantAsset | null = qdrantAsset()): boolean {
   const bin = qdrantBinaryPath(a);
-  if (!a || !bin || !existsSync(bin)) return false;
+  if (!a || !bin) return false;
+  const marker = join(qdrantDir(), '.verified');
   try {
-    return readFileSync(join(qdrantDir(), '.verified'), 'utf8').trim() === `${a.size}:${a.sha256}`;
+    return readFileSync(marker, 'utf8').trim() === `${a.size}:${a.sha256}` && statSync(bin).size > 0 &&
+      [qdrantDir(), bin, marker].every(ownedSafely);
   } catch {
     return false;
   }
 }
 
+/** The system's tar; on Windows by full path, so a `tar.exe` in the working folder or on a planted PATH is not run. */
+function tarProgram(): string {
+  return process.platform === 'win32' ? join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'tar.exe') : 'tar';
+}
+
 /** Unpack one archive with the system's tar (bsdtar on macOS and Windows reads zip too). */
 function untar(archive: string, into: string): Promise<void> {
   return new Promise((resolve, reject) => {
-    const child = spawn('tar', ['-xf', archive, '-C', into], { stdio: 'ignore' });
+    const child = spawn(tarProgram(), ['-xf', archive, '-C', into], { stdio: 'ignore' });
     child.once('error', reject);
     child.once('exit', (code) => (code === 0 ? resolve() : reject(new Error(`tar exited ${code}`))));
   });
 }
 
+/** A download given up after this long without a byte (the answer's headers included). */
+export const DOWNLOAD_STALL_MS = 60_000;
+
+export interface DownloadOptions { signal?: AbortSignal; fetchImpl?: typeof fetch; stallMs?: number }
+
 /**
- * Fetch, verify and unpack the binary unless it is already there. Throws on a network failure, a size or hash
- * mismatch (the download is deleted), or a platform Qdrant does not ship for; the caller retries with backoff.
+ * `url` fetched into a fresh temp folder inside `dir`, never to a fixed name: two first runs at once (two processes, or
+ * two memories opened together in one) wrote the same `.part` and could rename each other's half-written file. The
+ * file is then checked as it is on disk, not as it streamed past, against its pinned size and SHA-256. Returns the
+ * file and its folder; the caller renames the file into place and removes the folder. Throws (leaving nothing) on a
+ * failure, a mismatch, or `stallMs` without a byte.
  */
-export async function ensureQdrant(opts: { signal?: AbortSignal; log?: (line: string) => void; fetchImpl?: typeof fetch } = {}): Promise<string> {
-  const a = qdrantAsset();
+export async function downloadVerified(url: string, dir: string, pin: { size: number; sha256: string }, o: DownloadOptions = {}):
+  Promise<{ file: string; tmp: string }> {
+  mkdirSync(dir, { recursive: true });
+  const tmp = mkdtempSync(join(dir, '.download-'));
+  const file = join(tmp, 'file');
+  const name = url.slice(url.lastIndexOf('/') + 1);
+  const stallMs = o.stallMs ?? DOWNLOAD_STALL_MS;
+  const stalled = new AbortController();
+  let timer: NodeJS.Timeout | undefined;
+  const arm = (): void => {
+    clearTimeout(timer);
+    timer = setTimeout(() => stalled.abort(new Error(`${name}: no data for ${Math.round(stallMs / 1000)} s`)), stallMs);
+  };
+  const signal = o.signal ? AbortSignal.any([o.signal, stalled.signal]) : stalled.signal;
+  try {
+    arm();
+    const res = await (o.fetchImpl ?? fetch)(url, { signal, redirect: 'follow' });
+    if (!res.ok || !res.body) throw new Error(`HTTP ${res.status} for ${name}`);
+    let size = 0;
+    await pipeline(Readable.fromWeb(res.body as never), async function* (src) {
+      for await (const chunk of src) {
+        arm();
+        size += (chunk as Buffer).length;
+        if (size > pin.size) throw new Error(`${name}: more than the expected ${pin.size} bytes`);
+        yield chunk as Buffer;
+      }
+    }, createWriteStream(file, { flags: 'wx', mode: 0o600 }), { signal });
+    clearTimeout(timer);
+    const hash = createHash('sha256');
+    for await (const chunk of createReadStream(file)) hash.update(chunk as Buffer);
+    const got = { size: statSync(file).size, sha256: hash.digest('hex') };
+    if (got.size !== pin.size || got.sha256 !== pin.sha256) {
+      throw new Error(`${name}: got ${got.size} bytes sha256 ${got.sha256}, expected ${pin.size} ${pin.sha256}`);
+    }
+    return { file, tmp };
+  } catch (err) {
+    rmSync(tmp, { recursive: true, force: true });
+    throw stalled.signal.aborted ? stalled.signal.reason : err;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** A lock not touched for this long is a dead holder's (the holder touches it every quarter of this). */
+export const LOCK_STALE_MS = 120_000;
+
+function lockStale(lock: string, staleMs: number): boolean {
+  try {
+    const [pid, host] = readFileSync(lock, 'utf8').split(' ');
+    if (host === hostname() && Number(pid) !== process.pid) {
+      try {
+        process.kill(Number(pid), 0);
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code === 'ESRCH') return true; // its process is gone
+      }
+    }
+    return Date.now() - statSync(lock).mtimeMs > staleMs;
+  } catch {
+    return false; // gone meanwhile: just try again
+  }
+}
+
+/**
+ * `f` run holding `<path>.lock`, created with O_EXCL: a second first run, in another process or this one, waits and
+ * then finds the first one's result. A lock whose process is gone, or untouched for `staleMs`, is taken over. Nothing
+ * rests on the lock for correctness (every file is verified in a private temp and renamed into place); it keeps two
+ * runs from fetching the same hundreds of MB, and from swapping folders under each other.
+ */
+export async function withLock<T>(path: string, f: () => Promise<T>, o: { signal?: AbortSignal; staleMs?: number; pollMs?: number } = {}): Promise<T> {
+  const lock = `${path}.lock`;
+  const staleMs = o.staleMs ?? LOCK_STALE_MS;
+  const mine = `${process.pid} ${hostname()} ${randomBytes(8).toString('hex')}`;
+  mkdirSync(dirname(lock), { recursive: true });
+  for (;;) {
+    try {
+      const fd = openSync(lock, 'wx', 0o600);
+      writeSync(fd, mine);
+      closeSync(fd);
+      break;
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err;
+    }
+    if (lockStale(lock, staleMs)) {
+      rmSync(lock, { force: true });
+      continue;
+    }
+    o.signal?.throwIfAborted();
+    await new Promise((ok) => setTimeout(ok, o.pollMs ?? 250));
+  }
+  const beat = setInterval(() => {
+    try {
+      utimesSync(lock, new Date(), new Date());
+    } catch { /* taken over: nothing to keep alive */ }
+  }, Math.max(10, staleMs / 4));
+  beat.unref();
+  try {
+    return await f();
+  } finally {
+    clearInterval(beat);
+    try {
+      if (readFileSync(lock, 'utf8') === mine) rmSync(lock, { force: true }); // not one taken over meanwhile
+    } catch { /* already gone */ }
+  }
+}
+
+/**
+ * Fetch, verify and unpack the binary unless it is already there. Throws on a network failure or stall, a size or
+ * hash mismatch (the download is deleted), a platform Qdrant does not ship for, or a folder others could change; the
+ * caller retries with backoff. `asset` is for tests: another archive with its own pins.
+ */
+export async function ensureQdrant(opts: DownloadOptions & { log?: (line: string) => void; asset?: QdrantAsset } = {}): Promise<string> {
+  const a = opts.asset ?? qdrantAsset();
   if (!a) throw new Error(`no Qdrant build for ${process.platform}-${process.arch}`);
   const bin = qdrantBinaryPath(a)!;
   if (qdrantReady(a)) return bin;
   const dir = qdrantDir();
-  mkdirSync(dir, { recursive: true });
-  const archive = join(dir, a.asset);
-  const part = `${archive}.part`;
-  rmSync(part, { force: true });
-  opts.log?.(`[memtrails] fetching Qdrant ${QDRANT_VERSION} (${Math.round(a.size / 1e6)} MB)`);
-  const res = await (opts.fetchImpl ?? fetch)(assetUrl(a), { signal: opts.signal, redirect: 'follow' });
-  if (!res.ok || !res.body) throw new Error(`HTTP ${res.status} for ${a.asset}`);
-  const hash = createHash('sha256');
-  let size = 0;
-  try {
-    await pipeline(
-      Readable.fromWeb(res.body as never),
-      async function* (src) {
-        for await (const chunk of src) {
-          const b = chunk as Buffer;
-          hash.update(b);
-          size += b.length;
-          yield b;
-        }
-      },
-      createWriteStream(part),
-    );
-  } catch (err) {
-    rmSync(part, { force: true });
-    throw err;
-  }
-  const digest = hash.digest('hex');
-  if (size !== a.size || digest !== a.sha256) {
-    rmSync(part, { force: true });
-    throw new Error(`${a.asset}: got ${size} bytes sha256 ${digest}, expected ${a.size} ${a.sha256}`);
-  }
-  renameSync(part, archive);
-  await untar(archive, dir);
-  rmSync(archive, { force: true });
-  if (!existsSync(bin) || statSync(bin).size === 0) throw new Error(`${a.asset} did not contain ${a.exe}`);
-  if (process.platform !== 'win32') chmodSync(bin, 0o755);
-  writeFileSync(join(dir, '.verified'), `${a.size}:${a.sha256}\n`);
-  opts.log?.(`[memtrails] Qdrant ${QDRANT_VERSION} ready`);
-  return bin;
+  const cache = dirname(dir);
+  mkdirSync(cache, { recursive: true, mode: 0o700 });
+  return withLock(dir, async () => {
+    if (qdrantReady(a)) return bin; // another run finished it while this one waited
+    opts.log?.(`[memtrails] fetching Qdrant ${QDRANT_VERSION} (${Math.round(a.size / 1e6)} MB)`);
+    const { file, tmp } = await downloadVerified(assetUrl(a), cache, a, opts);
+    try {
+      // Unpacked into a fresh folder and moved into place whole: never a half-unpacked binary under the real name.
+      const archive = join(tmp, a.asset);
+      renameSync(file, archive);
+      const unpacked = join(tmp, 'unpacked');
+      mkdirSync(unpacked);
+      await untar(archive, unpacked);
+      const exe = join(unpacked, a.exe);
+      if (!existsSync(exe) || !lstatSync(exe).isFile() || statSync(exe).size === 0) throw new Error(`${a.asset} did not contain ${a.exe}`);
+      chmodSync(exe, 0o755);
+      writeFileSync(join(unpacked, '.verified'), `${a.size}:${a.sha256}\n`, { mode: 0o644 });
+      chmodSync(join(unpacked, '.verified'), 0o644);
+      chmodSync(unpacked, 0o755);
+      if (existsSync(dir)) renameSync(dir, join(tmp, 'old')); // unverified or not this user's alone; removed with tmp
+      renameSync(unpacked, dir);
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+    if (!qdrantReady(a)) throw new Error(`${dir} is not this user's alone (its owner or permissions): not running a binary others could change`);
+    opts.log?.(`[memtrails] Qdrant ${QDRANT_VERSION} ready`);
+    return bin;
+  }, { signal: opts.signal });
 }

@@ -4,12 +4,10 @@
  * pinned size and SHA-256. 218 MB. The model is Google's, under the Gemma Terms of Use (ai.google.dev/gemma/terms);
  * memtrails does not ship it.
  */
-import { createHash } from 'node:crypto';
-import { createWriteStream, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { Readable } from 'node:stream';
-import { pipeline } from 'node:stream/promises';
 import { cacheDir } from './paths.js';
+import { downloadVerified, withLock, type DownloadOptions } from './qdrant-binary.js';
 
 export const MODEL_REPO = 'onnx-community/embeddinggemma-300m-ONNX';
 export const MODEL_REVISION = '5090578d9565bb06545b4552f76e6bc2c93e4a66';
@@ -27,44 +25,41 @@ export function defaultModelDir(): string {
 const marker = (dir: string): string => join(dir, '.verified');
 const stamp = MODEL_FILES.map((f) => `${f.rel}:${f.size}:${f.sha256}`).join('\n');
 
+/** Every file in place at its pinned size, and the marker written after the last of them was verified. */
 export function modelReady(dir = defaultModelDir()): boolean {
   try {
-    return readFileSync(marker(dir), 'utf8') === stamp && MODEL_FILES.every((f) => existsSync(join(dir, f.rel)));
+    return readFileSync(marker(dir), 'utf8') === stamp &&
+      MODEL_FILES.every((f) => existsSync(join(dir, f.rel)) && statSync(join(dir, f.rel)).size === f.size);
   } catch {
     return false;
   }
 }
 
-/** The model in `dir` (fetched and checked unless it is already there); the directory, ready for `modelDir`. */
-export async function ensureModel(opts: { dir?: string; log?: (line: string) => void; fetchImpl?: typeof fetch; signal?: AbortSignal } = {}): Promise<string> {
+/**
+ * The model in `dir` (fetched and checked unless it is already there); the directory, ready for `modelDir`. Each file
+ * is fetched to a temp of its own, checked on disk and renamed into place; one run at a time per `dir` (withLock), and
+ * the marker is taken away first, so a set left half-replaced is never taken as ready.
+ */
+export async function ensureModel(opts: DownloadOptions & { dir?: string; log?: (line: string) => void } = {}): Promise<string> {
   const dir = opts.dir ?? defaultModelDir();
   if (modelReady(dir)) return dir;
-  opts.log?.(`[memtrails] fetching ${MODEL_REPO} (218 MB, Gemma Terms of Use)`);
-  for (const f of MODEL_FILES) {
-    const path = join(dir, f.rel);
-    mkdirSync(dirname(path), { recursive: true });
-    const part = `${path}.part`;
-    rmSync(part, { force: true });
-    const res = await (opts.fetchImpl ?? fetch)(`https://huggingface.co/${MODEL_REPO}/resolve/${MODEL_REVISION}/${f.rel}`, { signal: opts.signal, redirect: 'follow' });
-    if (!res.ok || !res.body) throw new Error(`HTTP ${res.status} for ${f.rel}`);
-    const hash = createHash('sha256');
-    let size = 0;
-    try {
-      await pipeline(Readable.fromWeb(res.body as never), async function* (src) {
-        for await (const chunk of src) { const b = chunk as Buffer; hash.update(b); size += b.length; yield b; }
-      }, createWriteStream(part));
-    } catch (err) {
-      rmSync(part, { force: true });
-      throw err;
+  mkdirSync(dir, { recursive: true });
+  return withLock(dir, async () => {
+    if (modelReady(dir)) return dir; // another run finished it while this one waited
+    opts.log?.(`[memtrails] fetching ${MODEL_REPO} (218 MB, Gemma Terms of Use)`);
+    rmSync(marker(dir), { force: true });
+    for (const f of MODEL_FILES) {
+      const path = join(dir, f.rel);
+      const { file, tmp } = await downloadVerified(`https://huggingface.co/${MODEL_REPO}/resolve/${MODEL_REVISION}/${f.rel}`,
+        dirname(path), f, opts);
+      try {
+        renameSync(file, path);
+      } finally {
+        rmSync(tmp, { recursive: true, force: true });
+      }
     }
-    const digest = hash.digest('hex');
-    if (size !== f.size || digest !== f.sha256) {
-      rmSync(part, { force: true });
-      throw new Error(`${f.rel}: got ${size} bytes sha256 ${digest}, expected ${f.size} ${f.sha256}`);
-    }
-    renameSync(part, path);
-  }
-  writeFileSync(marker(dir), stamp);
-  opts.log?.('[memtrails] embedding model ready');
-  return dir;
+    writeFileSync(marker(dir), stamp);
+    opts.log?.('[memtrails] embedding model ready');
+    return dir;
+  }, { signal: opts.signal });
 }
