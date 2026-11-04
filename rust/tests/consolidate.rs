@@ -199,7 +199,7 @@ async fn labels_a_model_quotes_are_read() {
         it: item("mem:new", "new", "deploy through jenkins", json!({})),
         known: item("mem:old", "old", "deploy by hand", json!({})),
     };
-    let got = Consolidator::new(s.with(ask)).relate(&[pair.clone()]).await.unwrap();
+    let got = Consolidator::new(s.with(ask)).relate(std::slice::from_ref(&pair)).await.unwrap();
     assert_eq!(got["p1"].relation, "related");
     let away = answering(|_| LlmAnswer::Unavailable("no model is set".into()));
     assert_eq!(Consolidator::new(s.with(away)).relate(&[pair]).await.unwrap_err(), "no model is set");
