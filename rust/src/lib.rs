@@ -7,17 +7,26 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 
+pub mod download;
+pub mod embedder;
 pub mod episodes;
 pub mod error;
 pub mod importers;
 pub mod js;
+pub mod llm;
+pub mod local_embedder;
+pub mod model;
 pub mod profiles;
+pub mod qdrant_binary;
 pub mod qdrant_client;
+pub mod qdrant_process;
 pub mod recall_types;
 pub mod records;
 pub mod redact;
+pub mod reranker;
 pub mod room;
 pub mod store;
+mod sys;
 pub mod text;
 pub mod tools;
 pub mod words;
@@ -31,3 +40,6 @@ pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 /// Each document's relevance to the query, or `None` (the search keeps its own order): `(query, documents,
 /// timeout_ms)`.
 pub type RerankFn = Arc<dyn Fn(String, Vec<String>, u64) -> BoxFuture<'static, Option<Vec<f64>>> + Send + Sync>;
+
+/// Where progress lines go.
+pub type LogFn = Arc<dyn Fn(&str) + Send + Sync>;
