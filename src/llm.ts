@@ -5,6 +5,7 @@
  * `openAiAsk` speaks the OpenAI Responses API, so any provider or local server that serves it works (`baseUrl`). Bring
  * any other model by passing your own `Ask`. Every call's tokens can be counted (`onUsage`).
  */
+import { redactString } from './core/redact.js';
 
 export interface LlmRequest {
   /** What this is for, in a word (`memory`). */
@@ -34,7 +35,7 @@ export type Ask = (req: LlmRequest) => Promise<LlmAnswer>;
 export interface LlmUsage { model: string; name?: string; inputTokens: number; cachedTokens: number; outputTokens: number }
 
 export interface OpenAiAskOptions {
-  /** Default: $MEMTRAILS_LLM_API_KEY, else $OPENAI_API_KEY. */
+  /** Default: $MEMTRAILS_LLM_API_KEY, else $OPENAI_API_KEY — the latter only for OpenAI's own address. */
   apiKey?: string;
   /** Default: $MEMTRAILS_MODEL. */
   model?: string;
@@ -49,15 +50,18 @@ export interface OpenAiAskOptions {
   fetchImpl?: typeof fetch;
 }
 
+const OPENAI = 'https://api.openai.com/v1';
+
 const why = (reason: string, req: LlmRequest): string => `${reason}${req.consequence ? `, ${req.consequence}` : ''}`;
 
 export function openAiAsk(o: OpenAiAskOptions = {}): Ask {
   return async (req) => {
     const model = req.model ?? o.model ?? process.env.MEMTRAILS_MODEL?.trim();
-    const key = o.apiKey ?? (process.env.MEMTRAILS_LLM_API_KEY?.trim() || process.env.OPENAI_API_KEY?.trim());
+    const base = (o.baseUrl ?? (process.env.MEMTRAILS_LLM_BASE_URL?.trim() || OPENAI)).replace(/\/+$/, '');
+    // An OpenAI key goes to OpenAI only: with another address set, it would hand the key to whoever serves that.
+    const key = o.apiKey ?? (process.env.MEMTRAILS_LLM_API_KEY?.trim() || (base === OPENAI ? process.env.OPENAI_API_KEY?.trim() : undefined));
     if (!model) return { unavailable: why('no model is set (the model option, or MEMTRAILS_MODEL)', req) };
-    if (!key) return { unavailable: why('no API key is set (the apiKey option, MEMTRAILS_LLM_API_KEY or OPENAI_API_KEY)', req) };
-    const base = (o.baseUrl ?? (process.env.MEMTRAILS_LLM_BASE_URL?.trim() || 'https://api.openai.com/v1')).replace(/\/+$/, '');
+    if (!key) return { unavailable: why(`no API key is set (the apiKey option or MEMTRAILS_LLM_API_KEY${base === OPENAI ? ', or OPENAI_API_KEY' : ''})`, req) };
     const body = JSON.stringify({
       model, instructions: req.system, input: req.prompt, max_output_tokens: req.maxTokens ?? 12_000,
       ...(o.reasoningEffort ? { reasoning: { effort: o.reasoningEffort } } : {}),
@@ -78,7 +82,11 @@ export function openAiAsk(o: OpenAiAskOptions = {}): Ask {
         continue;
       }
       if (res.status === 429 || res.status >= 500) { last = `HTTP ${res.status}`; continue; }
-      if (!res.ok) return { unavailable: why(`the model answered HTTP ${res.status}`, req) };
+      if (!res.ok) {
+        // What the provider said (a wrong model name, a schema it refuses) — not only its status.
+        const said = redactString((await res.text().catch(() => '')).replace(/\s+/g, ' ').trim()).slice(0, 300);
+        return { unavailable: why(`the model answered HTTP ${res.status}${said ? `: ${said}` : ''}`, req) };
+      }
       try {
         const r = (await res.json()) as {
           model?: string; output?: Array<{ content?: Array<{ text?: string }> }>;

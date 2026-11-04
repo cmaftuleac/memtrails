@@ -175,7 +175,7 @@ for (const t of tools) server.tool(t.name, t.description, t.inputSchema, t.handl
 | Environment | |
 |---|---|
 | `MEMTRAILS_CACHE` | Where downloads live (default `~/.cache/memtrails`). |
-| `MEMTRAILS_MODEL`, `MEMTRAILS_LLM_API_KEY` or `OPENAI_API_KEY`, `MEMTRAILS_LLM_BASE_URL` | The language model when `llm` is not given. |
+| `MEMTRAILS_MODEL`, `MEMTRAILS_LLM_API_KEY` or `OPENAI_API_KEY`, `MEMTRAILS_LLM_BASE_URL` | The language model when `llm` is not given. `OPENAI_API_KEY` is sent only to OpenAI's own address. |
 | `MEMTRAILS_EMBED_URL`, `MEMTRAILS_RERANK_URL` (+ `_KEY`, `_MODEL`) | Servers, when not given in options. |
 
 ## How it works
