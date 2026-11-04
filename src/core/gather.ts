@@ -73,7 +73,7 @@ function line(h: RecalledItem, n: number): string {
   return `[m${n}] (${when}) ${text}${h.match ? `\n    … ${cut(h.match, 600)}` : ''}`;
 }
 
-async function pick(ask: Ask, question: string, list: RecalledItem[], notes = false): Promise<{ keep: Set<string>; searches: string[]; notes: string[] }> {
+async function pick(ask: Ask, question: string, list: RecalledItem[], notes = false): Promise<{ keep: Set<string>; searches: string[]; notes: string[]; paused?: string }> {
   const parts: RecalledItem[][] = [];
   const size = notes ? NOTES_PART : PART;
   for (let i = 0; i < list.length; i += size) parts.push(list.slice(i, i + size));
@@ -84,17 +84,18 @@ async function pick(ask: Ask, question: string, list: RecalledItem[], notes = fa
       schema: (notes ? NOTES_SCHEMA : SCHEMA) as unknown as Record<string, unknown>,
       name: 'memory_gather', maxTokens: 40 * part.length + (notes ? 1400 : 600), timeoutMs: 120_000, consequence: 'so these memories are kept unread',
     });
-    if (!('answer' in a)) return { keep: part.map((h) => h.id), searches: [] as string[], notes: [] as string[] };
+    if (!('answer' in a)) return { keep: part.map((h) => h.id), searches: [] as string[], notes: [] as string[], paused: 'unavailable' in a ? a.unavailable : 'the fast model is busy' };
     const got = a.answer as { keep?: unknown; searches?: unknown; notes?: unknown };
     const ids = Array.isArray(got.keep) ? got.keep.filter((x): x is string => typeof x === 'string') : [];
     // A small model can quote the line it means ("[m3] (2023-06-03) …"), so the label is looked for, not assumed to be all of it.
     const keep = ids.map((x) => part[Number(/\bm(\d+)/.exec(x)?.[1] ?? 0) - 1]?.id).filter((x): x is string => !!x);
     const searches = Array.isArray(got.searches) ? got.searches.filter((x): x is string => typeof x === 'string' && !!x.trim()) : [];
     const said = notes && Array.isArray(got.notes) ? got.notes.filter((x): x is string => typeof x === 'string' && !!x.trim()).map((x) => redactString(x.trim())) : [];
-    return { keep, searches, notes: said };
+    return { keep, searches, notes: said, paused: undefined };
   }));
+  const paused = answers.find((a) => a.paused !== undefined)?.paused;
   return { keep: new Set(answers.flatMap((a) => a.keep)), searches: [...new Set(answers.flatMap((a) => a.searches.map((s) => s.trim())))],
-    notes: answers.flatMap((a) => a.notes) };
+    notes: answers.flatMap((a) => a.notes), ...(paused !== undefined ? { paused } : {}) };
 }
 
 export interface Gathered {
@@ -107,6 +108,9 @@ export interface Gathered {
   /** With `notes`: what the kept memories say that answers the question, a few short lines (empty otherwise). Show them
    *  before the memories, as notes on them: on LoCoMo this took 79.5 to 80.9 (docs/BENCHMARKS.md). */
   notes: string[];
+  /** Set when the model did not read some candidates (none configured, unreachable, busy): why. They are all kept, by
+   *  rank — the result is then a wide search, not a gathered set. */
+  paused?: string;
 }
 
 /** `from`/`to`: the time the question asks about ("on 10 April 2022", "in October 2023"). What happened then is searched
@@ -126,9 +130,11 @@ export async function memoryGather(d: RecallDeps, q: SearchQuery, o: { ask?: Ask
   for (const found of await Promise.all(searches.map((s) => memorySearch(d, { ...open, query: s, limit: 30 })))) {
     for (const h of found) if (!have.has(h.id)) { have.add(h.id); more.push(h); }
   }
-  const two = more.length ? await pick(ask, q.query, more, o.notes) : { keep: new Set<string>(), searches: [], notes: [] };
+  const two: Awaited<ReturnType<typeof pick>> = more.length ? await pick(ask, q.query, more, o.notes) : { keep: new Set<string>(), searches: [], notes: [] };
   const all = [...first, ...more];
   const kept = all.filter((h) => one.keep.has(h.id) || two.keep.has(h.id));
   const keptIds = new Set(kept.map((h) => h.id));
-  return { found: [...kept, ...all.filter((h) => !keptIds.has(h.id))], kept: kept.map((h) => h.id), searches, notes: [...one.notes, ...two.notes] };
+  const paused = one.paused ?? two.paused;
+  return { found: [...kept, ...all.filter((h) => !keptIds.has(h.id))], kept: kept.map((h) => h.id), searches, notes: [...one.notes, ...two.notes],
+    ...(paused !== undefined ? { paused } : {}) };
 }

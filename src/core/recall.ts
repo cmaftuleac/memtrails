@@ -57,12 +57,16 @@ export interface RecalledItem {
   score: number;
 }
 
-/** What search may show: active items, never a throwaway run, never superseded or archived knowledge. */
+/** What search may show: active items, never a throwaway run, never superseded or archived knowledge. `kinds`: a
+ *  record's kind is its `engine` (every point of a record has `kind: episode`), a learned item's its `kind`. */
 function baseFilter(kinds?: string[]): Filter {
-  return {
-    must: [{ key: 'synthetic', match: { value: false } }, { key: 'status', match: { value: 'active' } },
-      ...(kinds?.length ? [{ key: 'engine', match: { any: kinds } }] : [])],
-  };
+  const ofKind = kinds?.length ? [{
+    should: [
+      { must: [{ key: 'tier', match: { value: 'stm' } }, { key: 'engine', match: { any: kinds } }] },
+      { must: [{ key: 'tier', match: { value: 'ltm' } }, { key: 'kind', match: { any: kinds } }] },
+    ],
+  }] : [];
+  return { must: [{ key: 'synthetic', match: { value: false } }, { key: 'status', match: { value: 'active' } }, ...ofKind] };
 }
 
 async function items(d: RecallDeps, uids: string[]): Promise<RecalledItem[]> {
@@ -137,6 +141,10 @@ export interface SearchQuery {
 }
 
 export async function memorySearch(d: RecallDeps, q: SearchQuery): Promise<RecalledItem[]> {
+  // A date that is not one would leave its end open: the search would quietly ignore the range it was asked for.
+  for (const [end, at] of [['from', q.from], ['to', q.to]] as const) {
+    if (at && !dateSpan(at)) throw new Error(`memory search: ${end} "${at}" is not a date (YYYY-MM-DD, YYYY-MM or YYYY)`);
+  }
   const projects = q.collections?.length ? q.collections.map(collectionKey) : undefined;
   // Up to 200: a question that gathers ("everything she did with her family") needs the facts of many threads at once,
   // a dated observation a line.

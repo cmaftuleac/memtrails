@@ -31,7 +31,7 @@ export const SAME_EPISODE = 0.97;
  *  days are two observations, and a list question needs both. */
 export const SAME_OBSERVATION = 0.97;
 export const RELATED = 0.80;
-/** A conversation is consolidated once it has been quiet this long — or its entries are a day old. */
+/** A conversation is consolidated once it has been quiet this long — or its oldest waiting entry is a day old. */
 export const SETTLED_MS = 60 * 60_000;
 /** Extraction calls in flight: they are independent, and one at a time made a backfill take days (~86 s a window). */
 export const EXTRACT_CONCURRENCY = 8;
@@ -97,6 +97,7 @@ const CUE_SCHEMA = {
 } as const;
 
 export type Relation = 'same' | 'updates' | 'contradicts' | 'related' | 'different';
+export type Decision = { relation: Relation; title: string; summary: string; body: string };
 const RELATIONS: readonly string[] = ['same', 'updates', 'contradicts', 'related', 'different'];
 /** Links an item keeps to others about the same subject (exploration walks them), newest last. */
 export const MAX_LINKS = 24;
@@ -151,34 +152,45 @@ export function relateBatches<T extends { it: MemoryItem; known: MemoryItem }>(p
   return out;
 }
 
+/** When an item was written to long-term memory. `ts` is its source's own time — for history imported today, long ago —
+ *  so "learned since the last sleep" and "unused for half a year" read this. An item written before the field existed
+ *  has only `ts`. */
+export const learnedAt = (m: { ts: number; learnedAt?: number }): number => m.learnedAt ?? m.ts;
+export const stamped = (it: MemoryItem, at: number): MemoryItem => ({ ...it, learnedAt: at });
+
+/** The number of a label the model wrote back: `p3`, or the line it labels quoted whole (`[p3] NEW …`) — 0 for none. */
+export function labelNo(id: string, letter: 'p' | 'i'): number {
+  return Number(new RegExp(`\\b${letter}(\\d+)`).exec(id)?.[1] ?? 0);
+}
+
 /** One remembered episode or candidate as a long-term item (not yet reconciled). */
 function itemOf(c: Candidate, src: StmEntry, now: number, sources: StmEntry[] = [src]): MemoryItem {
   const project = c.scope === 'project' ? src.project : c.scope;
   // The files its requests changed, from their recorded steps — by code, not the model: paths are what summaries lose.
   const files = [...new Set(sources.flatMap((e) => e.files))];
-  return {
+  return stamped({
     uid: `mem:${fingerprint(c.kind, c.scope, project, c.title, c.summary)}`, kind: c.kind, scope: c.scope, project: src.project,
     engine: src.engine, session: src.session, cwd: src.cwd, where: src.title, ts: src.ts || now, firstTs: src.ts || now,
     title: c.title, summary: c.summary, body: c.body, files, appliesWhen: c.appliesWhen, confidence: c.confidence,
     importance: c.importance, status: 'active', provenance: c.provenance, seen: 1,
     fingerprint: fingerprint(c.kind, c.title, c.summary, c.body), cues: c.cues, concepts: c.concepts,
     ...(c.origin ? { origin: c.origin } : {}),
-  };
+  }, now);
 }
 
-function episodeItem(e: StmEntry, key: { title: string; summary: string; cues?: string[]; concepts?: string[]; outcome?: MemoryItem['outcome']; origin?: MemoryItem['origin'] }): MemoryItem {
-  return {
+function episodeItem(e: StmEntry, key: { title: string; summary: string; cues?: string[]; concepts?: string[]; outcome?: MemoryItem['outcome']; origin?: MemoryItem['origin'] }, now: number): MemoryItem {
+  return stamped({
     uid: `ep:${e.uid}`, kind: 'episode', scope: 'project', project: e.project, engine: e.engine, session: e.session, cwd: e.cwd,
     where: e.title, ts: e.ts, firstTs: e.ts, title: key.title || e.title, summary: key.summary, body: episodeBody(e), files: e.files,
     appliesWhen: '', confidence: 'observed', importance: e.files.length ? 3 : 2, status: 'active', provenance: [e.uid], seen: 1,
     fingerprint: fingerprint(e.request, e.reply, e.files), cues: key.cues ?? [], concepts: key.concepts ?? [],
     ...(key.outcome ? { outcome: key.outcome } : {}), ...(key.origin ? { origin: key.origin } : {}),
-  };
+  }, now);
 }
 
 /** An observation as a long-term item: its text is its key, its date beside when it was said. */
-function observationItem(o: Observation, src: StmEntry): MemoryItem {
-  return {
+function observationItem(o: Observation, src: StmEntry, now: number): MemoryItem {
+  return stamped({
     uid: `obs:${fingerprint(o.text, o.eventAt, o.provenance[0] ?? src.uid)}`, kind: 'observation', scope: 'person', project: src.project,
     engine: src.engine, session: src.session, cwd: src.cwd, where: src.title, ts: src.ts, firstTs: src.ts,
     title: cut(o.text, 100), summary: o.text, body: '', files: [], appliesWhen: '', confidence: 'stated', importance: 2,
@@ -186,7 +198,7 @@ function observationItem(o: Observation, src: StmEntry): MemoryItem {
     cues: o.cues ?? [], concepts: o.concepts, ...(o.eventAt ? { eventAt: o.eventAt } : {}),
     ...(o.startAt ? { startAt: o.startAt } : {}), ...(o.endAt ? { endAt: o.endAt } : {}), phase: o.phase, ...(o.about ? { about: o.about } : {}),
     ...(o.origin ? { origin: o.origin } : {}),
-  };
+  }, now);
 }
 
 function cosine(a: Float32Array, b: Float32Array): number {
@@ -248,16 +260,19 @@ export class Consolidator {
 
   /** Conversations with requests waiting, settled, newest first. */
   pending(now = (this.d.now ?? Date.now)()): Array<{ session: string; uids: string[]; last: number }> {
-    const by = new Map<string, { uids: string[]; last: number }>();
+    const by = new Map<string, { uids: string[]; first: number; last: number }>();
     for (const [uid, m] of this.d.stm.entries()) {
       if (m.done || m.synthetic) continue;
-      const s = by.get(m.session) ?? { uids: [], last: 0 };
+      const s = by.get(m.session) ?? { uids: [], first: Infinity, last: 0 };
       s.uids.push(uid);
+      s.first = Math.min(s.first, m.ts);
       s.last = Math.max(s.last, m.ts);
       by.set(m.session, s);
     }
-    return [...by.entries()].map(([session, s]) => ({ session, ...s }))
-      .filter((s) => now - s.last >= SETTLED_MS || s.uids.every((u) => now - (this.d.stm.meta(u)?.ts ?? now) >= DAY_MS))
+    // Quiet for an hour, or waiting a day since its oldest unread entry: a thread that never goes quiet (a message every
+    // half hour) is still read.
+    return [...by.entries()].filter(([, s]) => now - s.last >= SETTLED_MS || now - s.first >= DAY_MS)
+      .map(([session, { uids, last }]) => ({ session, uids, last }))
       .sort((a, b) => b.last - a.last);
   }
 
@@ -325,17 +340,22 @@ export class Consolidator {
       const learned = new Set(x.candidates.flatMap((c) => c.provenance));
       const kept = x.episodes.filter((k) => byUid.has(k.uid) && !learned.has(k.uid));
       const fresh: MemoryItem[] = [
-        ...kept.map((k) => episodeItem(byUid.get(k.uid)!, k)),
+        ...kept.map((k) => episodeItem(byUid.get(k.uid)!, k, now)),
         ...x.candidates.map((c) => itemOf(c, byUid.get(c.provenance.at(-1) ?? '') ?? head, now, c.provenance.flatMap((u) => byUid.get(u) ?? []))),
       ];
       await this.reconcile(fresh, r);
-      await this.observe(x.observations.map((o) => observationItem(o, byUid.get(o.provenance.at(-1) ?? '') ?? head)), r);
+      await this.observe(x.observations.map((o) => observationItem(o, byUid.get(o.provenance.at(-1) ?? '') ?? head, now)), r);
       r.dropped += x.dropped;
       r.episodes += kept.length;
       // Read: marked done in the queue. The requests themselves stay searchable — the raw record is the truth and the
       // memories learned from them are keys to it; dropping them lost every fact the extraction did not keep (measured on
-      // LongMemEval: 47 of 60 misses were facts said in passing inside a request).
-      this.d.stm.put(win.map((e) => ({ ...e, done: true })));
+      // LongMemEval: 47 of 60 misses were facts said in passing inside a request). Each as it is now, not as it was read
+      // before the model's long answer: one removed meanwhile stays removed, one changed meanwhile is read again.
+      this.d.stm.put(win.flatMap((e) => {
+        if (this.d.stm.meta(e.uid)?.fp !== e.fingerprint) return [];
+        const cur = this.d.stm.get(e.uid);
+        return cur ? [{ ...cur, done: true }] : [];
+      }));
       r.windows++;
       // One at a time, each window's keys are dropped after it; windows at once share the cache until the run ends.
       if (together === 1) this.vecs.clear();
@@ -456,7 +476,7 @@ export class Consolidator {
     if ('busy' in a) return { paused: 'the fast model is busy' };
     const out: MemoryItem[] = [];
     for (const x of (a.answer as { items?: Array<{ id?: string; cues?: unknown; concepts?: unknown }> }).items ?? []) {
-      const it = typeof x.id === 'string' ? items[Number(x.id.slice(1)) - 1] : undefined;
+      const it = typeof x.id === 'string' ? items[labelNo(x.id, 'i') - 1] : undefined;
       const cues = it?.cues?.length ? it.cues : cleanCues(x.cues);
       const concepts = it?.concepts?.length ? it.concepts : cleanConcepts(x.concepts);
       if (it && (cues.length || concepts.length)) out.push({ ...it, cues, concepts }); // what is missing is asked again next time
@@ -490,8 +510,9 @@ export class Consolidator {
     const batches = relateBatches(ask);
     const answers = await Promise.all(batches.map((b) => this.relate(b)));
     for (const [b, batch] of batches.entries()) {
+      const got = answers[b];
       for (const [n, { it, known }] of batch.entries()) {
-        const d = answers[b]?.get(`p${n + 1}`);
+        const d = got instanceof Map ? got.get(`p${n + 1}`) : undefined;
         if (!d || d.relation === 'different') { await this.add(it); r.added++; continue; }
         await this.locked([it.uid, known.uid], async () => {
           // Changed by a window beside this one since it was asked about: the answer was about another text — kept
@@ -583,15 +604,17 @@ export class Consolidator {
       files: [...new Set([...known.files, ...it.files])],
       confidence: known.confidence === 'verified' || it.confidence === 'verified' ? 'verified' : known.confidence,
       cues: [...new Set([...(known.cues ?? []), ...(it.cues ?? [])])],
-      related: [...new Set([...(known.related ?? []), ...(it.related ?? [])])].filter((u) => u !== known.uid),
+      related: [...new Set([...(known.related ?? []), ...(it.related ?? [])])].filter((u) => u !== known.uid).slice(-MAX_LINKS),
       concepts: [...new Map([...(known.concepts ?? []), ...(it.concepts ?? [])].map((c) => [conceptKey(c), c])).values()],
       absorbed: [...new Set([...(known.absorbed ?? []), ...kept.map((k) => k.uid)])],
     };
     merged.fingerprint = fingerprint(merged.kind, merged.title, merged.summary, merged.body);
+    // Changed now: what sleep relates next.
+    merged.learnedAt = Math.max(learnedAt(known), learnedAt(it));
     if (text) await writeLtm(this.writer, [merged]);
     else {
       await this.d.client.setPayload([known.uid], { ts: merged.ts, importance: merged.importance });
-      if ((merged.related?.length ?? 0) > (known.related?.length ?? 0)) await this.d.client.setPayload([known.uid], { related: merged.related }, true);
+      if (merged.related?.join('\n') !== (known.related ?? []).join('\n')) await this.d.client.setPayload([known.uid], { related: merged.related }, true);
       if ((merged.concepts?.length ?? 0) > (known.concepts?.length ?? 0)) await writeConcepts(this.writer, [merged]);
       // Learned again in other words: its new cues are found from now on.
       if ((merged.cues?.length ?? 0) > (known.cues?.length ?? 0)) await writeCues(this.writer, [merged]);
@@ -599,9 +622,10 @@ export class Consolidator {
     this.d.ltm.put([...kept, merged]);
   }
 
-  /** Two items about the same subject that say different things: each lists the other (memory_explore walks these). */
+  /** Two items about the same subject that say different things: each lists the other (memory_explore walks these) —
+   *  the newest MAX_LINKS, so an item on a busy subject does not grow its list, and its payload, without end. */
   async link(a: MemoryItem, b: MemoryItem): Promise<void> {
-    const add = (x: MemoryItem, y: MemoryItem): MemoryItem => ({ ...x, related: [...new Set([...(x.related ?? []), y.uid])] });
+    const add = (x: MemoryItem, y: MemoryItem): MemoryItem => ({ ...x, related: [...(x.related ?? []).filter((u) => u !== y.uid), y.uid].slice(-MAX_LINKS) });
     const [one, two] = [add(a, b), add(b, a)];
     this.d.ltm.put([one, two]);
     await this.d.client.setPayload([one.uid], { related: one.related }, true);
@@ -615,7 +639,8 @@ export class Consolidator {
     this.d.ltm.put([old]);
   }
 
-  async relate(batch: Array<{ it: MemoryItem; known: MemoryItem }>): Promise<Map<string, { relation: Relation; title: string; summary: string; body: string }> | null> {
+  /** The model's decision for each pair, by its label (`p1`, …) — or why it did not answer. */
+  async relate(batch: Array<{ it: MemoryItem; known: MemoryItem }>): Promise<Map<string, Decision> | { paused: string }> {
     // Whole texts: a merge the model writes from a shortened body loses the rest of it.
     const prompt = batch.map(({ it, known }, n) => `[p${n + 1}]\nNEW (${it.kind}): ${it.title}\n${it.summary}\n${it.body}\n\nKNOWN (${known.kind}): ${known.title}\n${known.summary}\n${known.body}`).join('\n\n');
     // Room for every merged text in full (≈ 2.5 characters a token, the two sides together), with the decisions.
@@ -624,11 +649,14 @@ export class Consolidator {
       purpose: 'memory', system: RELATE_SYSTEM, prompt: redactString(prompt), schema: RELATE_SCHEMA as unknown as Record<string, unknown>,
       name: 'memory_reconcile', maxTokens: 900 * batch.length + 200 + room, timeoutMs: 300_000, consequence: 'so these memories are kept apart for now',
     });
-    if (!('answer' in a)) return null;
-    const out = new Map<string, { relation: Relation; title: string; summary: string; body: string }>();
+    if ('unavailable' in a) return { paused: a.unavailable };
+    if (!('answer' in a)) return { paused: 'the fast model is busy' };
+    const out = new Map<string, Decision>();
     for (const p of (a.answer as { pairs?: Array<{ id?: string; relation?: string; title?: string; summary?: string; body?: string }> }).pairs ?? []) {
-      if (typeof p.id !== 'string' || !RELATIONS.includes(String(p.relation))) continue;
-      out.set(p.id, { relation: p.relation as Relation, title: (p.title ?? '').trim(), summary: (p.summary ?? '').trim(), body: (p.body ?? '').trim() });
+      // A small model may quote the label's line rather than the label: the number is looked for.
+      const n = typeof p.id === 'string' ? labelNo(p.id, 'p') : 0;
+      if (!n || !RELATIONS.includes(String(p.relation))) continue;
+      out.set(`p${n}`, { relation: p.relation as Relation, title: (p.title ?? '').trim(), summary: (p.summary ?? '').trim(), body: (p.body ?? '').trim() });
     }
     return out;
   }

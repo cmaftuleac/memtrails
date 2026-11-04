@@ -16,7 +16,7 @@
  */
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
-import { Consolidator, RELATED, relateBatches, SAME, type ConsolidateDeps, type Relation } from './consolidate.js';
+import { Consolidator, learnedAt, RELATED, relateBatches, SAME, type ConsolidateDeps, type Decision } from './consolidate.js';
 import { docText } from './embedder.js';
 import { pointId, type Filter } from './qdrant-client.js';
 import { writeProfiles } from './profiles.js';
@@ -47,16 +47,19 @@ export interface SleepDeps extends ConsolidateDeps {
   statePath: string;
   /** Where the last sleep is kept instead of `statePath` (a server running many memories: a row per memory). */
   sleepState?: { read(): Promise<{ last?: number } | null>; write(state: { last: number } & SleepReport): Promise<void> };
-  /** A backfill's night: fresh items looked at this many at once (1), relate asks in flight (RELATE_IN_FLIGHT), and
-   *  pairs a night asks about (PAIRS_PER_SLEEP). */
+  /** A backfill's night: fresh items looked at this many at once (1), and relate asks in flight (RELATE_IN_FLIGHT). */
   scanAtOnce?: number;
   relateInFlight?: number;
-  pairsPerSleep?: number;
   /** Answers applied at once (1, in order). */
   applyAtOnce?: number;
 }
 
-export interface SleepReport { looked: number; merged: number; superseded: number; linked: number; archived: number; profiled: number; unprofiled: number }
+export interface SleepReport {
+  looked: number; merged: number; superseded: number; linked: number; archived: number; profiled: number; unprofiled: number;
+  /** Set when the language model did not answer (none configured, unreachable, busy): why. What it was to read waits for
+   *  the next night. */
+  paused?: string;
+}
 
 export class Sleep {
   constructor(private readonly d: SleepDeps) {}
@@ -75,11 +78,13 @@ export class Sleep {
     // Observations are add-only (consolidate.ts observe): two events are never one, and an older one stays, dated. A
     // profile is written again from its items (4), never related to anything.
     const knowledge = (m: { status: string; kind: string }): boolean => m.status === 'active' && m.kind !== 'episode' && m.kind !== 'note' && m.kind !== 'observation' && m.kind !== 'profile';
-    const fresh = [...this.d.ltm.entries()].filter(([, m]) => knowledge(m) && m.ts >= since).sort((a, b) => a[1].ts - b[1].ts).map(([uid]) => uid);
-    const pairs: Array<{ it: MemoryItem; known: MemoryItem; score: number }> = [];
+    // Learned since: by when it was written, not by its source's time — history imported after a sleep is new to memory.
+    const fresh = [...this.d.ltm.entries()].filter(([, m]) => knowledge(m) && learnedAt(m) >= since)
+      .sort((a, b) => learnedAt(a[1]) - learnedAt(b[1])).map(([uid]) => uid);
+    /** `at`: when the fresh item of the pair was learned — where the next night starts when this pair is not asked. */
+    const pairs: Array<{ it: MemoryItem; known: MemoryItem; score: number; at: number }> = [];
     const seen = new Set<string>();
     let resumeAt: number | null = null;
-    const cap = this.d.pairsPerSleep ?? PAIRS_PER_SLEEP;
     const look = async (it: MemoryItem): Promise<Array<{ uid: string; item: string; score: number }>> => {
       // The key vector the index already holds; embedded again only when it is not there.
       const held = (await this.d.client.retrieve([pointId(it.uid, 0)], true))[0]?.vector;
@@ -96,7 +101,7 @@ export class Sleep {
       if (this.d.aborted()) return r;
       const group = fresh.slice(i, i + atOnce).map((uid) => this.d.ltm.get(uid)).filter((it): it is MemoryItem => !!it && it.status === 'active');
       if (!group.length) continue;
-      if (pairs.length >= cap) { resumeAt = group[0]!.ts; break; }
+      if (pairs.length >= PAIRS_PER_SLEEP) { resumeAt = learnedAt(group[0]!); break; }
       r.looked += group.length;
       for (const [k, near] of (await Promise.all(group.map(look))).entries()) {
         const it = group[k]!;
@@ -106,14 +111,15 @@ export class Sleep {
           if (!known || !knowledge(known) || seen.has(key)) continue;
           seen.add(key);
           // The newer of the two is NEW, the older KNOWN: a contradiction retires the older.
-          pairs.push(it.ts >= known.ts ? { it, known, score: n.score } : { it: known, known: it, score: n.score });
+          const at = learnedAt(it);
+          pairs.push(it.ts >= known.ts ? { it, known, score: n.score, at } : { it: known, known: it, score: n.score, at });
         }
       }
     }
     // The fast model reads the pairs below 0.93, several asks at once; the answers are applied in order, each to the
     // items as they are by then (one an earlier answer retired is left alone).
     const asked = pairs.filter((p) => p.score < SAME);
-    const answers = new Map<(typeof pairs)[number], { relation: Relation; title: string; summary: string; body: string }>();
+    const answers = new Map<(typeof pairs)[number], Decision>();
     const batches = relateBatches(asked);
     // As many asks in flight as allowed, the next one starting as soon as any is answered; one the model did not answer
     // stops the asking, and the next night starts from its pairs.
@@ -124,7 +130,7 @@ export class Sleep {
       while (!unanswered && next < batches.length && !this.d.aborted()) {
         const b = batches[next++]!;
         const got = await worker.relate(b);
-        if (!got) { unanswered = true; resumeAt = Math.min(resumeAt ?? Infinity, ...b.map((p) => p.it.ts)); return; }
+        if (!(got instanceof Map)) { unanswered = true; r.paused ??= got.paused; resumeAt = Math.min(resumeAt ?? Infinity, ...b.map((p) => p.at)); return; }
         b.forEach((p, n) => { const d = got.get(`p${n + 1}`); if (d) answers.set(p, d); });
       }
     }));
@@ -152,9 +158,11 @@ export class Sleep {
     for (const [uid, m] of this.d.ltm.entries()) {
       if (m.status !== 'active' || m.kind === 'note' || !HALF_LIFE[m.kind]) continue;
       const use = this.d.usage.of(uid);
-      if (priority(m, use, now) >= ARCHIVE_BELOW || now - Math.max(m.ts, use.lastUsed) < ARCHIVE_UNUSED_MS) continue;
+      // Unused for half a year since it was learned, not since its source was written: imported history is not archived
+      // the night it arrives.
+      if (priority(m, use, now) >= ARCHIVE_BELOW || now - Math.max(m.ts, learnedAt(m), use.lastUsed) < ARCHIVE_UNUSED_MS) continue;
       const it = this.d.ltm.get(uid);
-      if (it) retire.push({ ...it, status: 'archived' });
+      if (it && now - learnedAt(it) >= ARCHIVE_UNUSED_MS) retire.push({ ...it, status: 'archived' });
     }
     for (let i = 0; i < retire.length && !this.d.aborted(); i += 50) {
       const part = retire.slice(i, i + 50);
@@ -167,7 +175,10 @@ export class Sleep {
     const p = await writeProfiles(this.d);
     r.profiled = p.profiled;
     r.unprofiled = p.unprofiled;
-    if (p.paused) this.d.log(`memory sleep: profiles wait for the next night (${p.paused})`);
+    if (p.paused) {
+      r.paused ??= p.paused;
+      this.d.log(`memory sleep: profiles wait for the next night (${p.paused})`);
+    }
     this.d.ltm.compact();
     // A night that stopped early (the pair cap, the fast model away) starts the next one where it stopped.
     if (this.d.sleepState) {

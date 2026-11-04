@@ -18,7 +18,7 @@
 import { createHash } from 'node:crypto';
 import { redactString } from './redact.js';
 import { defaultAsk } from '../llm.js';
-import type { ConsolidateDeps } from './consolidate.js';
+import { stamped, type ConsolidateDeps } from './consolidate.js';
 import type { MemoryItem, MemoryScope } from './store.js';
 import { conceptKey, cut } from './text.js';
 import { writeLtm } from './writer.js';
@@ -92,15 +92,15 @@ export function profileSubjects(items: MemoryItem[], sizes: Map<string, number>)
 const promptOf = (s: ProfileSubject): string =>
   `SUBJECT: ${s.concept}\n\nMEMORIES:\n${s.read.map((it) => `- (${when(it)}) ${it.title}: ${cut(it.summary.replace(/\s+/g, ' '), PROFILE_LINE)}`).join('\n')}`;
 
-function profileItem(s: ProfileSubject, title: string, facts: string[]): MemoryItem {
+function profileItem(s: ProfileSubject, title: string, facts: string[], now: number): MemoryItem {
   const newest = s.read[s.read.length - 1]!;
-  return {
+  return stamped({
     uid: s.uid, kind: 'profile', scope: s.scope, project: s.project, engine: newest.engine, session: null, cwd: newest.cwd,
     where: s.concept, ts: Math.max(...s.read.map((it) => it.ts)), firstTs: Math.min(...s.read.map((it) => it.firstTs || it.ts)),
     title: cut(title.trim() || s.concept, 120), summary: facts.join('\n'), body: '', files: [], appliesWhen: '',
     confidence: 'curated', importance: 3, status: 'active', provenance: [...new Set(s.read.flatMap((it) => it.provenance))],
     seen: 1, fingerprint: s.fingerprint, concepts: [s.concept],
-  };
+  }, now);
 }
 
 /** Profiles written for the subjects whose items changed (at most `max`, several asks at once), and archived for the
@@ -138,7 +138,7 @@ export async function writeProfiles(d: ConsolidateDeps, max = PROFILES_PER_SLEEP
       const answer = a.answer as { title?: unknown; facts?: unknown };
       const facts = (Array.isArray(answer.facts) ? answer.facts : []).filter((f): f is string => typeof f === 'string' && !!f.trim()).map((f) => f.trim());
       if (!facts.length) continue;
-      const it = profileItem(s, typeof answer.title === 'string' ? answer.title : '', facts);
+      const it = profileItem(s, typeof answer.title === 'string' ? answer.title : '', facts, (d.now ?? Date.now)());
       await writeLtm(d, [it]);
       d.ltm.put([it]);
       r.profiled++;

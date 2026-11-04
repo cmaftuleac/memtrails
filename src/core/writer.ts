@@ -46,11 +46,12 @@ export async function writeStm(d: WriterDeps, entries: StmEntry[]): Promise<void
   const points: PointStruct[] = [];
   let at = 0;
   for (const { e, body, kids } of plan) {
-    const common = { item: stmItem(e.uid), tier: 'stm', status: 'active', kind: 'episode', scope: 'project', project: e.project, session: e.session, ts: e.ts, synthetic: e.synthetic };
+    // The record's kind (`engine`) on every point: a kinds filter must find a record by any of its chunks.
+    const common = { item: stmItem(e.uid), tier: 'stm', status: 'active', kind: 'episode', engine: e.engine, scope: 'project', project: e.project, session: e.session, ts: e.ts, synthetic: e.synthetic };
     points.push({
       id: pointId(stmItem(e.uid), 0),
       vector: { dense: Array.from(vecs[at]!), bm25: docSparse(`${stmTitle(e)}\n${body}`) },
-      payload: { ...common, part: 'key', engine: e.engine, cwd: e.cwd ?? '', where: e.title, title: stmTitle(e), summary: rawKey(e), body, files: e.files, importance: 0, ...(e.record ? { record: e.record } : {}) },
+      payload: { ...common, part: 'key', cwd: e.cwd ?? '', where: e.title, title: stmTitle(e), summary: rawKey(e), body, files: e.files, importance: 0, ...(e.record ? { record: e.record } : {}) },
     });
     kids.forEach((_, k) => points.push({ id: pointId(stmItem(e.uid), k + 1), vector: { dense: Array.from(vecs[at + 1 + k]!) }, payload: { ...common, part: 'child' } }));
     at += 1 + kids.length;
@@ -64,11 +65,14 @@ export async function writeStm(d: WriterDeps, entries: StmEntry[]): Promise<void
 export const cuePoint = (k: number): number => -(k + 1);
 
 /** The time a date stands for, as the first and last millisecond: a day, a month or a year (an observation's
- *  `eventAt`, or a date an agent searches by) — null for anything else. */
+ *  `eventAt`, or a date an agent searches by) — null for anything else, a month or day that does not exist too
+ *  (2024-02-30 is not 1 March). */
 export function dateSpan(d: string | undefined): { from: number; to: number } | null {
   const m = /^(\d{4})(?:-(\d{2})(?:-(\d{2}))?)?$/.exec(d ?? '');
   if (!m) return null;
   const [y, mo, dd] = [Number(m[1]), m[2] ? Number(m[2]) - 1 : null, m[3] ? Number(m[3]) : null];
+  if (mo !== null && (mo < 0 || mo > 11)) return null;
+  if (mo !== null && dd !== null && (dd < 1 || new Date(Date.UTC(y, mo, dd)).getUTCMonth() !== mo)) return null;
   if (mo === null) return { from: Date.UTC(y, 0, 1), to: Date.UTC(y + 1, 0, 1) - 1 };
   if (dd === null) return { from: Date.UTC(y, mo, 1), to: Date.UTC(y, mo + 1, 1) - 1 };
   return { from: Date.UTC(y, mo, dd), to: Date.UTC(y, mo, dd + 1) - 1 };

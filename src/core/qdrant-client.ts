@@ -10,29 +10,21 @@
  * A query ranks items once per query vector and once by keywords (each hit grouped by item, so an item found through
  * several children counts once), then fuses those item rankings by rank (RRF). Only `active` items are ever returned
  * to recall; superseded and archived ones stay in the log, out of the index.
- *
- * MANY USERS (a server holding a memory per user): one collection for all of them, its `user` field a
- * tenant index (`is_tenant`). A client made with `tenant` adds that user to every query, count, scroll, update and
- * delete, stamps it on every point it writes, and keys each point by user and item, so two users' identical items are
- * two points. The user comes from the caller's context (whose work this is), never from a query's words; a call made
- * with no user is refused before it reaches Qdrant.
  */
 import { createHash } from 'node:crypto';
 import { MEMORY_EMBEDDER } from './embedder.js';
 import type { QdrantEndpoint } from './qdrant-process.js';
 
 export const COLLECTION = 'memory';
-/** The payload field a tenant client keys every point by, and the original point id it keeps beside the scoped one. */
-export const TENANT_FIELD = 'user';
-const TENANT_PID = 'pid';
 export const DIMS = MEMORY_EMBEDDER.dims;
 /** What the index is made of; a change empties it and it is written in again from the logs (rebuild.ts).
  *  2: binary quantisation with rescoring (½ the RAM of int8, recall 0.98–1.00 measured at 1–3M points), keyword terms
  *  folded and segmented for every language (text.ts); 3: on-disk binary copy, HNSW and payload indexes;
  *  4: remote EmbeddingGemma GPU vectors (768 dimensions, explicit runtime/pooling tag in embedder.ts); 5: nothing cut —
  *  every chunk of a body (no 12-chunk limit), short-term entries chunked too, cues numbered below the key, full payloads;
- *  6: every captured request indexed for good — however old, consolidated or not (the raw record is the truth). */
-export const INDEX_LAYOUT = 6;
+ *  6: every captured request indexed for good — however old, consolidated or not (the raw record is the truth);
+ *  7: a record's kind (`engine`) on every point of it and indexed, so a kinds filter finds a record by its chunks. */
+export const INDEX_LAYOUT = 7;
 /** The memory-mapped 1-bit copy finds candidates; full vectors on disk re-score 3× as many as asked. */
 const RESCORE = { quantization: { rescore: true, oversampling: 3.0 } };
 /** Two segments: Qdrant's default is one a core, which costs a laptop RAM and per-query work for nothing at memory's
@@ -80,46 +72,16 @@ export class QdrantError extends Error {
 export interface QdrantClientOptions {
   /** The collection (COLLECTION when not given). */
   collection?: string;
-  /** Many users in one collection: the user every call is for — read on each call from the caller's context; null or ''
-   *  refuses the call. */
-  tenant?: () => string | null | undefined;
 }
 
 export class QdrantClient {
-  private readonly collection: string;
+  /** `/collections/<name>`, the name encoded: a name you give is a path segment, never more of the path. */
+  private readonly at: string;
 
   /** `endpoint` may start Qdrant (the service runs it only while memory has work): every call waits for it. */
   constructor(private readonly endpoint: () => QdrantEndpoint | null | Promise<QdrantEndpoint | null>, private readonly timeoutMs = 10_000,
-    private readonly opts: QdrantClientOptions = {}) {
-    this.collection = opts.collection ?? COLLECTION;
-  }
-
-  /** The user this call is for (a tenant client), or null (one person's own index). Throws when a tenant client has none. */
-  private user(): string | null {
-    if (!this.opts.tenant) return null;
-    const u = this.opts.tenant();
-    if (!u) throw new QdrantError('memory index: this call names no user, so it is refused', 403);
-    return u;
-  }
-
-  /** A filter with the user added — unchanged for one person's own index. */
-  private scoped(filter: Filter | undefined, user: string | null): Filter | undefined {
-    if (user === null) return filter;
-    return { ...filter, must: [{ key: TENANT_FIELD, match: { value: user } }, ...(filter?.must ?? [])] };
-  }
-
-  /** A point's id in a shared collection: the user's and the item's (pointId of both), so users never share a point. */
-  private scopedId(id: string, user: string | null): string {
-    return user === null ? id : pointId(`${user}\u0000${id}`, 0);
-  }
-
-  /** What a read hands back: the point's own id (as the writer named it) and only this user's points. */
-  private own<P extends { id: string; payload: Record<string, unknown> }>(points: P[], user: string | null): P[] {
-    if (user === null) return points;
-    return points.filter((p) => p.payload[TENANT_FIELD] === user).map((p) => {
-      const { [TENANT_FIELD]: _u, [TENANT_PID]: pid, ...payload } = p.payload;
-      return { ...p, id: String(pid ?? p.id), payload };
-    });
+    opts: QdrantClientOptions = {}) {
+    this.at = `/collections/${encodeURIComponent(opts.collection ?? COLLECTION)}`;
   }
 
   private async call<T>(method: string, path: string, body?: unknown, timeoutMs = this.timeoutMs): Promise<T> {
@@ -153,7 +115,7 @@ export class QdrantClient {
 
   /** Drop the whole collection: the index is derived, written again from the logs (rebuild.ts). */
   async dropCollection(): Promise<void> {
-    await this.call('DELETE', `/collections/${this.collection}`).catch(() => undefined);
+    await this.call('DELETE', this.at).catch(() => undefined);
   }
 
   /** The collection and its payload indexes, made if missing — an index added since a collection was made is added to
@@ -164,12 +126,12 @@ export class QdrantClient {
   async ensureCollection(): Promise<void> {
     let info: { payload_schema?: Record<string, unknown>; config?: { optimizer_config?: { default_segment_number?: number } } } | null = null;
     try {
-      info = (await this.call<typeof info>('GET', `/collections/${this.collection}`)) ?? {};
+      info = (await this.call<typeof info>('GET', this.at)) ?? {};
     } catch (err) {
       if (!(err instanceof QdrantError) || err.status !== 404) throw err;
     }
     if (!info) {
-      await this.call('PUT', `/collections/${this.collection}`, {
+      await this.call('PUT', this.at, {
         vectors: { dense: { size: DIMS, distance: 'Cosine', on_disk: true } },
         sparse_vectors: { bm25: { modifier: 'idf', index: { on_disk: true } } },
         quantization_config: { binary: { always_ram: false } },
@@ -180,40 +142,33 @@ export class QdrantClient {
       info = { payload_schema: {}, config: { optimizer_config: { default_segment_number: SMALL.optimizers_config.default_segment_number } } };
     } else if (info.config?.optimizer_config?.default_segment_number !== SMALL.optimizers_config.default_segment_number) {
       // Made before: two segments from now on (the optimiser merges them in the background).
-      await this.call('PATCH', `/collections/${this.collection}`, { optimizers_config: SMALL.optimizers_config });
+      await this.call('PATCH', this.at, { optimizers_config: SMALL.optimizers_config });
     }
     const have = info.payload_schema ?? {};
-    // Many users: the user field first, as Qdrant's tenant index (its points kept together on disk, searched per user).
-    if (this.opts.tenant && !(TENANT_FIELD in have)) {
-      await this.call('PUT', `/collections/${this.collection}/index?wait=true`, { field_name: TENANT_FIELD, field_schema: { type: 'keyword', is_tenant: true, on_disk: true } });
-    }
     for (const [field_name, field_schema] of [['item', 'keyword'], ['part', 'keyword'], ['tier', 'keyword'], ['status', 'keyword'],
-      ['kind', 'keyword'], ['scope', 'keyword'], ['project', 'keyword'], ['session', 'keyword'], ['ts', 'integer'],
+      ['kind', 'keyword'], ['engine', 'keyword'], ['scope', 'keyword'], ['project', 'keyword'], ['session', 'keyword'], ['ts', 'integer'],
       ['synthetic', 'bool'], ['concepts', 'keyword'], ['eventFrom', 'integer'], ['eventTo', 'integer']] as const) {
       const schema = field_schema === 'keyword' || field_schema === 'integer' ? { type: field_schema, on_disk: true } : field_schema;
-      if (!(field_name in have)) await this.call('PUT', `/collections/${this.collection}/index?wait=true`, { field_name, field_schema: schema });
+      if (!(field_name in have)) await this.call('PUT', `${this.at}/index?wait=true`, { field_name, field_schema: schema });
     }
   }
 
   async upsert(points: PointStruct[], wait = false): Promise<void> {
     if (!points.length) return;
-    const user = this.user();
-    const out = user === null ? points
-      : points.map((p) => ({ ...p, id: this.scopedId(p.id, user), payload: { ...p.payload, [TENANT_FIELD]: user, [TENANT_PID]: p.id } }));
-    await this.call('PUT', `/collections/${this.collection}/points?wait=${wait}`, { points: out }, 60_000);
+    await this.call('PUT', `${this.at}/points?wait=${wait}`, { points }, 60_000);
   }
 
   /** Every point of these items — before an item is written again (its children may be fewer now). */
   async deleteItems(items: string[]): Promise<void> {
     if (!items.length) return;
-    await this.call('POST', `/collections/${this.collection}/points/delete?wait=true`, { filter: this.scoped({ must: [{ key: 'item', match: { any: items } }] }, this.user()) }, 60_000);
+    await this.call('POST', `${this.at}/points/delete?wait=true`, { filter: { must: [{ key: 'item', match: { any: items } }] } }, 60_000);
   }
 
   /** One kind of point of these items (`cue`), before that part is written again. */
   async deleteParts(items: string[], part: string): Promise<void> {
     if (!items.length) return;
-    await this.call('POST', `/collections/${this.collection}/points/delete?wait=true`, {
-      filter: this.scoped({ must: [{ key: 'item', match: { any: items } }, { key: 'part', match: { value: part } }] }, this.user()),
+    await this.call('POST', `${this.at}/points/delete?wait=true`, {
+      filter: { must: [{ key: 'item', match: { any: items } }, { key: 'part', match: { value: part } }] },
     }, 60_000);
   }
 
@@ -222,14 +177,14 @@ export class QdrantClient {
     if (!items.length) return;
     const must: unknown[] = [{ key: 'item', match: { any: items } }];
     if (keyOnly) must.push({ key: 'part', match: { value: 'key' } });
-    await this.call('POST', `/collections/${this.collection}/points/payload?wait=true`, { payload, filter: this.scoped({ must }, this.user()) }, 60_000);
+    await this.call('POST', `${this.at}/points/payload?wait=true`, { payload, filter: { must } }, 60_000);
   }
 
   /** The nearest key points to one vector (consolidation's "do I know this already?"), with their cosine. */
   async neighbors(vector: number[], filter: Filter, limit = 5): Promise<Array<{ item: string; score: number; payload: Record<string, unknown> }>> {
     const must = [...(filter.must ?? []), { key: 'part', match: { value: 'key' } }];
-    const r = await this.call<{ points: Array<{ score: number; payload?: Record<string, unknown> }> }>('POST', `/collections/${this.collection}/points/query`, {
-      query: vector, using: 'dense', limit, params: RESCORE, filter: this.scoped({ ...filter, must }, this.user()), with_payload: ['item', 'title', 'summary', 'kind', 'scope', 'project', 'status'],
+    const r = await this.call<{ points: Array<{ score: number; payload?: Record<string, unknown> }> }>('POST', `${this.at}/points/query`, {
+      query: vector, using: 'dense', limit, params: RESCORE, filter: { ...filter, must }, with_payload: ['item', 'title', 'summary', 'kind', 'scope', 'project', 'status'],
     });
     return (r?.points ?? []).map((p) => ({ item: String(p.payload?.item ?? ''), score: p.score, payload: p.payload ?? {} }));
   }
@@ -238,52 +193,46 @@ export class QdrantClient {
    *  per-family similarities. An item with no such point is not in the map. */
   async bestPerItem(vector: number[], items: string[], part: string, timeoutMs = 2000): Promise<Map<string, number>> {
     if (!items.length) return new Map();
-    const r = await this.call<{ groups: Array<{ id: string; hits: Array<{ id?: string; score: number }> }> }>('POST', `/collections/${this.collection}/points/query/groups`, {
+    const r = await this.call<{ groups: Array<{ id: string; hits: Array<{ id?: string; score: number }> }> }>('POST', `${this.at}/points/query/groups`, {
       query: vector, using: 'dense', params: RESCORE,
-      filter: this.scoped({ must: [{ key: 'item', match: { any: items } }, { key: 'part', match: { value: part } }] }, this.user()),
+      filter: { must: [{ key: 'item', match: { any: items } }, { key: 'part', match: { value: part } }] },
       group_by: 'item', group_size: 1, limit: items.length, with_payload: false,
     }, timeoutMs);
     return new Map((r?.groups ?? []).map((g) => [String(g.id), g.hits[0]?.score ?? 0]));
   }
 
   /** `nearest` for several vectors in one call. */
-  /** `fields`: only these payload fields (and the item and its user), for a caller that needs no more — a walk over
+  /** `fields`: only these payload fields (and the item), for a caller that needs no more — a walk over
    *  many neighbours reads ids, not the bodies of long requests. */
   async nearestMany(vectors: number[][], filter: Filter, limit = 10, timeoutMs = 5000, fields?: string[]): Promise<Array<Array<{ item: string; score: number; payload: Record<string, unknown> }>>> {
     if (!vectors.length) return [];
-    const user = this.user();
-    const withPayload = fields ? [...new Set([...fields, 'item', TENANT_FIELD])] : true;
-    const r = await this.call<Array<{ points: Array<{ score: number; payload?: Record<string, unknown> }> }>>('POST', `/collections/${this.collection}/points/query/batch`, {
-      searches: vectors.map((v) => ({ query: v, using: 'dense', limit, params: RESCORE, filter: this.scoped(filter, user), with_payload: withPayload })),
+    const withPayload = fields ? [...new Set([...fields, 'item'])] : true;
+    const r = await this.call<Array<{ points: Array<{ score: number; payload?: Record<string, unknown> }> }>>('POST', `${this.at}/points/query/batch`, {
+      searches: vectors.map((v) => ({ query: v, using: 'dense', limit, params: RESCORE, filter, with_payload: withPayload })),
     }, timeoutMs);
-    return (r ?? []).map((x) => this.own((x?.points ?? []).map((p) => ({ id: '', payload: p.payload ?? {}, score: p.score })), user)
-      .map((p) => ({ item: String(p.payload.item ?? ''), score: p.score, payload: p.payload })));
+    return (r ?? []).map((x) => (x?.points ?? []).map((p) => ({ item: String(p.payload?.item ?? ''), score: p.score, payload: p.payload ?? {} })));
   }
 
   /** Points within a filter, with their payload (and dense vector when asked) — at most `limit`. */
   async scroll(filter: Filter, limit = 256, withVector = false, timeoutMs = 5000): Promise<Array<{ id: string; payload: Record<string, unknown>; vector?: number[] }>> {
-    const user = this.user();
-    const r = await this.call<{ points: Array<{ id: string; payload?: Record<string, unknown>; vector?: { dense?: number[] } }> }>('POST', `/collections/${this.collection}/points/scroll`, {
-      filter: this.scoped(filter, user), limit, with_payload: true, with_vector: withVector ? ['dense'] : false,
+    const r = await this.call<{ points: Array<{ id: string; payload?: Record<string, unknown>; vector?: { dense?: number[] } }> }>('POST', `${this.at}/points/scroll`, {
+      filter, limit, with_payload: true, with_vector: withVector ? ['dense'] : false,
     }, timeoutMs);
-    return this.own((r?.points ?? []).map((p) => ({ id: String(p.id), payload: p.payload ?? {}, ...(p.vector?.dense ? { vector: p.vector.dense } : {}) })), user);
+    return (r?.points ?? []).map((p) => ({ id: String(p.id), payload: p.payload ?? {}, ...(p.vector?.dense ? { vector: p.vector.dense } : {}) }));
   }
 
   async count(filter?: Filter): Promise<number> {
-    const scoped = this.scoped(filter, this.user());
-    const r = await this.call<{ count: number }>('POST', `/collections/${this.collection}/points/count`, { exact: false, ...(scoped ? { filter: scoped } : {}) });
+    const r = await this.call<{ count: number }>('POST', `${this.at}/points/count`, { exact: false, ...(filter ? { filter } : {}) });
     return r?.count ?? 0;
   }
 
   /** The items behind `ids` (key points), with their payload — and their dense vector when asked. */
   async retrieve(ids: string[], withVector = false): Promise<Array<{ id: string; payload: Record<string, unknown>; vector?: number[] }>> {
     if (!ids.length) return [];
-    const user = this.user();
-    const r = await this.call<Array<{ id: string; payload: Record<string, unknown>; vector?: { dense?: number[] } }>>('POST', `/collections/${this.collection}/points`, {
-      ids: ids.map((id) => this.scopedId(id, user)), with_payload: true, with_vector: withVector ? ['dense'] : false,
+    const r = await this.call<Array<{ id: string; payload: Record<string, unknown>; vector?: { dense?: number[] } }>>('POST', `${this.at}/points`, {
+      ids, with_payload: true, with_vector: withVector ? ['dense'] : false,
     });
-    // A point is fetched by its id alone; another user's (a hash of their id and the item) is dropped all the same.
-    return this.own((r ?? []).map((p) => ({ id: String(p.id), payload: p.payload ?? {}, ...(p.vector?.dense ? { vector: p.vector.dense } : {}) })), user);
+    return (r ?? []).map((p) => ({ id: String(p.id), payload: p.payload ?? {}, ...(p.vector?.dense ? { vector: p.vector.dense } : {}) }));
   }
 
   /** The best items for the query, fused by rank — each with the point that matched best (`point`: its key, a chunk of
@@ -292,8 +241,7 @@ export class QdrantClient {
   async fusedItems(q: { dense: number[][]; sparse?: SparseVector; filter?: Filter; per?: number; limit?: number }, timeoutMs = 3000): Promise<Array<{ item: string; score: number; point?: string }>> {
     const limit = q.limit ?? 40;
     const per = q.per ?? Math.max(limit, 50);
-    const user = this.user();
-    const filter = this.scoped(q.filter, user);
+    const filter = q.filter;
     const channels: Array<{ query: unknown; using: string; params?: unknown; weight: number; filter?: Filter }> = [];
     const sparse = q.sparse?.indices.length ? q.sparse : null;
     const denseWeight = (sparse ? DENSE_SHARE : 1) / Math.max(1, q.dense.length);
@@ -305,24 +253,23 @@ export class QdrantClient {
     }
     if (sparse) channels.push({ query: sparse, using: 'bm25', weight: 1 - DENSE_SHARE });
     if (!channels.length) return [];
-    const lists = await Promise.all(channels.map((c) => this.call<{ groups: Array<{ id: string; hits: Array<{ id?: string; score: number; payload?: Record<string, unknown> }> }> }>('POST', `/collections/${this.collection}/points/query/groups`, {
+    const lists = await Promise.all(channels.map((c) => this.call<{ groups: Array<{ id: string; hits: Array<{ id?: string; score: number }> }> }>('POST', `${this.at}/points/query/groups`, {
       query: c.query, using: c.using, ...(c.params ? { params: c.params } : {}),
       ...(c.filter ?? filter ? { filter: c.filter ?? filter } : {}),
       group_by: 'item',
       group_size: 1,
       limit: per,
-      // A shared collection's point ids are scoped: the writer's own id is in the payload.
-      with_payload: user === null ? false : [TENANT_FIELD, TENANT_PID],
+      with_payload: false,
     }, timeoutMs)));
     const fused = new Map<string, { score: number; rank: number; point?: string }>();
     lists.forEach((r, c) => {
-      const groups = (r?.groups ?? []).filter((g) => user === null || g.hits[0]?.payload?.[TENANT_FIELD] === user);
+      const groups = r?.groups ?? [];
       const scores = groups.map((g) => g.hits[0]?.score ?? 0);
       const lo = Math.min(...scores);
       const hi = Math.max(...scores);
       groups.forEach((g, rank) => {
         const item = String(g.id);
-        const raw = user === null ? g.hits[0]?.id : g.hits[0]?.payload?.[TENANT_PID];
+        const raw = g.hits[0]?.id;
         const at = fused.get(item) ?? { score: 0, rank: Infinity };
         // A channel whose items all score alike (or that found one) counts each of them fully.
         at.score += channels[c]!.weight * (hi > lo ? (scores[rank]! - lo) / (hi - lo) : 1);

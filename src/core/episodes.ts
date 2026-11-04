@@ -23,11 +23,9 @@ export interface ReadableRequest {
 export const isConversation = (e: { engine?: string }): boolean => e.engine === 'conversation';
 
 /** A record's body: what its key summarises, its chunks are cut from, and opening it shows — whole, never shortened. */
-export function episodeBody(e: Pick<ReadableRequest, 'request' | 'reply' | 'files'> & Partial<Pick<ReadableRequest, 'said' | 'steps' | 'engine'>>): string {
+export function episodeBody(e: Pick<ReadableRequest, 'request' | 'reply' | 'files'> & Partial<Pick<ReadableRequest, 'said' | 'engine'>>): string {
   if (e.engine !== undefined && !isConversation(e)) return e.reply.trim() ? `${e.request}\n${e.reply}` : e.request;
-  const parts = [`Asked: ${e.request}`];
-  if (e.steps?.length) parts.push(`Steps:\n${e.steps.join('\n')}`);
-  parts.push(`Done: ${e.said?.trim() ? e.said : e.reply}`);
+  const parts = [`Asked: ${e.request}`, `Done: ${e.said?.trim() ? e.said : e.reply}`];
   if (e.files.length) parts.push(`Files: ${e.files.join(', ')}`);
   return parts.join('\n');
 }
@@ -56,9 +54,7 @@ export function renderForExtraction(e: ReadableRequest, n: number): string {
   const when = e.ts ? new Date(e.ts).toISOString().slice(0, 16).replace('T', ' ') : '';
   // Whole: a record too long for one window is read in parts and its parts joined (extract.ts), never shortened.
   if (e.engine !== undefined && !isConversation(e)) return [`## Record ${n} · ${when} · ${e.engine}`, e.request, e.reply].filter(Boolean).join('\n');
-  const who = e.typed === 'human' ? 'typed by the person' : 'sent to the agent';
-  const parts = [`## Request ${n} · ${when} · ${who}`, e.request];
-  if (e.steps.length) parts.push(`Steps:\n${e.steps.join('\n')}`);
+  const parts = [`## Request ${n} · ${when} · typed by the person`, e.request];
   if (e.said) parts.push(`Agent said:\n${e.said}`);
   if (e.files.length) parts.push(`Files changed: ${e.files.join(', ')}`);
   return parts.join('\n');

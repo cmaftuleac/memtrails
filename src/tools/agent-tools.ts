@@ -6,7 +6,10 @@
  *   const tools = memory.tools();   // hand them to an MCP server, or to a model's tool calling
  */
 import { z } from 'zod';
+import { PROFILE_SHOWN } from '../core/profiles.js';
 import type { Explored, RecalledItem, SearchQuery } from '../core/recall.js';
+import { cut } from '../core/text.js';
+import { dateSpan } from '../core/writer.js';
 
 type ToolResult = { content: Array<{ type: 'text'; text: string }>; isError?: boolean };
 export interface AgentTool {
@@ -19,7 +22,14 @@ export interface AgentTool {
 }
 function tool<S extends Record<string, z.ZodType>>(name: string, description: string, inputSchema: S,
   handler: (args: z.infer<z.ZodObject<S>>, extra?: unknown) => Promise<ToolResult>): AgentTool {
-  return { name, description, inputSchema, jsonSchema: z.toJSONSchema(z.object(inputSchema)) as Record<string, unknown>, handler: handler as AgentTool['handler'] };
+  const schema = z.object(inputSchema);
+  // Checked here too: a caller doing function calling hands the model's arguments straight to the handler.
+  const checked = async (args: unknown, extra?: unknown): Promise<ToolResult> => {
+    const got = schema.safeParse(args ?? {});
+    if (!got.success) return text(`Invalid arguments: ${got.error.issues.map((i) => `${i.path.join('.') || 'input'}: ${i.message}`).join('; ')}`, true);
+    return handler(got.data, extra);
+  };
+  return { name, description, inputSchema, jsonSchema: z.toJSONSchema(schema) as Record<string, unknown>, handler: checked };
 }
 
 const DESCRIPTIONS = {
@@ -41,15 +51,19 @@ export interface ToolProvider {
   explore?(q: { topic?: string; from?: string[]; collections?: string[]; limit?: number }): Promise<Explored>;
 }
 
-type CrossMemoryHit = RecalledItem;
+/** What a model may send: a question, a topic or an id is a line, not a document; a few dozen collections at most. */
+const TEXT_MAX = 2000;
+const COLLECTIONS_MAX = 50;
 
 const day = (ts: number): string => (ts ? new Date(ts).toISOString().slice(0, 10) : '');
-const hitLine = (h: CrossMemoryHit, n: number): string => `${n + 1}. ${h.title} (${h.kind === 'episode' ? 'earlier work' : h.kind} · ${day(h.ts)}${h.record?.author ? ` · ${h.record.author}` : ''} · id ${h.id})`;
+const hitLine = (h: RecalledItem, n: number): string => `${n + 1}. ${h.title} (${h.kind === 'episode' ? 'earlier work' : h.kind} · ${day(h.ts)}${h.record?.author ? ` · ${h.record.author}` : ''} · id ${h.id})`;
 
 const WEEKDAY = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const MONTH = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 /** A date as a reader reckons with it — the weekday too ("the Friday before …"): 2023-07-14 → "Fri 14 Jul 2023". */
 export function readableDate(d: string): string {
+  // Not a date (2023-13, 2023-02-30): shown as written rather than as "undefined 2023" or a day that does not exist.
+  if (!dateSpan(d)) return d;
   const [y, m, dd] = d.split('-').map(Number);
   if (!y) return '';
   if (!m) return String(y);
@@ -65,22 +79,17 @@ export function lastedText(h: { startAt?: unknown; endAt?: unknown }): string {
 }
 
 /** When a hit happened, for ordering by time: an observation's own date, else when it was learned. */
-const when = (h: CrossMemoryHit): string => h.eventAt || day(h.ts);
-
-/** All of a profile — what memory knows about one subject, one dated fact a line (core/profiles.ts) — up to this:
- *  measured, a profile cut like any other item lost most of its gain. */
-export const PROFILE_SHOWN = 1500;
-const cutAt = (s: string, n: number): string => (s.length > n ? `${s.slice(0, n)}…` : s);
+const when = (h: RecalledItem): string => h.eventAt || day(h.ts);
 
 /** What memory_search shows: an observation as one dated line (when it happened, and when it was told when that
  *  differs), a profile whole (up to PROFILE_SHOWN), anything else as its title line and summary — shorter when many
  *  are asked for. Best first, or by time. */
-export function searchText(hits: CrossMemoryHit[], order: 'relevance' | 'time' = 'relevance'): string {
+export function searchText(hits: RecalledItem[], order: 'relevance' | 'time' = 'relevance'): string {
   const list = order === 'time' ? [...hits].sort((a, b) => when(a).localeCompare(when(b))) : hits;
   // Many hits: one line each — the date, what it is, its summary — so a list question sees every one of them clearly.
   const compact = list.length > 20;
   const lines = list.map((h, n) => {
-    if (h.kind === 'profile') return `${hitLine(h, n)}\n   ${cutAt(h.summary, PROFILE_SHOWN).replace(/\n/g, '\n   ')}`;
+    if (h.kind === 'profile') return `${hitLine(h, n)}\n   ${cut(h.summary, PROFILE_SHOWN).replace(/\n/g, '\n   ')}`;
     if (h.kind !== 'observation') {
       // The passage that matched, when it was not the start: a fact said deep in a long request is what was found.
       const matched = h.match ? ` … ${h.match.replace(/\s+/g, ' ')}` : '';
@@ -97,14 +106,15 @@ export function searchText(hits: CrossMemoryHit[], order: 'relevance' | 'time' =
   return `${order === 'time' ? 'Oldest first — the date is when it happened (and when it was told, when that differs).\n' : ''}${lines.join('\n')}`;
 }
 
-function memoryTools(p: ToolProvider): AgentTool[] {
+/** memory_search, memory_open and memory_explore (when the provider explores) over a memory. */
+export function buildAgentTools(p: ToolProvider): AgentTool[] {
   return [
     tool(
       'memory_search',
       DESCRIPTIONS.memory_search,
       {
-        query: z.string().describe('What you need to know, in plain words.'),
-        collections: z.array(z.string()).optional().describe('Only these collections (default: all).'),
+        query: z.string().max(TEXT_MAX).describe('What you need to know, in plain words.'),
+        collections: z.array(z.string().max(TEXT_MAX)).max(COLLECTIONS_MAX).optional().describe('Only these collections (default: all).'),
         limit: z.number().int().min(1).max(200).optional().describe('How many of each to return — dated observations, and other memories (default 20; 100 to 200 when you gather everything on a topic, list or count things, or need their dates).'),
         order: z.enum(['relevance', 'time']).optional().describe('Best first (default), or oldest first — for what happened when, and in what order.'),
         from: z.string().regex(/^\d{4}(-\d{2}(-\d{2})?)?$/).optional().describe('Only what happened on or after this date (YYYY-MM-DD, YYYY-MM or YYYY) — when the request names a time ("in June 2023", "last week").'),
@@ -123,29 +133,29 @@ function memoryTools(p: ToolProvider): AgentTool[] {
     tool(
       'memory_open',
       DESCRIPTIONS.memory_open,
-      { id: z.string().describe('The memory id, as memory_search or memory_explore gave it.') },
+      { id: z.string().max(TEXT_MAX).describe('The memory id, as memory_search or memory_explore gave it.') },
       async (args) => {
-        const it = await p.open(args.id).catch(() => null);
+        // An index that failed is not an id that is missing: the agent should not conclude the memory is gone.
+        let it: Record<string, unknown> | null;
+        try { it = await p.open(args.id); } catch (err) { return text(`Memory could not be read: ${(err as Error).message}`, true); }
         if (!it) return text(`There is no memory "${args.id}" (it may have been merged or cleared).`, true);
         const files = Array.isArray(it.files) && it.files.length ? `\nFiles: ${(it.files as string[]).join(', ')}` : '';
         const told = day(Number(it.ts ?? 0));
         const happened = [typeof it.eventAt === 'string' && it.eventAt ? readableDate(it.eventAt) : '', lastedText(it)].filter(Boolean).join(', ');
         const when = happened ? `happened ${happened}; told ${readableDate(told)}` : told;
-        // The raw requests it was learned from, whole (the truth it is a key to), and the texts a merge folded into it.
+        // The raw requests it was learned from, whole (the truth it is a key to).
         const sources = Array.isArray(it.sources) && it.sources.length
           ? `\n\n## Where it came from\n${(it.sources as Array<{ id: string; when: number; title: string; body: string }>).map((x) => `### ${day(x.when)} · ${x.title} (id ${x.id})\n${x.body}`).join('\n\n')}` : '';
-        const absorbed = Array.isArray(it.absorbed) && it.absorbed.length
-          ? `\n\n## Texts merged into it\n${(it.absorbed as Array<{ title: string; summary: string; body: string }>).map((x) => `### ${x.title}\n${x.summary}\n${x.body}`).join('\n\n')}` : '';
-        return text(`# ${String(it.title ?? '')}\n(${String(it.kind ?? '')} · ${when} · ${String(it.project ?? '')})\n\n${String(it.summary ?? '')}\n\n${String(it.body ?? '')}${files}${sources}${absorbed}`);
+        return text(`# ${String(it.title ?? '')}\n(${String(it.kind ?? '')} · ${when} · ${String(it.project ?? '')})\n\n${String(it.summary ?? '')}\n\n${String(it.body ?? '')}${files}${sources}`);
       },
     ),
     ...(p.explore ? [tool(
       'memory_explore',
       DESCRIPTIONS.memory_explore,
       {
-        topic: z.string().optional().describe('What to explore, in plain words — a system, a project, a problem, a name.'),
-        from: z.array(z.string()).max(5).optional().describe('Memory ids to explore from, as memory_search or memory_explore gave them.'),
-        collections: z.array(z.string()).optional().describe('Only these collections (default: all).'),
+        topic: z.string().max(TEXT_MAX).optional().describe('What to explore, in plain words — a system, a project, a problem, a name.'),
+        from: z.array(z.string().max(TEXT_MAX)).max(5).optional().describe('Memory ids to explore from, as memory_search or memory_explore gave them.'),
+        collections: z.array(z.string().max(TEXT_MAX)).max(COLLECTIONS_MAX).optional().describe('Only these collections (default: all).'),
         limit: z.number().int().min(1).max(20).optional().describe('How many related items to return (default 10).'),
       },
       async (args) => {
@@ -167,6 +177,3 @@ function memoryTools(p: ToolProvider): AgentTool[] {
 }
 
 const text = (t: string, isError = false) => ({ content: [{ type: 'text' as const, text: t }], ...(isError ? { isError: true } : {}) });
-export function buildAgentTools(p: ToolProvider): AgentTool[] {
-  return memoryTools(p);
-}

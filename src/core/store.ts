@@ -67,6 +67,8 @@ export interface MemoryItem {
   /** Last learned or refreshed. */
   ts: number;
   firstTs: number;
+  /** When it was written to long-term memory (`ts` is its source's time); absent in older logs. */
+  learnedAt?: number;
   /** The key: a content title and a ~150-word summary (what is embedded). */
   title: string;
   summary: string;
@@ -308,10 +310,10 @@ export class JsonlLog<T extends { uid: string }, M> implements MemoryLog<T, M> {
 }
 
 export type StmMeta = { fp: string; done: boolean; ts: number; session: string; project: string; synthetic: boolean };
-export type LtmMeta = { fp: string; status: MemoryStatus; kind: MemoryKind; scope: MemoryScope; project: string; ts: number; importance: number; cued: boolean; mapped: boolean };
+export type LtmMeta = { fp: string; status: MemoryStatus; kind: MemoryKind; scope: MemoryScope; project: string; ts: number; importance: number; cued: boolean; mapped: boolean; learnedAt?: number };
 
 export const stmMetaOf = (r: StmEntry): StmMeta => ({ fp: r.fingerprint, done: r.done, ts: r.ts, session: r.session, project: r.project, synthetic: r.synthetic });
-export const ltmMetaOf = (r: MemoryItem): LtmMeta => ({ fp: r.fingerprint, status: r.status, kind: r.kind, scope: r.scope, project: r.project, ts: r.ts, importance: r.importance, cued: !!r.cues?.length, mapped: !!r.concepts?.length });
+export const ltmMetaOf = (r: MemoryItem): LtmMeta => ({ fp: r.fingerprint, status: r.status, kind: r.kind, scope: r.scope, project: r.project, ts: r.ts, importance: r.importance, cued: !!r.cues?.length, mapped: !!r.concepts?.length, learnedAt: r.learnedAt });
 
 export const stmLog = (path: string): JsonlLog<StmEntry, StmMeta> => new JsonlLog<StmEntry, StmMeta>(path, stmMetaOf);
 export const ltmLog = (path: string): JsonlLog<MemoryItem, LtmMeta> => new JsonlLog<MemoryItem, LtmMeta>(path, ltmMetaOf);
