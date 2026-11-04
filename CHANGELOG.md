@@ -22,6 +22,17 @@ versions follow [Semantic Versioning](https://semver.org/).
 - `gather`: a memory a small model keeps by quoting its whole line (`[m3] (2023-06-03) …`) now counts; it read as nothing
   kept before.
 
+- Security: the secret filter catches common key formats it missed (GITHUB_TOKEN=, AWS_SECRET_ACCESS_KEY=, JSON-style
+  secrets, GitLab, Hugging Face, npm, SendGrid, Telegram, the whole password of a URL); crafted e-mail and HTML can no
+  longer make the importers or the filter take quadratic time; downloads are verified on disk in a temp folder of their
+  own under a lock, with a stall timeout, and the Qdrant binary runs only while it is this user's alone; Qdrant gets a
+  minimal environment and must prove it is ours before it is given the key; an OpenAI key is sent to OpenAI only; the
+  memory folder is private; Slack channel folders cannot lead out of the export.
+- One process at a time in a memory folder (a lock); consolidate, sleep, rebuild and remove run one at a time; `close()`
+  stops the running job and waits for it; an open that fails stops what it started; `remove()` takes the record's kept
+  episode out of the long-term log too; `MEMTRAILS_EMBED_URL` and `MEMTRAILS_RERANK_URL` are used.
+- The release is built and tested in a job without publishing rights; actions are pinned to commits.
+
 ## [0.3.0] — 2026-11-02
 
 - `gather(q, { notes: true })`: the same model call also writes what the kept memories say that answers the question,
