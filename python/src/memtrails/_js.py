@@ -93,10 +93,6 @@ def js_trim_end(s: str) -> str:
     return s.rstrip("\t\n\v\f\r                  　﻿")
 
 
-def js_trim_start(s: str) -> str:
-    return s.lstrip("\t\n\v\f\r                  　﻿")
-
-
 def js_is_space(c: str) -> bool:
     """``/\\s/.test(c)`` for one character."""
     return c in "\t\n\v\f\r       　﻿" or " " <= c <= " "
@@ -235,29 +231,6 @@ def parse(text: str | bytes) -> Any:
 
 def _no_constant(name: str) -> Any:
     raise ValueError(f"{name} is not JSON")
-
-
-def js_number(x: Any) -> float | None:
-    """``Number(x)`` for what the logs hold; None for NaN."""
-    if isinstance(x, bool):
-        return 1.0 if x else 0.0
-    if isinstance(x, (int, float)):
-        return float(x)
-    if x is None:
-        return 0.0
-    if isinstance(x, str):
-        t = js_trim(x)
-        if not t:
-            return 0.0
-        try:
-            if re.fullmatch(r"[+-]?(?:\d+\.?\d*(?:[eE][+-]?\d+)?|\.\d+(?:[eE][+-]?\d+)?|Infinity)", t):
-                return float(t.replace("Infinity", "inf"))
-            if re.fullmatch(r"0[xX][0-9a-fA-F]+", t):
-                return float(int(t, 16))
-        except ValueError:
-            return None
-        return None
-    return None
 
 
 def intish(x: float) -> int | float:
