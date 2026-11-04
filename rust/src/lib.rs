@@ -9,6 +9,7 @@ use std::sync::Arc;
 
 pub mod episodes;
 pub mod error;
+pub mod importers;
 pub mod js;
 pub mod profiles;
 pub mod qdrant_client;
