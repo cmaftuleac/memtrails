@@ -15,20 +15,20 @@
  * are written again from the logs.
  */
 import { join, resolve } from 'node:path';
-import { mkdirSync } from 'node:fs';
+import { chmodSync, closeSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, statSync, writeFileSync, writeSync } from 'node:fs';
 import { Consolidator, type ConsolidationReport } from './core/consolidate.js';
-import { remoteEmbedder, type EmbedRoute } from './core/embedder.js';
+import { remoteEmbedder, resolveEmbedRoute, type EmbedRoute } from './core/embedder.js';
 import { memoryGather, type Gathered } from './core/gather.js';
 import { loadLocalEmbedder, type LocalEmbedder } from './core/local-embedder.js';
 import { ensureModel } from './core/model.js';
 import { ensureQdrant } from './core/qdrant-binary.js';
-import { COLLECTION, QdrantClient } from './core/qdrant-client.js';
-import { QdrantProcess, type QdrantEndpoint } from './core/qdrant-process.js';
+import { COLLECTION, INDEX_LAYOUT, QdrantClient } from './core/qdrant-client.js';
+import { alive, bootTime, QdrantProcess, sameBoot, type QdrantEndpoint } from './core/qdrant-process.js';
 import { memoryExplore, memoryOpen, memorySearch, type Explored, type RecallDeps, type RecalledItem, type SearchQuery } from './core/recall.js';
 import { RecallBook } from './core/recall-log.js';
 import { episodeBody } from './core/episodes.js';
 import { MemoryRebuild } from './core/rebuild.js';
-import { remoteReranker, type RerankRoute } from './core/reranker.js';
+import { remoteReranker, resolveRerankRoute, type RerankRoute } from './core/reranker.js';
 import { sentenceRoom, sentenceSpans, type RoomItem } from './core/room.js';
 import { Sleep, type SleepReport } from './core/sleep.js';
 import { ltmLog, stmLog, UsageBook, type StmEntry } from './core/store.js';
@@ -45,10 +45,12 @@ export interface MemoryOptions {
    *  - default: on this machine, the model fetched on first use into the cache (218 MB);
    *  - `{ modelDir }`: on this machine, from a directory you provide;
    *  - `{ server }`: a server that serves it over the OpenAI embeddings API (text-embeddings-inference, Ollama, …).
-   *    Word by word then needs `{ modelDir }` too, or it is off. */
+   *    Word by word then needs `{ modelDir }` too, or it is off.
+   *  With neither `server` nor `modelDir`, MEMTRAILS_EMBED_URL (+ _KEY, _MODEL) names a server when it is set. */
   embedding?: { modelDir?: string; server?: EmbedRoute; threads?: number };
   /** How the best 30 of a search are reordered: `'words'` (default with a local model: word by word, no server), a
-   *  cross-encoder server (`RerankRoute`), your own function, or `false` for the search's own order. */
+   *  cross-encoder server (`RerankRoute`), your own function, or `false` for the search's own order. Not given:
+   *  MEMTRAILS_RERANK_URL (+ _KEY, _MODEL) names a server when it is set. */
   rerank?: 'words' | RerankRoute | RecallDeps['rerank'] | false;
   /** The language model for consolidate, sleep and gather: your own `Ask`, or options for the OpenAI-compatible one.
    *  Default: the one the environment names (MEMTRAILS_MODEL and a key). */
@@ -98,6 +100,8 @@ export interface Memory {
   /** Tool definitions an agent can be handed: memory_search, memory_open, memory_explore. */
   tools(): AgentTool[];
   stats(): { records: number; items: number; words: number };
+  /** Stops a consolidate, sleep, rebuild or indexWords at its next step (a rebuild resumes at the next open) and waits
+   *  for it, then releases Qdrant, the model and the home. */
   close(): Promise<void>;
 }
 
@@ -106,17 +110,104 @@ const ROOM_TEXT = 1500;
 const ROOM_CHARS = 6000;
 const RECORD_LIMIT = 2_000_000;
 
+/** In the home: who has it open (lockHome), and the index layout its Qdrant collection was written in. */
+const LOCK_FILE = 'memory.lock';
+const LAYOUT_FILE = 'index.json';
+
+/** The homes this process holds, released if it exits without close(). */
+const holding = new Map<string, () => void>();
+let exitHook = false;
+
+/** Who holds a lock: its live pid, 0 when it is being written this instant, null when nobody (stale or gone). */
+function lockHolder(path: string): { text: string; pid: number | null } {
+  let text: string;
+  try { text = readFileSync(path, 'utf8'); } catch { return { text: '', pid: null }; }
+  try {
+    const l = JSON.parse(text) as { pid?: unknown; boot?: unknown };
+    const pid = Number(l.pid);
+    return { text, pid: sameBoot(l.boot) && alive(pid) ? pid : null };
+  } catch {
+    // Not written yet by the opener that just made it — or torn by a crash, and then old.
+    try { return { text, pid: Date.now() - statSync(path).mtimeMs < 10_000 ? 0 : null }; } catch { return { text, pid: null }; }
+  }
+}
+
+/** One process at a time in a home: two would run two Qdrants on one storage and append to the logs at offsets the
+ *  other does not know. The lock is made exclusively (O_EXCL) with its pid and the boot; one whose process is gone, or
+ *  ran before a reboot (its pid may be another's now), is taken over. Returns its release. */
+function lockHome(dir: string): () => void {
+  const path = join(dir, LOCK_FILE);
+  for (let attempt = 0; ; attempt++) {
+    let fd: number;
+    try {
+      fd = openSync(path, 'wx', 0o600);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err;
+      const { text, pid } = lockHolder(path);
+      if (pid !== null || attempt > 0) {
+        throw new Error(`memory ${dir} is open${pid ? ` in process ${pid}` : ''}: close it there first (if no process has it, delete ${path})`);
+      }
+      // Stale: taken over — unless another opener took it over since it was read.
+      try { if (readFileSync(path, 'utf8') === text) rmSync(path, { force: true }); } catch { /* gone already */ }
+      continue;
+    }
+    try { writeSync(fd, JSON.stringify({ pid: process.pid, boot: bootTime() })); } finally { closeSync(fd); }
+    break;
+  }
+  const release = (): void => {
+    if (holding.get(path) !== release) return;
+    holding.delete(path);
+    try { if ((JSON.parse(readFileSync(path, 'utf8')) as { pid?: number }).pid === process.pid) rmSync(path, { force: true }); } catch { /* gone */ }
+  };
+  holding.set(path, release);
+  if (!exitHook) {
+    exitHook = true;
+    process.on('exit', () => { for (const r of [...holding.values()]) r(); });
+  }
+  return release;
+}
+
+/** The layout the index was written in (qdrant-client.ts INDEX_LAYOUT); null when not written down. */
+function indexLayout(dir: string): number | null {
+  try { return Number((JSON.parse(readFileSync(join(dir, LAYOUT_FILE), 'utf8')) as { layout?: unknown }).layout); } catch { return null; }
+}
+
+function saveIndexLayout(dir: string): void {
+  const path = join(dir, LAYOUT_FILE);
+  writeFileSync(`${path}.tmp`, JSON.stringify({ layout: INDEX_LAYOUT }), { mode: 0o600 });
+  renameSync(`${path}.tmp`, path);
+}
+
+/** What an open has started, for an open that fails half-way to release: a Qdrant left running keeps the host alive. */
+interface Started { proc: QdrantProcess | null; local: LocalEmbedder | null }
+
 export async function openMemory(o: MemoryOptions): Promise<Memory> {
   const dir = resolve(o.home);
-  mkdirSync(dir, { recursive: true });
   const log = o.log ?? ((): void => {});
+  // Private: the logs, the index and the word vectors are everything that was added (a shared machine).
+  mkdirSync(dir, { recursive: true, mode: 0o700 });
+  try { chmodSync(dir, 0o700); } catch (err) { log(`[memtrails] ${dir} could not be made private: ${(err as Error).message}`); }
+  const release = lockHome(dir);
+  const started: Started = { proc: null, local: null };
+  try {
+    return await openIn(dir, o, log, started, release);
+  } catch (err) {
+    await started.proc?.stopAndWait();
+    await started.local?.close().catch(() => undefined);
+    release();
+    throw err;
+  }
+}
 
-  // Embedding: here, or on a server.
+async function openIn(dir: string, o: MemoryOptions, log: (line: string) => void, started: Started, release: () => void): Promise<Memory> {
+  // Embedding: here, or on a server — the options' own, else the one the environment names.
   const e = o.embedding ?? {};
-  const local: LocalEmbedder | null = !e.server || e.modelDir
+  const server = e.server ?? (e.modelDir ? null : resolveEmbedRoute());
+  const local: LocalEmbedder | null = !server || e.modelDir
     ? await loadLocalEmbedder(e.modelDir ?? await ensureModel({ log }), { threads: e.threads ?? 2 })
     : null;
-  const embed = e.server ? remoteEmbedder({ route: () => e.server! }) : local!.embed;
+  started.local = local;
+  const embed = server ? remoteEmbedder({ route: () => server }) : local!.embed;
   const encode: WordEncoder | null = local?.words ?? null;
   const words = new WordStore(join(dir, 'words.bin'));
   await words.load();
@@ -130,6 +221,7 @@ export async function openMemory(o: MemoryOptions): Promise<Memory> {
     endpoint = () => fixed;
   } else {
     proc = new QdrantProcess({ binary: q && 'binary' in q ? q.binary : await ensureQdrant({ log }), dir: join(dir, 'qdrant'), log });
+    started.proc = proc;
     await proc.start();
     endpoint = () => proc!.current();
   }
@@ -142,25 +234,57 @@ export async function openMemory(o: MemoryOptions): Promise<Memory> {
   await ltm.load();
   const usage = new UsageBook(join(dir, 'usage.json'));
   const book = new RecallBook(join(dir, 'recall.jsonl'));
+  void book.trim(); // the documented cap: once an open, and every so many events while open (recall-log.ts)
   const ask: Ask = typeof o.llm === 'function' ? o.llm : o.llm ? openAiAsk(o.llm) : defaultAsk;
-  const base = { client, embed, stm, ltm, log, aborted: () => false, ask };
+  /** Set by close(): what runs stops at its next step. */
+  let closing = false;
+  const aborted = (): boolean => closing;
+  const base = { client, embed, stm, ltm, log, aborted, ask };
 
+  const rerankEnv = o.rerank === undefined ? resolveRerankRoute() : null;
   const rerank: RecallDeps['rerank'] = o.rerank === false ? undefined
     : typeof o.rerank === 'function' ? o.rerank
     : o.rerank && typeof o.rerank === 'object' ? remoteReranker({ route: () => o.rerank as RerankRoute })
+    : rerankEnv ? remoteReranker({ route: () => rerankEnv })
     : encode ? wordReranker(encode, words) : undefined;
   const deps: RecallDeps = { client, embed, rerank, used: (ids, what) => usage.note(ids, what), record: (ev) => book.record(ev) };
 
-  // The index is derived: empty while the logs are not (a new Qdrant, a deleted folder), it is written again.
+  // The index is derived: written again from the logs when it is empty while they are not (a new Qdrant, a deleted
+  // folder), or was written in another layout — or in one not written down (an index from before the layouts were).
   const rebuild = new MemoryRebuild({
-    path: join(dir, 'rebuild.json'), stm, ltm, aborted: () => false,
+    path: join(dir, 'rebuild.json'), stm, ltm, aborted,
     writeStm: (xs) => writeStm(base, xs), writeLtm: (xs) => writeLtm(base, xs),
   });
-  if (rebuild.pending() || (!(await client.count()) && (stm.size() || ltm.size()))) {
+  const indexed = await client.count();
+  const layout = indexLayout(dir);
+  if (layout !== INDEX_LAYOUT) {
+    if (indexed) {
+      log(`[memtrails] the index was written in layout ${layout ?? 'unknown'}, not ${INDEX_LAYOUT}: writing it again from the logs`);
+      rebuild.begin(); // before the drop: a crash after it resumes
+      await client.dropCollection();
+      await client.ensureCollection();
+    }
+    saveIndexLayout(dir);
+  }
+  if (rebuild.pending() || (!indexed && (stm.size() || ltm.size()))) {
     log('[memtrails] writing the index from the logs');
     if (!rebuild.pending()) rebuild.begin();
     await rebuild.run();
   }
+
+  // consolidate, sleep, rebuild, indexWords and remove one at a time: each reads the logs and writes the index from
+  // them — two consolidations pay the model twice and write stale copies over each other, a rebuild clears what
+  // another is writing, a remove during a consolidation would see its record's episode written back after it.
+  let queue: Promise<unknown> = Promise.resolve();
+  const exclusive = <T>(job: () => Promise<T>): Promise<T> => {
+    const run = queue.then(() => {
+      if (closing) throw new Error('memory is closed');
+      return job();
+    });
+    queue = run.catch(() => undefined);
+    return run;
+  };
+  let closed: Promise<void> | null = null;
 
   /** The text word by word scores an item by: its key, as search returns it. */
   const keyText = (title: string, summary: string): string => `${title}\n${summary}`;
@@ -180,7 +304,7 @@ export async function openMemory(o: MemoryOptions): Promise<Memory> {
   const encodeMissing = async (texts: string[]): Promise<number> => {
     if (!encode) return 0;
     const todo = [...new Set(texts)].filter((t) => t.trim() && !words.get(t));
-    for (let i = 0; i < todo.length; i += BATCH) {
+    for (let i = 0; i < todo.length && !closing; i += BATCH) {
       const part = todo.slice(i, i + BATCH);
       const encoded = await encode(part, 'document');
       await words.put(part.map((t, n) => [t, packWords(encoded[n]!)]));
@@ -202,6 +326,20 @@ export async function openMemory(o: MemoryOptions): Promise<Memory> {
     }
     stm.compact();
     return { added: fresh.length, unchanged: total - fresh.length };
+  };
+
+  /** Unlocked: consolidate and sleep run it inside their own turn. */
+  const indexWords = async (): Promise<number> => {
+    if (!encode) return 0;
+    const texts = [...stm.all()].flatMap((x) => wordsOfEntries([x]));
+    for (const [uid, m] of ltm.entries()) {
+      if (m.status !== 'active') continue;
+      const it = ltm.get(uid);
+      if (!it) continue;
+      const room = `${it.title}\n${it.summary}\n${it.body}`.slice(0, ROOM_TEXT);
+      texts.push(keyText(it.title, it.summary), ...sentenceSpans(room).map(([a, b]) => room.slice(a, b)));
+    }
+    return encodeMissing(texts);
   };
 
   const memory: Memory = {
@@ -239,13 +377,18 @@ export async function openMemory(o: MemoryOptions): Promise<Memory> {
       await flush();
       return total;
     },
-    async remove(ids) {
+    remove: (ids) => exclusive(async () => {
       const uids = ids.map((x) => recordUid(typeof x === 'string' ? { id: x } : x)).filter((u) => stm.meta(u));
       if (!uids.length) return 0;
-      await client.deleteItems(uids.flatMap((u) => [stmItem(u), `ep:${u}`]));
+      const episodes = uids.map((u) => `ep:${u}`);
+      await client.deleteItems([...uids.map(stmItem), ...episodes]);
       stm.remove(uids);
+      // A kept episode is the record's own text: gone from the long-term log too, or a rebuild indexes it again and the
+      // profiles go on reading it.
+      ltm.remove(episodes);
+      await Promise.all([stm.flush(), ltm.flush()]);
       return uids.length;
-    },
+    }),
     search: (s) => memorySearch(deps, s),
     searchText: async (s) => searchText(await memorySearch(deps, s), s.order ?? 'relevance'),
     async room(s) {
@@ -265,51 +408,50 @@ export async function openMemory(o: MemoryOptions): Promise<Memory> {
     },
     explore: (s) => memoryExplore(deps, s),
     gather: (s, g) => memoryGather(deps, s, { ask, ...(s.limit ? { limit: s.limit } : {}), ...(g?.notes ? { notes: true } : {}) }),
-    async consolidate() {
+    consolidate: () => exclusive(async () => {
       const worker = new Consolidator({ ...base, concurrency: o.concurrency ?? 4 });
       const total: ConsolidationReport = { windows: 0, added: 0, merged: 0, updated: 0, superseded: 0, linked: 0, dropped: 0, episodes: 0, observed: 0, cued: 0 };
-      for (let round = 0; round < 1000 && worker.pending().length; round++) {
+      for (let round = 0; round < 1000 && !closing && worker.pending().length; round++) {
         const r = await worker.run(64);
         for (const k of Object.keys(total) as Array<keyof ConsolidationReport>) if (typeof r[k] === 'number') (total[k] as number) += r[k] as number;
         if (r.paused !== undefined) { total.paused = r.paused; break; }
         if (!r.windows) break;
       }
-      await memory.indexWords();
+      await indexWords();
       return total;
-    },
-    async sleep() {
+    }),
+    sleep: () => exclusive(async () => {
       const r = await new Sleep({ ...base, usage, statePath: join(dir, 'sleep.json') }).run();
-      await memory.indexWords();
+      await indexWords();
       return r;
-    },
-    async indexWords() {
-      if (!encode) return 0;
-      const texts = [...stm.all()].flatMap((x) => wordsOfEntries([x]));
-      for (const [uid, m] of ltm.entries()) {
-        if (m.status !== 'active') continue;
-        const it = ltm.get(uid);
-        if (!it) continue;
-        const room = `${it.title}\n${it.summary}\n${it.body}`.slice(0, ROOM_TEXT);
-        texts.push(keyText(it.title, it.summary), ...sentenceSpans(room).map(([a, b]) => room.slice(a, b)));
-      }
-      return encodeMissing(texts);
-    },
-    async rebuild() {
+    }),
+    indexWords: () => exclusive(indexWords),
+    rebuild: () => exclusive(async () => {
+      rebuild.begin(); // before the drop: a crash, or a close, after it resumes at the next open
       await client.dropCollection();
       await client.ensureCollection();
-      rebuild.begin();
       await rebuild.run();
-    },
+    }),
     tools: () => buildAgentTools({
       search: (s) => memorySearch(deps, s),
       open: (id) => memory.open(id),
       explore: (s) => memoryExplore(deps, s),
     }),
     stats: () => ({ records: stm.size(), items: [...ltm.entries()].filter(([, m]) => m.status === 'active').length, words: words.size }),
-    async close() {
-      usage.flush();
-      await proc?.stopAndWait();
-      await local?.close();
+    close() {
+      closed ??= (async () => {
+        closing = true;
+        await queue; // the job running stops at its next step; those waiting are refused
+        try {
+          await book.settled();
+          usage.flush();
+          await proc?.stopAndWait();
+          await local?.close();
+        } finally {
+          release();
+        }
+      })();
+      return closed;
     },
   };
   return memory;
