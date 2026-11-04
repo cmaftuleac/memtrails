@@ -1,0 +1,367 @@
+{
+ "note": "QdrantClient.fusedItems over the groups each channel answers: the bodies sent, in order, and the fused list.",
+ "groups": {
+  "dense-0": [
+   {
+    "id": "a",
+    "point": "a-1",
+    "score": 0.91
+   },
+   {
+    "id": "b",
+    "point": "b-0",
+    "score": 0.84
+   },
+   {
+    "id": "c",
+    "point": "c-3",
+    "score": 0.5
+   }
+  ],
+  "cue-0": [
+   {
+    "id": "c",
+    "point": "c--1",
+    "score": 0.88
+   },
+   {
+    "id": "a",
+    "point": "a--2",
+    "score": 0.2
+   }
+  ],
+  "dense-1": [
+   {
+    "id": "b",
+    "point": "b-2",
+    "score": 0.7
+   },
+   {
+    "id": "d",
+    "point": "d-0",
+    "score": 0.7
+   }
+  ],
+  "cue-1": [],
+  "bm25": [
+   {
+    "id": "d",
+    "point": "d-0",
+    "score": 12.5
+   },
+   {
+    "id": "a",
+    "point": "a-0",
+    "score": 3.25
+   },
+   {
+    "id": "e",
+    "point": "e-0",
+    "score": 1
+   }
+  ]
+ },
+ "query": {
+  "dense": [
+   [
+    1,
+    0
+   ],
+   [
+    0,
+    1
+   ]
+  ],
+  "sparse": {
+   "indices": [
+    5,
+    9
+   ],
+   "values": [
+    1,
+    1
+   ]
+  },
+  "filter": {
+   "must": [
+    {
+     "key": "project",
+     "match": {
+      "any": [
+       "ops"
+      ]
+     }
+    }
+   ]
+  },
+  "limit": 4
+ },
+ "bodies": [
+  {
+   "query": [
+    1,
+    0
+   ],
+   "using": "dense",
+   "params": {
+    "quantization": {
+     "rescore": true,
+     "oversampling": 3
+    }
+   },
+   "filter": {
+    "must": [
+     {
+      "key": "project",
+      "match": {
+       "any": [
+        "ops"
+       ]
+      }
+     }
+    ],
+    "must_not": [
+     {
+      "key": "part",
+      "match": {
+       "value": "cue"
+      }
+     }
+    ]
+   },
+   "group_by": "item",
+   "group_size": 1,
+   "limit": 50,
+   "with_payload": false
+  },
+  {
+   "query": [
+    1,
+    0
+   ],
+   "using": "dense",
+   "params": {
+    "quantization": {
+     "rescore": true,
+     "oversampling": 3
+    }
+   },
+   "filter": {
+    "must": [
+     {
+      "key": "project",
+      "match": {
+       "any": [
+        "ops"
+       ]
+      }
+     },
+     {
+      "key": "part",
+      "match": {
+       "value": "cue"
+      }
+     }
+    ]
+   },
+   "group_by": "item",
+   "group_size": 1,
+   "limit": 50,
+   "with_payload": false
+  },
+  {
+   "query": [
+    0,
+    1
+   ],
+   "using": "dense",
+   "params": {
+    "quantization": {
+     "rescore": true,
+     "oversampling": 3
+    }
+   },
+   "filter": {
+    "must": [
+     {
+      "key": "project",
+      "match": {
+       "any": [
+        "ops"
+       ]
+      }
+     }
+    ],
+    "must_not": [
+     {
+      "key": "part",
+      "match": {
+       "value": "cue"
+      }
+     }
+    ]
+   },
+   "group_by": "item",
+   "group_size": 1,
+   "limit": 50,
+   "with_payload": false
+  },
+  {
+   "query": [
+    0,
+    1
+   ],
+   "using": "dense",
+   "params": {
+    "quantization": {
+     "rescore": true,
+     "oversampling": 3
+    }
+   },
+   "filter": {
+    "must": [
+     {
+      "key": "project",
+      "match": {
+       "any": [
+        "ops"
+       ]
+      }
+     },
+     {
+      "key": "part",
+      "match": {
+       "value": "cue"
+      }
+     }
+    ]
+   },
+   "group_by": "item",
+   "group_size": 1,
+   "limit": 50,
+   "with_payload": false
+  },
+  {
+   "query": {
+    "indices": [
+     5,
+     9
+    ],
+    "values": [
+     1,
+     1
+    ]
+   },
+   "using": "bm25",
+   "filter": {
+    "must": [
+     {
+      "key": "project",
+      "match": {
+       "any": [
+        "ops"
+       ]
+      }
+     }
+    ]
+   },
+   "group_by": "item",
+   "group_size": 1,
+   "limit": 50,
+   "with_payload": false
+  },
+  {
+   "query": [
+    1,
+    0
+   ],
+   "using": "dense",
+   "params": {
+    "quantization": {
+     "rescore": true,
+     "oversampling": 3
+    }
+   },
+   "filter": {
+    "must_not": [
+     {
+      "key": "part",
+      "match": {
+       "value": "cue"
+      }
+     }
+    ]
+   },
+   "group_by": "item",
+   "group_size": 1,
+   "limit": 50,
+   "with_payload": false
+  },
+  {
+   "query": [
+    1,
+    0
+   ],
+   "using": "dense",
+   "params": {
+    "quantization": {
+     "rescore": true,
+     "oversampling": 3
+    }
+   },
+   "filter": {
+    "must": [
+     {
+      "key": "part",
+      "match": {
+       "value": "cue"
+      }
+     }
+    ]
+   },
+   "group_by": "item",
+   "group_size": 1,
+   "limit": 50,
+   "with_payload": false
+  }
+ ],
+ "fused": [
+  {
+   "item": "d",
+   "score": 0.615,
+   "point": "d-0"
+  },
+  {
+   "item": "b",
+   "score": 0.5762195121951219,
+   "point": "b-2"
+  },
+  {
+   "item": "a",
+   "score": 0.37369565217391304,
+   "point": "a-1"
+  },
+  {
+   "item": "c",
+   "score": 0.034999999999999996,
+   "point": "c--1"
+  }
+ ],
+ "denseOnly": [
+  {
+   "item": "a",
+   "score": 0.9,
+   "point": "a-1"
+  },
+  {
+   "item": "b",
+   "score": 0.746341463414634,
+   "point": "b-0"
+  },
+  {
+   "item": "c",
+   "score": 0.1,
+   "point": "c--1"
+  }
+ ]
+}

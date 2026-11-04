@@ -31,6 +31,7 @@ jobs:
       - name: The conformance fixtures are what the library gives (ports are held to them)
         if: matrix.os == 'ubuntu-latest' && matrix.node == 24
         run: npx tsx conformance/generate.ts && git diff --exit-code conformance/fixtures
+      - { name: The Python port's fixtures are what the library gives, if: "matrix.os == 'ubuntu-latest' && matrix.node == 24", run: npx tsx conformance/generate-python.ts && git diff --exit-code conformance/fixtures }
 
   integration:
     runs-on: ubuntu-latest

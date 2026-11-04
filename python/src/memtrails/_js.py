@@ -337,7 +337,7 @@ def now_ms() -> int:
 
 def _days_from_civil(y: int, m: int, d: int) -> int:
     y -= m <= 2
-    era = (y if y >= 0 else y - 399) // 400
+    era = int((y if y >= 0 else y - 399) / 400)  # truncating, as the algorithm's C division is
     yoe = y - era * 400
     doy = (153 * (m + (-3 if m > 2 else 9)) + 2) // 5 + d - 1
     doe = yoe * 365 + yoe // 4 - yoe // 100 + doy
