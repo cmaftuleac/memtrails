@@ -144,7 +144,12 @@ impl WordStore {
     }
 
     /// Read the file. An entry cut short by a crash goes: everything appended after it would be read as part of it.
-    pub fn load(&self) -> Result<()> {
+    pub async fn load(&self) -> Result<()> {
+        let me = self.clone();
+        crate::store::blocking(move || me.load_now()).await?
+    }
+
+    fn load_now(&self) -> Result<()> {
         let Some(file) = &self.file else { return Ok(()) };
         let Ok(b) = fs::read(file) else { return Ok(()) };
         let mut at = 0usize;
@@ -172,7 +177,12 @@ impl WordStore {
     }
 
     /// Keep these texts' packed words.
-    pub fn put(&self, entries: Vec<(String, PackedWords)>) -> Result<()> {
+    pub async fn put(&self, entries: Vec<(String, PackedWords)>) -> Result<()> {
+        let me = self.clone();
+        crate::store::blocking(move || me.put_now(entries)).await?
+    }
+
+    fn put_now(&self, entries: Vec<(String, PackedWords)>) -> Result<()> {
         let mut bytes = Vec::new();
         {
             let mut map = self.lock();
@@ -212,16 +222,18 @@ pub fn word_reranker(encode: WordEncoder, store: WordStore) -> RerankFn {
                 }
                 if !missing.is_empty() {
                     let encoded = encode(missing.clone(), WordKind::Document).await?;
-                    store.put(missing.into_iter().zip(encoded.iter().map(pack_words)).collect())?;
+                    store.put(missing.into_iter().zip(encoded.iter().map(pack_words)).collect()).await?;
                 }
                 let q = encode(vec![query], WordKind::Query).await?;
                 let q = q.into_iter().next().ok_or_else(|| crate::Error::Model("no query vectors".into()))?;
-                Ok::<_, crate::Error>(
-                    documents
+                let packed: Vec<Option<Arc<PackedWords>>> = documents.iter().map(|t| store.get(t)).collect();
+                crate::store::blocking(move || {
+                    packed
                         .iter()
-                        .map(|t| store.get(t).map_or(f64::NEG_INFINITY, |p| max_sim(&q, &p)))
-                        .collect::<Vec<f64>>(),
-                )
+                        .map(|p| p.as_ref().map_or(f64::NEG_INFINITY, |p| max_sim(&q, p)))
+                        .collect::<Vec<f64>>()
+                })
+                .await
             };
             match tokio::time::timeout(Duration::from_millis(timeout_ms), work).await {
                 Ok(Ok(scores)) => Some(scores),

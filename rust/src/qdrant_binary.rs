@@ -11,6 +11,7 @@ use std::path::{Component, Path, PathBuf};
 
 use crate::download::{download_verified, with_lock, DownloadOptions, LockOptions, Pin};
 use crate::error::{Error, Result};
+use crate::store::blocking;
 use crate::sys;
 
 /// The Qdrant version memtrails runs.
@@ -105,7 +106,12 @@ pub fn qdrant_release_base() -> String {
 }
 
 /// The binary is in place, its archive was verified when it was unpacked, and no one else could have changed it since.
-pub fn qdrant_ready(cache: &Path, a: &QdrantAsset) -> bool {
+pub async fn qdrant_ready(cache: &Path, a: &QdrantAsset) -> bool {
+    let (cache, a) = (cache.to_path_buf(), a.clone());
+    blocking(move || ready_now(&cache, &a)).await.unwrap_or(false)
+}
+
+fn ready_now(cache: &Path, a: &QdrantAsset) -> bool {
     let dir = qdrant_dir(cache);
     let bin = dir.join(&a.exe);
     let marker = dir.join(".verified");
@@ -196,12 +202,13 @@ pub async fn ensure_qdrant(o: &DownloadOptions, asset: Option<QdrantAsset>) -> R
     let cache = o.cache_dir();
     let dir = qdrant_dir(&cache);
     let bin = dir.join(&a.exe);
-    if qdrant_ready(&cache, &a) {
+    if qdrant_ready(&cache, &a).await {
         return Ok(bin);
     }
-    sys::make_dir(&cache, 0o700).map_err(|e| Error::io(&cache, e))?;
+    let made = cache.clone();
+    blocking(move || sys::make_dir(&made, 0o700)).await?.map_err(|e| Error::io(&cache, e))?;
     with_lock(&dir, LockOptions::default(), || async {
-        if qdrant_ready(&cache, &a) {
+        if qdrant_ready(&cache, &a).await {
             return Ok(bin.clone()); // another run finished it while this one waited
         }
         o.say(&format!("[memtrails] fetching Qdrant {QDRANT_VERSION} ({} MB)", (a.size as f64 / 1e6).round()));
@@ -209,7 +216,10 @@ pub async fn ensure_qdrant(o: &DownloadOptions, asset: Option<QdrantAsset>) -> R
         let pin = Pin { size: a.size, sha256: a.sha256.clone() };
         let (file, tmp) =
             download_verified(&format!("{}/{}", base.trim_end_matches('/'), a.asset), &cache, &pin, o).await?;
-        let placed = (|| -> Result<()> {
+        let (a2, dir2, tmp2) = (a.clone(), dir.clone(), tmp.clone());
+        // Unpacking and moving folders: file work, on a blocking thread.
+        let placed = blocking(move || -> Result<()> {
+            let (a, dir, tmp) = (a2, dir2, tmp2);
             // Unpacked into a fresh folder and moved into place whole: never a half-unpacked binary under the real name.
             let archive = tmp.join(&a.asset);
             fs::rename(&file, &archive).map_err(|e| Error::io(&archive, e))?;
@@ -231,10 +241,11 @@ pub async fn ensure_qdrant(o: &DownloadOptions, asset: Option<QdrantAsset>) -> R
                 fs::rename(&dir, tmp.join("old")).map_err(|e| Error::io(&dir, e))?;
             }
             fs::rename(&unpacked, &dir).map_err(|e| Error::io(&dir, e))
-        })();
-        let _ = fs::remove_dir_all(&tmp);
-        placed?;
-        if !qdrant_ready(&cache, &a) {
+        })
+        .await;
+        let _ = tokio::fs::remove_dir_all(&tmp).await;
+        placed??;
+        if !qdrant_ready(&cache, &a).await {
             return Err(Error::Download(format!(
                 "{} is not this user's alone (its owner or permissions): not running a binary others could change",
                 dir.display()

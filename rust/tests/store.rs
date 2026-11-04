@@ -29,125 +29,125 @@ fn log(path: &std::path::Path) -> JsonlLog<Rec, i64> {
     JsonlLog::new(path, |r: &Rec| r.n)
 }
 
-fn uids(l: &JsonlLog<Rec, i64>) -> Vec<String> {
-    l.all().map(|r| r.uid).collect()
+async fn uids(l: &JsonlLog<Rec, i64>) -> Vec<String> {
+    l.all().await.into_iter().map(|r| r.uid).collect()
 }
 
 fn append(path: &std::path::Path, text: &str) {
     fs::OpenOptions::new().append(true).open(path).unwrap().write_all(text.as_bytes()).unwrap();
 }
 
-#[test]
-fn reads_each_record_back_by_offset_latest_line_winning_across_a_reload() {
+#[tokio::test]
+async fn reads_each_record_back_by_offset_latest_line_winning_across_a_reload() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("x.jsonl");
     let a = log(&path);
-    a.put(&[rec("a", "первый — ünïcödé", 1), rec("b", "second", 2)]).unwrap();
-    a.put(&[rec("a", "replaced", 3)]).unwrap();
-    assert_eq!(a.get("a").unwrap().text, "replaced");
-    assert_eq!(a.get("b").unwrap().text, "second");
+    a.put(vec![rec("a", "первый — ünïcödé", 1), rec("b", "second", 2)]).await.unwrap();
+    a.put(vec![rec("a", "replaced", 3)]).await.unwrap();
+    assert_eq!(a.get("a").await.unwrap().text, "replaced");
+    assert_eq!(a.get("b").await.unwrap().text, "second");
     assert_eq!(a.meta("a"), Some(3));
     let b = log(&path);
-    b.load().unwrap();
+    b.load().await.unwrap();
     assert_eq!(b.size(), 2);
-    assert_eq!(b.get("a").unwrap().text, "replaced");
-    assert_eq!(uids(&b), ["b", "a"]);
+    assert_eq!(b.get("a").await.unwrap().text, "replaced");
+    assert_eq!(uids(&b).await, ["b", "a"]);
 }
 
-#[test]
-fn compacts_once_twice_what_is_live_offsets_still_right() {
+#[tokio::test]
+async fn compacts_once_twice_what_is_live_offsets_still_right() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("x.jsonl");
     let l = log(&path);
     for i in 0..1200 {
-        l.put(&[rec(&format!("u{}", i % 3), &format!("v{i} é"), i)]).unwrap();
+        l.put(vec![rec(&format!("u{}", i % 3), &format!("v{i} é"), i)]).await.unwrap();
     }
-    l.compact().unwrap();
+    l.compact().await.unwrap();
     assert_eq!(fs::read_to_string(&path).unwrap().trim().split('\n').count(), 3);
-    assert_eq!(l.get("u0").unwrap().text, "v1197 é");
-    l.put(&[rec("u3", "after", 0)]).unwrap();
-    assert_eq!(l.get("u3").unwrap().text, "after");
-    assert_eq!(l.get("u2").unwrap().text, "v1199 é");
+    assert_eq!(l.get("u0").await.unwrap().text, "v1197 é");
+    l.put(vec![rec("u3", "after", 0)]).await.unwrap();
+    assert_eq!(l.get("u3").await.unwrap().text, "after");
+    assert_eq!(l.get("u2").await.unwrap().text, "v1199 é");
 }
 
-#[test]
-fn removes_and_stays_removed_after_a_reload() {
+#[tokio::test]
+async fn removes_and_stays_removed_after_a_reload() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("x.jsonl");
     let l = log(&path);
-    l.put(&[rec("a", "one", 1), rec("b", "two", 2)]).unwrap();
-    l.remove(&["a".into(), "nope".into()]).unwrap();
-    assert!(l.get("a").is_none());
+    l.put(vec![rec("a", "one", 1), rec("b", "two", 2)]).await.unwrap();
+    l.remove(vec!["a".into(), "nope".into()]).await.unwrap();
+    assert!(l.get("a").await.is_none());
     assert!(fs::read_to_string(&path).unwrap().contains(r#"{"uid":"a","removed":true}"#));
     let r = log(&path);
-    r.load().unwrap();
-    assert_eq!(uids(&r), ["b"]);
+    r.load().await.unwrap();
+    assert_eq!(uids(&r).await, ["b"]);
 }
 
-#[test]
-fn drops_a_cut_off_last_line_and_keeps_what_comes_after_through_reopen_and_compaction() {
+#[tokio::test]
+async fn drops_a_cut_off_last_line_and_keeps_what_comes_after_through_reopen_and_compaction() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("x.jsonl");
-    log(&path).put(&[rec("a", "ok é", 1)]).unwrap();
+    log(&path).put(vec![rec("a", "ok é", 1)]).await.unwrap();
     append(&path, r#"{"uid":"b","text":"torn"#);
     let l = log(&path);
-    l.load().unwrap();
-    l.put(&[rec("c", "after the crash", 2), rec("d", "and this", 3)]).unwrap();
-    assert_eq!(l.get("c").unwrap().text, "after the crash");
-    assert_eq!(l.get("d").unwrap().text, "and this");
+    l.load().await.unwrap();
+    l.put(vec![rec("c", "after the crash", 2), rec("d", "and this", 3)]).await.unwrap();
+    assert_eq!(l.get("c").await.unwrap().text, "after the crash");
+    assert_eq!(l.get("d").await.unwrap().text, "and this");
     assert!(!fs::read_to_string(&path).unwrap().contains("torn"));
     let r = log(&path);
-    r.load().unwrap();
-    assert_eq!(uids(&r), ["a", "c", "d"]);
+    r.load().await.unwrap();
+    assert_eq!(uids(&r).await, ["a", "c", "d"]);
     for i in 0..1100 {
-        r.put(&[rec("a", &format!("v{i}"), i)]).unwrap();
+        r.put(vec![rec("a", &format!("v{i}"), i)]).await.unwrap();
     }
-    r.compact().unwrap();
+    r.compact().await.unwrap();
     let s = log(&path);
-    s.load().unwrap();
-    let got: Vec<(String, String)> = s.all().map(|x| (x.uid, x.text)).collect();
+    s.load().await.unwrap();
+    let got: Vec<(String, String)> = s.all().await.into_iter().map(|x| (x.uid, x.text)).collect();
     assert_eq!(
         got,
         [("c".into(), "after the crash".into()), ("d".into(), "and this".into()), ("a".into(), "v1099".into())]
     );
 }
 
-#[test]
-fn keeps_a_last_line_whole_but_for_its_newline() {
+#[tokio::test]
+async fn keeps_a_last_line_whole_but_for_its_newline() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("x.jsonl");
     fs::write(&path, "{\"uid\":\"a\",\"text\":\"one\",\"n\":1}\n{\"uid\":\"b\",\"text\":\"two\",\"n\":2}").unwrap();
     let l = log(&path);
-    l.load().unwrap();
-    l.put(&[rec("c", "three", 3)]).unwrap();
-    assert_eq!(l.get("b").unwrap().text, "two");
-    assert_eq!(l.get("c").unwrap().text, "three");
+    l.load().await.unwrap();
+    l.put(vec![rec("c", "three", 3)]).await.unwrap();
+    assert_eq!(l.get("b").await.unwrap().text, "two");
+    assert_eq!(l.get("c").await.unwrap().text, "three");
     let r = log(&path);
-    r.load().unwrap();
-    assert_eq!(uids(&r), ["a", "b", "c"]);
+    r.load().await.unwrap();
+    assert_eq!(uids(&r).await, ["a", "b", "c"]);
 }
 
-#[test]
-fn refuses_to_compact_when_a_record_cannot_be_read_leaving_the_file_as_it_was() {
+#[tokio::test]
+async fn refuses_to_compact_when_a_record_cannot_be_read_leaving_the_file_as_it_was() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("x.jsonl");
     let l = log(&path);
-    l.put(&[rec("keep", "precious", 0)]).unwrap();
+    l.put(vec![rec("keep", "precious", 0)]).await.unwrap();
     for i in 0..1100 {
-        l.put(&[rec("u", &format!("v{i}"), i)]).unwrap();
+        l.put(vec![rec("u", &format!("v{i}"), i)]).await.unwrap();
     }
     // Damaged in place (same length): the index still points at it.
     let before = fs::read_to_string(&path).unwrap().replacen("precious", "prec\"ous", 1);
     fs::write(&path, &before).unwrap();
-    assert!(l.get("keep").is_none());
-    let err = l.compact().unwrap_err().to_string();
+    assert!(l.get("keep").await.is_none());
+    let err = l.compact().await.unwrap_err().to_string();
     assert!(err.contains("keep"), "{err}");
     assert_eq!(fs::read_to_string(&path).unwrap(), before);
-    assert_eq!(l.get("u").unwrap().text, "v1099");
+    assert_eq!(l.get("u").await.unwrap().text, "v1099");
 }
 
-#[test]
-fn compacts_a_log_larger_than_one_write_every_offset_right_after_a_reopen() {
+#[tokio::test]
+async fn compacts_a_log_larger_than_one_write_every_offset_right_after_a_reopen() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("x.jsonl");
     let l = log(&path);
@@ -155,30 +155,30 @@ fn compacts_a_log_larger_than_one_write_every_offset_right_after_a_reopen() {
     let live = 800;
     for round in 0..4 {
         let batch: Vec<Rec> = (0..live).map(|i| rec(&format!("u{i}"), &format!("{round}:{i}:{big}"), round)).collect();
-        l.put(&batch).unwrap();
+        l.put(batch).await.unwrap();
     }
-    l.compact().unwrap();
+    l.compact().await.unwrap();
     assert_eq!(fs::read_to_string(&path).unwrap().trim().split('\n').count(), live);
-    assert_eq!(l.get("u799").unwrap().text, format!("3:799:{big}"));
-    l.put(&[rec("new", "after", 9)]).unwrap();
+    assert_eq!(l.get("u799").await.unwrap().text, format!("3:799:{big}"));
+    l.put(vec![rec("new", "after", 9)]).await.unwrap();
     let r = log(&path);
-    r.load().unwrap();
+    r.load().await.unwrap();
     assert_eq!(r.size(), live + 1);
     for i in 0..live {
-        assert_eq!(r.get(&format!("u{i}")).unwrap().text, format!("3:{i}:{big}"));
+        assert_eq!(r.get(&format!("u{i}")).await.unwrap().text, format!("3:{i}:{big}"));
     }
-    assert_eq!(r.get("new").unwrap().text, "after");
+    assert_eq!(r.get("new").await.unwrap().text, "after");
 }
 
-#[test]
-fn usage_counts_what_was_shown_and_opened_and_keeps_it() {
+#[tokio::test]
+async fn usage_counts_what_was_shown_and_opened_and_keeps_it() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("usage.json");
-    let u = UsageBook::new(&path);
+    let u = UsageBook::open(&path).await;
     u.note(&["m1".into(), "m2".into()], false, 100.0);
     u.note(&["m1".into()], true, 200.0);
-    u.flush();
-    let again = UsageBook::new(&path);
+    u.flush().await;
+    let again = UsageBook::open(&path).await;
     let m1 = again.of("m1");
     assert_eq!((m1.shown, m1.opened, m1.last_used), (1, 1, 200.0));
     assert_eq!(again.of("m3").shown, 0);

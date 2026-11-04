@@ -352,8 +352,19 @@ struct Removal {
 }
 
 /// An append-only JSONL log of records by uid, read back by byte offset: a later line for the same uid replaces the
-/// earlier one. `meta` is what stays in memory for each record. Safe to share between tasks.
-pub struct JsonlLog<T: Keyed, M: Clone> {
+/// earlier one. `meta` is what stays in memory for each record. Safe to share between tasks; every file access runs
+/// on a blocking thread (`spawn_blocking`), never on the async runtime's own.
+pub struct JsonlLog<T: Keyed, M: Clone + Send + 'static> {
+    shared: Arc<Shared<T, M>>,
+}
+
+impl<T: Keyed, M: Clone + Send + 'static> Clone for JsonlLog<T, M> {
+    fn clone(&self) -> Self {
+        JsonlLog { shared: self.shared.clone() }
+    }
+}
+
+struct Shared<T, M> {
     path: PathBuf,
     project: fn(&T) -> M,
     inner: Mutex<Inner<M>>,
@@ -382,40 +393,18 @@ pub(crate) fn write_private(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     f.write_all(bytes)
 }
 
-impl<T: Keyed, M: Clone> JsonlLog<T, M> {
-    /// A log at `path`, empty until `load`.
-    pub fn new(path: impl Into<PathBuf>, project: fn(&T) -> M) -> Self {
-        JsonlLog { path: path.into(), project, inner: Mutex::new(Inner { live: IndexMap::new(), lines: 0, end: 0 }) }
-    }
+/// Run file work on a blocking thread.
+pub(crate) async fn blocking<R: Send + 'static>(f: impl FnOnce() -> R + Send + 'static) -> Result<R> {
+    tokio::task::spawn_blocking(f).await.map_err(|e| Error::Other(format!("a file task failed: {e}")))
+}
 
+impl<T: Keyed, M: Clone + Send + 'static> Shared<T, M> {
     fn lock(&self) -> MutexGuard<'_, Inner<M>> {
         // A panic while holding it left plain data; what it holds is still the log's index.
         self.inner.lock().unwrap_or_else(|e| e.into_inner())
     }
 
-    /// Where it is kept.
-    pub fn path(&self) -> &Path {
-        &self.path
-    }
-
-    /// How many live records.
-    pub fn size(&self) -> usize {
-        self.lock().live.len()
-    }
-
-    /// A record's projection.
-    pub fn meta(&self, uid: &str) -> Option<M> {
-        self.lock().live.get(uid).map(|s| s.meta.clone())
-    }
-
-    /// Every live record's uid and projection.
-    pub fn entries(&self) -> Vec<(String, M)> {
-        self.lock().live.iter().map(|(k, s)| (k.clone(), s.meta.clone())).collect()
-    }
-
-    /// Read the file: every live record's place and projection. A crash's cut-off last line is ended when it is whole
-    /// but for its `\n`, and cut off when it is torn, so what is added next starts on a line of its own.
-    pub fn load(&self) -> Result<()> {
+    fn load(&self) -> Result<()> {
         let mut g = self.lock();
         g.live.clear();
         g.lines = 0;
@@ -463,7 +452,8 @@ impl<T: Keyed, M: Clone> JsonlLog<T, M> {
                 take(&mut g, body, at, n as u64);
                 at += n as u64;
             } else {
-                // A crash cut the last line short of its '\n': whole but for it, it is ended; torn, it goes.
+                // A crash cut the last line short of its '\n': whole but for it, it is ended; torn, it goes. Either
+                // way what is added next starts on a line of its own, at the offset the index gives it.
                 let tail = line.clone();
                 if take(&mut g, &tail, at, tail.len() as u64) {
                     let _ = append_private(&self.path, b"\n");
@@ -485,18 +475,16 @@ impl<T: Keyed, M: Clone> JsonlLog<T, M> {
         serde_json::from_str(js::trim_end(text)).ok()
     }
 
-    /// A live record, read from its place in the file; `None` when it is not live or cannot be read.
-    pub fn get(&self, uid: &str) -> Option<T> {
-        let slot = self.lock().live.get(uid).cloned()?;
-        let mut f = File::open(&self.path).ok()?;
-        Self::read_slot(&mut f, &slot)
+    fn get_many(&self, uids: &[String]) -> Vec<Option<T>> {
+        let slots: Vec<Option<Slot<M>>> = {
+            let g = self.lock();
+            uids.iter().map(|u| g.live.get(u.as_str()).cloned()).collect()
+        };
+        let mut file = File::open(&self.path).ok();
+        slots.into_iter().map(|s| Self::read_slot(file.as_mut()?, s.as_ref()?)).collect()
     }
 
-    /// Append records (a file write is done when this returns).
-    pub fn put(&self, recs: &[T]) -> Result<()> {
-        if recs.is_empty() {
-            return Ok(());
-        }
+    fn put(&self, recs: &[T]) -> Result<()> {
         let mut g = self.lock();
         if let Some(dir) = self.path.parent() {
             fs::create_dir_all(dir).map_err(|e| Error::io(dir, e))?;
@@ -525,10 +513,9 @@ impl<T: Keyed, M: Clone> JsonlLog<T, M> {
         Ok(())
     }
 
-    /// Forget these records: gone from memory, and from the file when it is next compacted.
-    pub fn remove(&self, uids: &[String]) -> Result<()> {
+    fn remove(&self, uids: &[String]) -> Result<()> {
         let mut g = self.lock();
-        let gone: Vec<&String> = uids.iter().filter(|u| g.live.contains_key(u.as_str())).collect();
+        let gone: Vec<String> = uids.iter().filter(|u| g.live.contains_key(u.as_str())).cloned().collect();
         if gone.is_empty() {
             return Ok(());
         }
@@ -546,24 +533,13 @@ impl<T: Keyed, M: Clone> JsonlLog<T, M> {
         }
         g.end += bytes.len() as u64;
         g.lines += gone.len();
-        let gone: Vec<String> = gone.into_iter().cloned().collect();
         for uid in gone {
             g.live.shift_remove(&uid);
         }
         Ok(())
     }
 
-    /// Every live record, in file order (oldest first), read one at a time.
-    pub fn all(&self) -> impl Iterator<Item = T> + '_ {
-        let mut order: Vec<(String, u64)> = self.lock().live.iter().map(|(k, s)| (k.clone(), s.at)).collect();
-        order.sort_by_key(|x| x.1);
-        order.into_iter().filter_map(move |(uid, _)| self.get(&uid))
-    }
-
-    /// Rewrite the log without replaced lines once it is twice what is live. Record by record into a file beside it,
-    /// made durable and then renamed over it: a log of any size, and a crash leaves the old one whole. A record that
-    /// cannot be read is never dropped by a rewrite: it fails, and the log stays as it is.
-    pub fn compact(&self) -> Result<()> {
+    fn compact(&self) -> Result<()> {
         let mut g = self.lock();
         if g.lines < 2 * g.live.len() + 1000 {
             return Ok(());
@@ -580,8 +556,7 @@ impl<T: Keyed, M: Clone> JsonlLog<T, M> {
             let mut at = 0u64;
             let mut parts: Vec<u8> = Vec::new();
             for (uid, s) in order {
-                let rec = Self::read_slot(&mut src, &s);
-                let rec = match rec {
+                let rec = match Self::read_slot(&mut src, &s) {
                     Some(r) if r.uid() == uid => r,
                     _ => {
                         return Err(Error::Store(format!(
@@ -619,6 +594,97 @@ impl<T: Keyed, M: Clone> JsonlLog<T, M> {
                 Err(e)
             }
         }
+    }
+}
+
+impl<T: Keyed, M: Clone + Send + 'static> JsonlLog<T, M> {
+    /// A log at `path`, empty until `load`.
+    pub fn new(path: impl Into<PathBuf>, project: fn(&T) -> M) -> Self {
+        JsonlLog {
+            shared: Arc::new(Shared {
+                path: path.into(),
+                project,
+                inner: Mutex::new(Inner { live: IndexMap::new(), lines: 0, end: 0 }),
+            }),
+        }
+    }
+
+    /// Where it is kept.
+    pub fn path(&self) -> &Path {
+        &self.shared.path
+    }
+
+    /// How many live records.
+    pub fn size(&self) -> usize {
+        self.shared.lock().live.len()
+    }
+
+    /// A record's projection.
+    pub fn meta(&self, uid: &str) -> Option<M> {
+        self.shared.lock().live.get(uid).map(|s| s.meta.clone())
+    }
+
+    /// Every live record's uid and projection, in the order they were first written.
+    pub fn entries(&self) -> Vec<(String, M)> {
+        self.shared.lock().live.iter().map(|(k, s)| (k.clone(), s.meta.clone())).collect()
+    }
+
+    /// Every live record's uid, in file order (oldest first).
+    pub fn order(&self) -> Vec<String> {
+        let mut order: Vec<(String, u64)> = self.shared.lock().live.iter().map(|(k, s)| (k.clone(), s.at)).collect();
+        order.sort_by_key(|x| x.1);
+        order.into_iter().map(|x| x.0).collect()
+    }
+
+    /// Read the file: every live record's place and projection. A crash's cut-off last line is ended when it is
+    /// whole but for its `\n`, and cut off when it is torn, so what is added next starts on a line of its own.
+    pub async fn load(&self) -> Result<()> {
+        let s = self.shared.clone();
+        blocking(move || s.load()).await?
+    }
+
+    /// A live record, read from its place in the file; `None` when it is not live or cannot be read.
+    pub async fn get(&self, uid: &str) -> Option<T> {
+        self.get_many(vec![uid.to_string()]).await.into_iter().next().flatten()
+    }
+
+    /// Several records at once (one read of the file), in the order asked.
+    pub async fn get_many(&self, uids: Vec<String>) -> Vec<Option<T>> {
+        if uids.is_empty() {
+            return vec![];
+        }
+        let n = uids.len();
+        let s = self.shared.clone();
+        blocking(move || s.get_many(&uids)).await.unwrap_or_else(|_| (0..n).map(|_| None).collect())
+    }
+
+    /// Append records (kept when this returns).
+    pub async fn put(&self, recs: Vec<T>) -> Result<()> {
+        if recs.is_empty() {
+            return Ok(());
+        }
+        let s = self.shared.clone();
+        blocking(move || s.put(&recs)).await?
+    }
+
+    /// Forget these records: gone from memory, and from the file when it is next compacted.
+    pub async fn remove(&self, uids: Vec<String>) -> Result<()> {
+        let s = self.shared.clone();
+        blocking(move || s.remove(&uids)).await?
+    }
+
+    /// Every live record, in file order (oldest first).
+    pub async fn all(&self) -> Vec<T> {
+        let order = self.order();
+        self.get_many(order).await.into_iter().flatten().collect()
+    }
+
+    /// Rewrite the log without replaced lines once it is twice what is live. Record by record into a file beside it,
+    /// made durable and then renamed over it: a log of any size, and a crash leaves the old one whole. A record that
+    /// cannot be read is never dropped by a rewrite: it fails, and the log stays as it is.
+    pub async fn compact(&self) -> Result<()> {
+        let s = self.shared.clone();
+        blocking(move || s.compact()).await?
     }
 }
 
@@ -736,9 +802,10 @@ pub struct UsageBook {
 
 impl UsageBook {
     /// The book at `path` (empty when there is none, or it cannot be read).
-    pub fn new(path: impl Into<PathBuf>) -> Self {
+    pub async fn open(path: impl Into<PathBuf>) -> Self {
         let path = path.into();
-        let data = fs::read_to_string(&path).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
+        let data =
+            tokio::fs::read_to_string(&path).await.ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
         UsageBook { path, book: Arc::new(Mutex::new(Book { data, dirty: false, armed: false })) }
     }
 
@@ -772,27 +839,29 @@ impl UsageBook {
                 let me = self.clone();
                 rt.spawn(async move {
                     tokio::time::sleep(std::time::Duration::from_secs(60)).await;
-                    me.flush();
+                    me.flush().await;
                 });
-            } else {
-                self.flush();
             }
         }
     }
 
     /// Write it now, when anything changed (a read-only home keeps it in memory).
-    pub fn flush(&self) {
-        let mut b = self.lock();
-        b.armed = false;
-        if !b.dirty {
-            return;
-        }
-        if let Some(dir) = self.path.parent() {
-            let _ = fs::create_dir_all(dir);
-        }
-        let text = serde_json::to_string(&b.data).unwrap_or_else(|_| "{}".into());
-        if write_private(&self.path, text.as_bytes()).is_ok() {
-            b.dirty = false;
-        }
+    pub async fn flush(&self) {
+        let me = self.clone();
+        let _ = blocking(move || {
+            let mut b = me.lock();
+            b.armed = false;
+            if !b.dirty {
+                return;
+            }
+            if let Some(dir) = me.path.parent() {
+                let _ = fs::create_dir_all(dir);
+            }
+            let text = serde_json::to_string(&b.data).unwrap_or_else(|_| "{}".into());
+            if write_private(&me.path, text.as_bytes()).is_ok() {
+                b.dirty = false;
+            }
+        })
+        .await;
     }
 }

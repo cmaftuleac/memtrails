@@ -81,6 +81,9 @@ pub struct RoomItem {
 /// A found memory in the room's list: its rank, the memory and its sentences.
 type Listed<'a> = (usize, &'a RoomItem, Vec<(usize, usize)>);
 
+/// A sentence to score: its memory, its span, its weight by the memory's rank, and its packed words.
+type Sentence = (usize, usize, usize, f64, Option<std::sync::Arc<crate::words::PackedWords>>);
+
 /// The room: the best sentences of the first `top` memories, fitted in `chars`, each memory's head once, oldest first.
 pub async fn sentence_room(
     query: &str,
@@ -104,21 +107,26 @@ pub async fn sentence_room(
     let missing: Vec<String> = texts.into_iter().filter(|t| store.get(t).is_none()).collect();
     if !missing.is_empty() {
         let encoded = encode(missing.clone(), WordKind::Document).await?;
-        store.put(missing.into_iter().zip(encoded.iter().map(pack_words)).collect())?;
+        store.put(missing.into_iter().zip(encoded.iter().map(pack_words)).collect()).await?;
     }
     let q = encode(vec![query.to_string()], WordKind::Query)
         .await?
         .into_iter()
         .next()
         .ok_or_else(|| Error::Model("no vectors for the question".into()))?;
-    let mut candidates: Vec<(usize, usize, usize, f64)> = Vec::new();
+    let mut work: Vec<Sentence> = Vec::new();
     for (k, (rank, it, spans)) in listed.iter().enumerate() {
         for (a, b) in spans {
-            let packed = store.get(js::slice16(&it.text, *a, *b));
-            let sim = packed.map_or(f64::NEG_INFINITY, |p| max_sim(&q, &p));
-            candidates.push((k, *a, *b, sim * (1.0 + 2.0 / (1.0 + *rank as f64 / 10.0))));
+            work.push((k, *a, *b, 1.0 + 2.0 / (1.0 + *rank as f64 / 10.0), store.get(js::slice16(&it.text, *a, *b))));
         }
     }
+    // Word by word over every sentence: CPU work, on a blocking thread.
+    let mut candidates: Vec<(usize, usize, usize, f64)> = crate::store::blocking(move || {
+        work.into_iter()
+            .map(|(k, a, b, weight, packed)| (k, a, b, packed.map_or(f64::NEG_INFINITY, |p| max_sim(&q, &p)) * weight))
+            .collect()
+    })
+    .await?;
     candidates.sort_by(|x, y| y.3.partial_cmp(&x.3).unwrap_or(std::cmp::Ordering::Equal));
     let mut picked: indexmap::IndexMap<usize, Vec<(usize, usize)>> = indexmap::IndexMap::new();
     let mut used = 0usize;

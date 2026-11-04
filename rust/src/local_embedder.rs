@@ -7,7 +7,9 @@
 //! time, on a blocking thread, so the async runtime is never held up by it.
 
 use std::path::Path;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+
+use tokio::sync::Mutex;
 
 use ort::session::builder::GraphOptimizationLevel;
 use ort::session::Session;
@@ -186,14 +188,11 @@ pub async fn load_local_embedder(dir: &Path, o: LocalEmbedderOptions) -> Result<
 
 impl LocalEmbedder {
     async fn with<R: Send + 'static>(&self, f: impl FnOnce(&mut Model) -> Result<R> + Send + 'static) -> Result<R> {
-        let model = self.model.clone();
-        tokio::task::spawn_blocking(move || {
-            // One inference at a time: the lock is the queue.
-            let mut g = model.lock().unwrap_or_else(|e| e.into_inner());
-            match g.as_mut() {
-                Some(m) => f(m),
-                None => Err(Error::Closed),
-            }
+        // One inference at a time: the lock is the queue (tokio's, fair), held while the blocking thread runs it.
+        let mut g = self.model.clone().lock_owned().await;
+        tokio::task::spawn_blocking(move || match g.as_mut() {
+            Some(m) => f(m),
+            None => Err(Error::Closed),
         })
         .await
         .map_err(model_err)?
@@ -235,10 +234,8 @@ impl LocalEmbedder {
 
     /// Wait for the inference running, then release the model.
     pub async fn close(&self) {
-        let model = self.model.clone();
-        let _ = tokio::task::spawn_blocking(move || {
-            model.lock().unwrap_or_else(|e| e.into_inner()).take();
-        })
-        .await;
+        let model = self.model.lock().await.take();
+        // Released on a blocking thread: ONNX Runtime frees its session there.
+        let _ = tokio::task::spawn_blocking(move || drop(model)).await;
     }
 }

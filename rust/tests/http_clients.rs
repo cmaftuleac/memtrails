@@ -36,7 +36,7 @@ async fn the_model_is_asked_for_strict_structured_output_and_its_answer_read() {
         on_usage: Some(std::sync::Arc::new(move |x| u.lock().unwrap().push(x))),
         ..Default::default()
     });
-    let a = ask(req()).await;
+    let a = ask.ask(req()).await.unwrap();
     assert_eq!(a, LlmAnswer::Answer { answer: json!({ "ok": true }), model: Some("m-1".into()) });
     let r = &s.requests()[0];
     assert_eq!(r.path, "/v1/responses");
@@ -65,7 +65,7 @@ async fn says_what_the_provider_said_when_it_refuses_secrets_taken_out() {
         base_url: Some(s.url.clone()),
         ..Default::default()
     });
-    let LlmAnswer::Unavailable(why) = ask(req()).await else { panic!("refused") };
+    let LlmAnswer::Unavailable(why) = ask.ask(req()).await.unwrap() else { panic!("refused") };
     assert!(why.contains("model gpt-x does not exist"), "{why}");
     assert!(why.ends_with(", so it waits"), "{why}");
     assert!(!why.contains(&secret));
@@ -81,7 +81,7 @@ async fn retries_a_busy_model_then_says_it_did_not_answer() {
         retries: Some(1),
         ..Default::default()
     });
-    let LlmAnswer::Unavailable(why) = ask(req()).await else { panic!("not answered") };
+    let LlmAnswer::Unavailable(why) = ask.ask(req()).await.unwrap() else { panic!("not answered") };
     assert!(why.contains("did not answer (HTTP 503)"), "{why}");
     assert_eq!(s.requests().len(), 2);
 }

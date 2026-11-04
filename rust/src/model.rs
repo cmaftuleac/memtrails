@@ -31,7 +31,12 @@ fn stamp() -> String {
 }
 
 /// Every file in place at its pinned size, and the marker written after the last of them was verified.
-pub fn model_ready(dir: &Path) -> bool {
+pub async fn model_ready(dir: &Path) -> bool {
+    let dir = dir.to_path_buf();
+    crate::store::blocking(move || ready_now(&dir)).await.unwrap_or(false)
+}
+
+fn ready_now(dir: &Path) -> bool {
     fs::read_to_string(dir.join(".verified")).is_ok_and(|t| t == stamp())
         && MODEL_FILES.iter().all(|(rel, size, _)| fs::metadata(dir.join(rel)).is_ok_and(|m| m.len() == *size))
 }
@@ -41,17 +46,17 @@ pub fn model_ready(dir: &Path) -> bool {
 /// folder, and the marker is taken away first, so a set left half-replaced is never taken as ready.
 pub async fn ensure_model(o: &DownloadOptions, dir: Option<PathBuf>) -> Result<PathBuf> {
     let dir = dir.unwrap_or_else(|| default_model_dir(&o.cache_dir()));
-    if model_ready(&dir) {
+    if model_ready(&dir).await {
         return Ok(dir);
     }
-    fs::create_dir_all(&dir).map_err(|e| Error::io(&dir, e))?;
+    tokio::fs::create_dir_all(&dir).await.map_err(|e| Error::io(&dir, e))?;
     with_lock(&dir, LockOptions::default(), || async {
-        if model_ready(&dir) {
+        if model_ready(&dir).await {
             return Ok(dir.clone()); // another run finished it while this one waited
         }
         o.say(&format!("[memtrails] fetching {MODEL_REPO} (218 MB, Gemma Terms of Use)"));
         let marker = dir.join(".verified");
-        let _ = fs::remove_file(&marker);
+        let _ = tokio::fs::remove_file(&marker).await;
         let base = o
             .base_url
             .clone()
@@ -62,11 +67,11 @@ pub async fn ensure_model(o: &DownloadOptions, dir: Option<PathBuf>) -> Result<P
             let pin = Pin { size: *size, sha256: (*sha).to_string() };
             let (file, tmp) =
                 download_verified(&format!("{}/{rel}", base.trim_end_matches('/')), &parent, &pin, o).await?;
-            let placed = fs::rename(&file, &path).map_err(|e| Error::io(&path, e));
-            let _ = fs::remove_dir_all(&tmp);
+            let placed = tokio::fs::rename(&file, &path).await.map_err(|e| Error::io(&path, e));
+            let _ = tokio::fs::remove_dir_all(&tmp).await;
             placed?;
         }
-        fs::write(&marker, stamp()).map_err(|e| Error::io(&marker, e))?;
+        tokio::fs::write(&marker, stamp()).await.map_err(|e| Error::io(&marker, e))?;
         o.say("[memtrails] embedding model ready");
         Ok(dir.clone())
     })

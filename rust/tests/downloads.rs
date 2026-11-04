@@ -37,7 +37,7 @@ async fn refuses_a_download_whose_size_or_hash_is_not_pinned_and_keeps_nothing()
     let err = ensure_qdrant(&o, None).await.unwrap_err().to_string();
     assert!(err.contains("expected"), "{err}");
     let a = qdrant_asset(&memtrails::qdrant_binary::platform()).unwrap();
-    assert!(!qdrant_ready(cache.path(), &a));
+    assert!(!qdrant_ready(cache.path(), &a).await);
     let left: Vec<_> = fs::read_dir(cache.path()).unwrap().map(|e| e.unwrap().file_name()).collect();
     assert!(left.iter().all(|n| !n.to_string_lossy().starts_with(".download-")), "{left:?}");
 }
@@ -112,7 +112,7 @@ async fn unpacks_a_verified_archive_into_place_and_trusts_it_after() {
     let o = DownloadOptions { cache: Some(cache.path().into()), base_url: Some(s.url.clone()), ..Default::default() };
     let bin = ensure_qdrant(&o, Some(asset.clone())).await.unwrap();
     assert_eq!(bin, qdrant_dir(cache.path()).join("qdrant"));
-    assert!(qdrant_ready(cache.path(), &asset));
+    assert!(qdrant_ready(cache.path(), &asset).await);
     // Ready: not fetched again.
     ensure_qdrant(&o, Some(asset)).await.unwrap();
     assert_eq!(s.requests().len(), 1);
@@ -164,8 +164,8 @@ async fn one_holder_of_a_lock_at_a_time_and_a_dead_ones_lock_taken_over() {
     assert!(!dir.path().join("x.lock").exists());
 }
 
-#[test]
-fn a_model_folder_without_its_marker_is_not_ready() {
+#[tokio::test]
+async fn a_model_folder_without_its_marker_is_not_ready() {
     let dir = tempfile::tempdir().unwrap();
-    assert!(!model_ready(dir.path()));
+    assert!(!model_ready(dir.path()).await);
 }

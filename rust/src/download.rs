@@ -4,11 +4,13 @@
 
 use std::fs::{self, File, OpenOptions};
 use std::future::Future;
-use std::io::{Read, Write};
+use std::io::Read;
+
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
+use tokio::io::AsyncWriteExt;
 
 use futures::StreamExt;
 use rand::RngCore;
@@ -16,6 +18,7 @@ use sha2::{Digest, Sha256};
 
 use crate::error::{Error, Result};
 use crate::llm::http;
+use crate::store::blocking;
 use crate::sys;
 
 /// Where memtrails keeps what it downloads (the Qdrant binary, the embedding model): `$MEMTRAILS_CACHE`, else
@@ -89,34 +92,32 @@ fn random_hex(bytes: usize) -> String {
     hex::encode(b)
 }
 
-fn private_file(path: &Path) -> std::io::Result<File> {
-    let mut o = OpenOptions::new();
-    o.write(true).create_new(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        o.mode(0o600);
-    }
-    o.open(path)
-}
-
 /// `url` fetched into a fresh temp folder inside `dir`, never to a fixed name: two first runs at once wrote the same
 /// `.part` and could rename each other's half-written file. The file is then checked as it is on disk, not as it
 /// streamed past, against its pinned size and SHA-256. Returns the file and its folder; the caller renames the file
 /// into place and removes the folder. Fails (leaving nothing) on an error, a mismatch, or `stall_ms` without a byte.
 pub async fn download_verified(url: &str, dir: &Path, pin: &Pin, o: &DownloadOptions) -> Result<(PathBuf, PathBuf)> {
-    fs::create_dir_all(dir).map_err(|e| Error::io(dir, e))?;
+    tokio::fs::create_dir_all(dir).await.map_err(|e| Error::io(dir, e))?;
     let tmp = dir.join(format!(".download-{}", random_hex(6)));
-    sys::make_dir(&tmp, 0o700).map_err(|e| Error::io(&tmp, e))?;
+    let made = tmp.clone();
+    blocking(move || sys::make_dir(&made, 0o700)).await?.map_err(|e| Error::io(&tmp, e))?;
     let file = tmp.join("file");
     let result = fetch_into(url, &file, pin, o.stall_ms.unwrap_or(DOWNLOAD_STALL_MS)).await;
     match result {
         Ok(()) => Ok((file, tmp)),
         Err(e) => {
-            let _ = fs::remove_dir_all(&tmp);
+            let _ = tokio::fs::remove_dir_all(&tmp).await;
             Err(e)
         }
     }
+}
+
+fn private_options() -> tokio::fs::OpenOptions {
+    let mut o = tokio::fs::OpenOptions::new();
+    o.write(true).create_new(true);
+    #[cfg(unix)]
+    o.mode(0o600);
+    o
 }
 
 async fn fetch_into(url: &str, file: &Path, pin: &Pin, stall_ms: u64) -> Result<()> {
@@ -130,7 +131,7 @@ async fn fetch_into(url: &str, file: &Path, pin: &Pin, stall_ms: u64) -> Result<
     if !res.status().is_success() {
         return Err(Error::Download(format!("HTTP {} for {name}", res.status().as_u16())));
     }
-    let mut out = private_file(file).map_err(|e| Error::io(file, e))?;
+    let mut out = private_options().open(file).await.map_err(|e| Error::io(file, e))?;
     let mut body = res.bytes_stream();
     let mut size = 0u64;
     loop {
@@ -142,11 +143,13 @@ async fn fetch_into(url: &str, file: &Path, pin: &Pin, stall_ms: u64) -> Result<
         if size > pin.size {
             return Err(Error::Download(format!("{name}: more than the expected {} bytes", pin.size)));
         }
-        out.write_all(&chunk).map_err(|e| Error::io(file, e))?;
+        out.write_all(&chunk).await.map_err(|e| Error::io(file, e))?;
     }
-    out.sync_all().map_err(|e| Error::io(file, e))?;
+    out.sync_all().await.map_err(|e| Error::io(file, e))?;
     drop(out);
-    let (got_size, got_sha) = hash_file(file)?;
+    // Hashed as it is on disk, on a blocking thread: hundreds of MB.
+    let path = file.to_path_buf();
+    let (got_size, got_sha) = blocking(move || hash_file(&path)).await??;
     if got_size != pin.size || got_sha != pin.sha256 {
         return Err(Error::Download(format!(
             "{name}: got {got_size} bytes sha256 {got_sha}, expected {} {}",
@@ -219,19 +222,20 @@ where
     let lock = PathBuf::from(format!("{}.lock", path.display()));
     let mine = format!("{} {} {}", sys::pid(), sys::hostname(), random_hex(8));
     if let Some(dir) = lock.parent() {
-        fs::create_dir_all(dir).map_err(|e| Error::io(dir, e))?;
+        tokio::fs::create_dir_all(dir).await.map_err(|e| Error::io(dir, e))?;
     }
     loop {
-        match private_file(&lock) {
+        match private_options().open(&lock).await {
             Ok(mut fd) => {
-                fd.write_all(mine.as_bytes()).map_err(|e| Error::io(&lock, e))?;
+                fd.write_all(mine.as_bytes()).await.map_err(|e| Error::io(&lock, e))?;
                 break;
             }
             Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {}
             Err(e) => return Err(Error::io(&lock, e)),
         }
-        if lock_stale(&lock, o.stale_ms) {
-            let _ = fs::remove_file(&lock);
+        let at = lock.clone();
+        if blocking(move || lock_stale(&at, o.stale_ms)).await? {
+            let _ = tokio::fs::remove_file(&lock).await;
             continue;
         }
         tokio::time::sleep(Duration::from_millis(o.poll_ms)).await;
@@ -248,9 +252,13 @@ where
                     break;
                 }
                 // Taken over: nothing to keep alive.
-                if let Ok(f) = OpenOptions::new().write(true).open(&lock) {
-                    let _ = f.set_modified(SystemTime::now());
-                }
+                let at = lock.clone();
+                let _ = blocking(move || {
+                    if let Ok(f) = OpenOptions::new().write(true).open(&at) {
+                        let _ = f.set_modified(SystemTime::now());
+                    }
+                })
+                .await;
             }
         })
     };
@@ -258,8 +266,8 @@ where
     done.store(true, Ordering::SeqCst);
     beat.abort();
     // Not one taken over meanwhile.
-    if fs::read_to_string(&lock).is_ok_and(|t| t == mine) {
-        let _ = fs::remove_file(&lock);
+    if tokio::fs::read_to_string(&lock).await.is_ok_and(|t| t == mine) {
+        let _ = tokio::fs::remove_file(&lock).await;
     }
     result
 }

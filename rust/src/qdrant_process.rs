@@ -205,7 +205,8 @@ impl QdrantProcess {
             }
         }
         let dir = self.inner.opts.dir.clone();
-        sys::make_dir(&dir, 0o700).map_err(|e| Error::io(&dir, e))?;
+        let made = dir.clone();
+        crate::store::blocking(move || sys::make_dir(&made, 0o700)).await?.map_err(|e| Error::io(&dir, e))?;
         self.reap_leftover().await;
         let port = std::net::TcpListener::bind("127.0.0.1:0")
             .and_then(|l| l.local_addr())
@@ -237,7 +238,7 @@ impl QdrantProcess {
         let pid = child.id().unwrap_or(0);
         let (tx, rx) = watch::channel(None);
         track(pid);
-        self.record_pid(pid, &config);
+        self.record_pid(pid, &config).await;
         let pid_file = dir.join(PID_FILE);
         // Weak: a memory dropped without close() drops its Qdrant too (Inner's Drop stops it).
         let me = Arc::downgrade(&self.inner);
@@ -247,12 +248,13 @@ impl QdrantProcess {
                 Err(e) => e.to_string(),
             };
             untrack(pid);
-            if fs::read_to_string(&pid_file)
+            if tokio::fs::read_to_string(&pid_file)
+                .await
                 .ok()
                 .and_then(|t| serde_json::from_str::<Value>(&t).ok())
                 .is_some_and(|v| v["pid"].as_u64() == Some(u64::from(pid)))
             {
-                let _ = fs::remove_file(&pid_file);
+                let _ = tokio::fs::remove_file(&pid_file).await;
             }
             let _ = tx.send(Some(how.clone()));
             if let Some(inner) = me.upgrade() {
@@ -286,12 +288,12 @@ impl QdrantProcess {
         Ok(endpoint)
     }
 
-    fn record_pid(&self, pid: u32, config: &Path) {
+    async fn record_pid(&self, pid: u32, config: &Path) {
         let file = self.inner.opts.dir.join(PID_FILE);
         let text = crate::js::stringify(
             &json!({ "pid": pid, "config": config.to_string_lossy(), "boot": crate::js::ms_value(sys::boot_time()) }),
         );
-        let _ = crate::store::write_private(&file, text.as_bytes());
+        let _ = crate::store::blocking(move || crate::store::write_private(&file, text.as_bytes())).await;
     }
 
     /// A Qdrant left running on this storage by a host that died without `close()`: stopped before another starts on
@@ -300,7 +302,9 @@ impl QdrantProcess {
     async fn reap_leftover(&self) {
         let dir = &self.inner.opts.dir;
         let file = dir.join(PID_FILE);
-        let Some(rec) = fs::read_to_string(&file).ok().and_then(|t| serde_json::from_str::<Value>(&t).ok()) else {
+        let Some(rec) =
+            tokio::fs::read_to_string(&file).await.ok().and_then(|t| serde_json::from_str::<Value>(&t).ok())
+        else {
             return;
         };
         let pid = rec["pid"].as_i64().unwrap_or(0);
@@ -310,7 +314,7 @@ impl QdrantProcess {
             && sys::same_boot(rec["boot"].as_f64())
             && Some(pid) != mine
             && sys::alive(pid)
-            && sys::command_of(pid).is_some_and(|c| c.contains(&config))
+            && sys::command_of(pid).await.is_some_and(|c| c.contains(&config))
         {
             self.log(&format!("[memory] stopping the Qdrant left running on {} (pid {pid})", dir.display()));
             for (kill, ms) in [(false, 10_000u64), (true, 2000)] {
@@ -324,7 +328,7 @@ impl QdrantProcess {
                 }
             }
         }
-        let _ = fs::remove_file(&file);
+        let _ = tokio::fs::remove_file(&file).await;
     }
 
     /// Answering `/readyz` within 30 s, or the start failed. `/readyz` asks no key, so none is sent: what answers may

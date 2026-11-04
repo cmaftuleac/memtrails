@@ -20,6 +20,8 @@ pub mod profiles;
 pub mod qdrant_binary;
 pub mod qdrant_client;
 pub mod qdrant_process;
+pub mod rebuild;
+pub mod recall_log;
 pub mod recall_types;
 pub mod records;
 pub mod redact;

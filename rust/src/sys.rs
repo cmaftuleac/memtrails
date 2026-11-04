@@ -123,19 +123,20 @@ pub(crate) fn signal(pid: i64, kill: bool) {
 }
 
 /// A running process's command line, or `None` when it cannot be read (no /proc and no ps, Windows).
-pub(crate) fn command_of(pid: i64) -> Option<String> {
-    if let Ok(b) = std::fs::read(format!("/proc/{pid}/cmdline")) {
+pub(crate) async fn command_of(pid: i64) -> Option<String> {
+    if let Ok(b) = tokio::fs::read(format!("/proc/{pid}/cmdline")).await {
         return Some(String::from_utf8_lossy(&b).split('\0').collect::<Vec<_>>().join(" "));
     }
     if cfg!(windows) {
         return None;
     }
-    let out = std::process::Command::new("ps")
+    let ps = tokio::process::Command::new("ps")
         .args(["-ww", "-o", "command=", "-p", &pid.to_string()])
         .stdin(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
-        .output()
-        .ok()?;
+        .kill_on_drop(true)
+        .output();
+    let out = tokio::time::timeout(std::time::Duration::from_secs(5), ps).await.ok()?.ok()?;
     out.status.success().then(|| String::from_utf8_lossy(&out.stdout).into_owned())
 }
 

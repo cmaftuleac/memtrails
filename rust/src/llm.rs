@@ -10,8 +10,8 @@ use std::time::Duration;
 use rand::Rng;
 use serde_json::{json, Value};
 
+use crate::error::Result;
 use crate::redact::redact_string;
-use crate::BoxFuture;
 
 /// One structured ask.
 #[derive(Debug, Clone, PartialEq)]
@@ -52,8 +52,38 @@ pub enum LlmAnswer {
     Busy,
 }
 
-/// A language model: one structured ask in, an answer out.
-pub type Ask = Arc<dyn Fn(LlmRequest) -> BoxFuture<'static, LlmAnswer> + Send + Sync>;
+/// A language model: one structured ask in, an answer out. Implement it to bring any model; [`openai_ask`] speaks
+/// the OpenAI-compatible Responses API. An error is read as the model being unavailable, with the error as the reason.
+#[async_trait::async_trait]
+pub trait Ask: Send + Sync {
+    /// Ask once.
+    async fn ask(&self, req: LlmRequest) -> Result<LlmAnswer>;
+}
+
+/// Ask, an error read as the model being unavailable (the work waits for the next run).
+pub(crate) async fn ask_or_pause(ask: &dyn Ask, req: LlmRequest) -> LlmAnswer {
+    let consequence = req.consequence.clone();
+    match ask.ask(req).await {
+        Ok(a) => a,
+        Err(e) => LlmAnswer::Unavailable(match consequence {
+            Some(c) if !c.is_empty() => format!("{e}, {c}"),
+            _ => e.to_string(),
+        }),
+    }
+}
+
+/// The OpenAI-compatible model ([`openai_ask`]).
+#[derive(Debug, Clone)]
+pub struct OpenAiAsk {
+    options: OpenAiAskOptions,
+}
+
+#[async_trait::async_trait]
+impl Ask for OpenAiAsk {
+    async fn ask(&self, req: LlmRequest) -> Result<LlmAnswer> {
+        Ok(ask_openai(&self.options, req).await)
+    }
+}
 
 /// One answered call's tokens.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -145,16 +175,12 @@ fn why(reason: &str, req: &LlmRequest) -> String {
 
 /// An [`Ask`] that speaks the OpenAI Responses API with strict JSON Schema output and retries rate limits, server
 /// errors and dropped connections.
-pub fn openai_ask(o: OpenAiAskOptions) -> Ask {
-    let o = Arc::new(o);
-    Arc::new(move |req: LlmRequest| {
-        let o = o.clone();
-        Box::pin(async move { ask_openai(&o, req).await }) as BoxFuture<'static, LlmAnswer>
-    })
+pub fn openai_ask(o: OpenAiAskOptions) -> Arc<dyn Ask> {
+    Arc::new(OpenAiAsk { options: o })
 }
 
 /// The model the environment names (`MEMTRAILS_MODEL` and a key), asked when no model is given.
-pub fn default_ask() -> Ask {
+pub fn default_ask() -> Arc<dyn Ask> {
     openai_ask(OpenAiAskOptions::default())
 }
 
