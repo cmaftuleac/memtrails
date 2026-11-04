@@ -18,6 +18,7 @@ from typing import TypedDict, TypeVar
 
 import httpx
 
+from .._http import using
 from .._js import js_trim, stringify, u16slice
 from .words import Rerank
 
@@ -58,8 +59,9 @@ def resolve_rerank_route(env: Mapping[str, str] | None = None) -> RerankRoute | 
     return r
 
 
-def remote_reranker(route: Callable[[], RerankRoute | None] | None = None, transport: httpx.AsyncBaseTransport | None = None) -> Rerank:
-    """Each document's relevance to the query, in the documents' order — or None (no route, refused, failed, late)."""
+def remote_reranker(route: Callable[[], RerankRoute | None] | None = None, http: httpx.AsyncClient | None = None) -> Rerank:
+    """Each document's relevance to the query, in the documents' order — or None (no route, refused, failed, late).
+    ``http``: the client to call it with (one for the call when none is given)."""
     get_route = route or resolve_rerank_route
 
     async def rerank(query: str, documents: list[str], timeout_ms: float) -> list[float] | None:
@@ -81,8 +83,8 @@ def remote_reranker(route: Callable[[], RerankRoute | None] | None = None, trans
             if r.get("api_key"):
                 headers["authorization"] = f"Bearer {r['api_key']}"
             url = f"{r['url'].rstrip('/').removesuffix('/rerank')}/rerank"
-            async with httpx.AsyncClient(transport=transport, trust_env=False) as http:
-                res = await http.post(url, content=body, headers=headers, timeout=timeout_ms / 1000)
+            async with using(http) as client:
+                res = await client.post(url, content=body, headers=headers, timeout=timeout_ms / 1000)
             if not res.is_success:
                 return None
             reply = res.json()

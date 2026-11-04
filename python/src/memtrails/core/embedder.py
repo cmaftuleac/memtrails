@@ -23,6 +23,7 @@ import httpx
 import numpy as np
 import numpy.typing as npt
 
+from .._http import using
 from .._js import stringify, u16slice, utf8
 
 MEMORY_EMBEDDER = {"id": "embeddinggemma-300m-768", "model": "embeddinggemma-300m", "dims": 768}
@@ -119,12 +120,12 @@ def _vectors(body: Any, count: int) -> list[Vector]:
 def remote_embedder(
     route: Callable[[], EmbedRoute | None] | None = None,
     timeout_ms: float = 30_000,
-    transport: httpx.AsyncBaseTransport | None = None,
+    http: httpx.AsyncClient | None = None,
 ) -> Embed:
     """``embed(texts)`` for memory: unit vectors in the order of ``texts``, however many requests a batch needs.
-    ``timeout_ms`` is the whole operation's budget, retries and every batch included."""
+    ``timeout_ms`` is the whole operation's budget, retries and every batch included; ``http``: the client to call it
+    with (one for the call when none is given)."""
     get_route = route or resolve_embed_route
-    client: dict[str, httpx.AsyncClient] = {}
 
     async def embed(texts: Sequence[str], budget_ms: float | None = None) -> list[Vector]:
         if not texts:
@@ -155,11 +156,8 @@ def remote_embedder(
             parts.append((len(inputs) - len(cur), cur))
         out: list[Vector | None] = [None] * len(inputs)
         url = f"{r['url'].rstrip('/').removesuffix('/embeddings')}/embeddings"
-        if "c" not in client:
-            client["c"] = httpx.AsyncClient(transport=transport, trust_env=False)
-        http = client["c"]
 
-        async def call(at: int, batch: list[str]) -> None:
+        async def call(client: httpx.AsyncClient, at: int, batch: list[str]) -> None:
             remaining()
             body = stringify({"model": r.get("model") or MEMORY_EMBEDDER["model"], "input": batch}).encode("utf-8")
             if r.get("gzip"):
@@ -171,7 +169,7 @@ def remote_embedder(
                 headers["authorization"] = f"Bearer {r['api_key']}"
             attempt = 0
             while True:
-                res = await http.post(url, content=body, headers=headers, timeout=remaining() / 1000)
+                res = await client.post(url, content=body, headers=headers, timeout=remaining() / 1000)
                 if res.is_success:
                     payload = res.json()
                     remaining()
@@ -190,20 +188,22 @@ def remote_embedder(
 
         queue = list(parts)
 
-        async def lane() -> None:
-            while queue:
-                at, batch = queue.pop(0)
-                await call(at, batch)
+        async with using(http) as client:
 
-        lanes = [asyncio.ensure_future(lane()) for _ in range(min(_IN_FLIGHT, len(parts)))]
-        try:
-            await asyncio.gather(*lanes)
-        except BaseException:
-            queue.clear()
-            for task in lanes:
-                task.cancel()
-            await asyncio.gather(*lanes, return_exceptions=True)
-            raise
+            async def lane() -> None:
+                while queue:
+                    at, batch = queue.pop(0)
+                    await call(client, at, batch)
+
+            lanes = [asyncio.ensure_future(lane()) for _ in range(min(_IN_FLIGHT, len(parts)))]
+            try:
+                await asyncio.gather(*lanes)
+            except BaseException:
+                queue.clear()
+                for task in lanes:
+                    task.cancel()
+                await asyncio.gather(*lanes, return_exceptions=True)
+                raise
         return [v for v in out if v is not None]
 
     return embed

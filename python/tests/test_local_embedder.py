@@ -48,7 +48,7 @@ def test_a_unit_vector_per_text_in_order() -> None:
     assert len(out) == 3
     assert all(abs(float(np.linalg.norm(v)) - 1) < 1e-6 for v in out)
     assert s.seen == [(2, 4), (1, 5)]
-    e.close()
+    run(e.close())
 
 
 def test_a_vector_per_word_without_start_and_end() -> None:
@@ -67,11 +67,11 @@ def test_a_vector_per_word_without_start_and_end() -> None:
     assert abs(float(np.linalg.norm(q.data[:DIMS])) - 1) < 1e-6
     run(e.words(["hello"], "document"))
     assert encoded[1] == "title: none | text: hello"
-    e.close()
+    run(e.close())
 
 
 def test_the_last_word_of_a_cut_text_is_a_word() -> None:
     e = LocalEmbedder("/nowhere", session=Session(), tokenizer=tokenizer)
     d = run(e.words([" ".join(["word"] * 200)], "document"))[0]
     assert d.words == 129
-    e.close()
+    run(e.close())

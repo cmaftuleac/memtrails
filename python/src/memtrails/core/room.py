@@ -11,6 +11,7 @@ Offsets are UTF-16 code units, as the reference counts them.
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 
 import regex
@@ -68,12 +69,16 @@ async def sentence_room(query: str, items: list[RoomItem], encode: WordEncoder, 
         encoded = await encode(missing, "document")
         store.put([(t, pack_words(encoded[i])) for i, t in enumerate(missing)])
     q = (await encode([query], "query"))[0]
-    candidates = []
-    for it, rank, u, spans in listed:
-        for a, b in spans:
-            packed = store.get(from16(u[a:b]))
-            score = max_sim(q, packed) if packed else float("-inf")
-            candidates.append((score * (1 + 2 / (1 + rank / 10)), it, u, a, b))
+    scored = [(it, rank, u, a, b, store.get(from16(u[a:b]))) for it, rank, u, spans in listed for a, b in spans]
+
+    def score_all() -> list[tuple[float, RoomItem, str, int, int]]:
+        return [
+            ((max_sim(q, packed) if packed else float("-inf")) * (1 + 2 / (1 + rank / 10)), it, u, a, b)
+            for it, rank, u, a, b, packed in scored
+        ]
+
+    # Every sentence of up to 30 memories against the question: off the event loop.
+    candidates = await asyncio.to_thread(score_all)
     candidates.sort(key=lambda c: -c[0])
     picked: dict[int, tuple[RoomItem, str, list[tuple[int, int]]]] = {}
     used = 0

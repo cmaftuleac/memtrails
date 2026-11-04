@@ -7,7 +7,6 @@ does not ship it. The same files, the same folder and the same ``.verified`` mar
 
 from __future__ import annotations
 
-import asyncio
 import os
 import shutil
 from collections.abc import Callable
@@ -51,8 +50,8 @@ def model_ready(directory: str | None = None) -> bool:
         return False
 
 
-async def ensure_model_async(
-    directory: str | None = None, log: Callable[[str], None] | None = None, transport: httpx.AsyncBaseTransport | None = None
+async def ensure_model(
+    directory: str | None = None, log: Callable[[str], None] | None = None, http: httpx.AsyncClient | None = None
 ) -> str:
     """The model in ``directory`` (fetched and checked unless it is already there); the directory, ready for
     ``model_dir``. Each file is fetched to a temp of its own, checked on disk and renamed into place; one run at a time
@@ -75,7 +74,7 @@ async def ensure_model_async(
         for rel, size, sha in MODEL_FILES:
             path = os.path.join(d, rel)
             file, tmp = await download_verified(
-                f"https://huggingface.co/{MODEL_REPO}/resolve/{MODEL_REVISION}/{rel}", os.path.dirname(path), size, sha, transport=transport
+                f"https://huggingface.co/{MODEL_REPO}/resolve/{MODEL_REVISION}/{rel}", os.path.dirname(path), size, sha, http=http
             )
             try:
                 os.replace(file, path)
@@ -88,8 +87,3 @@ async def ensure_model_async(
         return d
 
     return await with_lock(d, fetch)
-
-
-def ensure_model(directory: str | None = None, log: Callable[[str], None] | None = None) -> str:
-    """The model, fetched and checked unless it is already there; its directory."""
-    return asyncio.run(ensure_model_async(directory, log))

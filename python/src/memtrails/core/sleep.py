@@ -247,7 +247,7 @@ class Sleep:
         if "paused" in p:
             r.setdefault("paused", p["paused"])
             d.log(f"memory sleep: profiles wait for the next night ({p['paused']})")
-        d.ltm.compact()
+        await asyncio.to_thread(d.ltm.compact)
         # A night that stopped early (the pair cap, the fast model away) starts the next one where it stopped.
         state_out = {"last": resume_at if resume_at is not None else now, **r}
         if d.write_state:

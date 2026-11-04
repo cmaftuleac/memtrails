@@ -19,7 +19,6 @@ import secrets
 import shutil
 import socket
 import stat
-import subprocess
 import sys
 import tempfile
 import time
@@ -29,6 +28,7 @@ from typing import TypeVar
 
 import httpx
 
+from .._http import using
 from .paths import cache_dir
 
 T = TypeVar("T")
@@ -127,17 +127,17 @@ def _tar_program() -> str:
 
 async def _untar(archive: str, into: str) -> None:
     """Unpack one archive with the system's tar (bsdtar on macOS and Windows reads zip too)."""
-    code = await asyncio.to_thread(
-        lambda: (
-            subprocess.run(
-                [_tar_program(), "-xf", archive, "-C", into],
-                stdin=subprocess.DEVNULL,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                check=False,
-            ).returncode
-        )
+    child = await asyncio.create_subprocess_exec(
+        _tar_program(),
+        "-xf",
+        archive,
+        "-C",
+        into,
+        stdin=asyncio.subprocess.DEVNULL,
+        stdout=asyncio.subprocess.DEVNULL,
+        stderr=asyncio.subprocess.DEVNULL,
     )
+    code = await child.wait()
     if code != 0:
         raise RuntimeError(f"tar exited {code}")
 
@@ -146,14 +146,22 @@ async def _untar(archive: str, into: str) -> None:
 DOWNLOAD_STALL_MS = 60_000
 
 
+def _sha256_of(path: str) -> tuple[int, str]:
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for block in iter(lambda: f.read(1 << 20), b""):
+            h.update(block)
+    return os.stat(path).st_size, h.hexdigest()
+
+
 async def download_verified(
-    url: str, directory: str, size: int, sha256: str, stall_ms: float = DOWNLOAD_STALL_MS, transport: httpx.AsyncBaseTransport | None = None
+    url: str, directory: str, size: int, sha256: str, stall_ms: float = DOWNLOAD_STALL_MS, http: httpx.AsyncClient | None = None
 ) -> tuple[str, str]:
     """``url`` fetched into a fresh temp folder inside ``directory``, never to a fixed name: two first runs at once
     wrote the same ``.part`` and could rename each other's half-written file. The file is then checked as it is on
-    disk, not as it streamed past, against its pinned size and SHA-256. Returns the file and its folder; the caller
-    renames the file into place and removes the folder. Raises (leaving nothing) on a failure, a mismatch, or
-    ``stall_ms`` without a byte."""
+    disk, not as it streamed past, against its pinned size and SHA-256 (hashed off the event loop). Returns the file
+    and its folder; the caller renames the file into place and removes the folder. Raises (leaving nothing) on a
+    failure, a mismatch, or ``stall_ms`` without a byte."""
     os.makedirs(directory, exist_ok=True)
     tmp = tempfile.mkdtemp(prefix=".download-", dir=directory)
     file = os.path.join(tmp, "file")
@@ -164,17 +172,17 @@ async def download_verified(
         return TimeoutError(f"{name}: no data for {round(stall_ms / 1000)} s")
 
     try:
-        async with httpx.AsyncClient(transport=transport, follow_redirects=True, trust_env=False) as http:
+        async with using(http) as client:
             try:
-                res = await asyncio.wait_for(http.send(http.build_request("GET", url), stream=True), stall)
+                res = await asyncio.wait_for(client.send(client.build_request("GET", url), stream=True, follow_redirects=True), stall)
             except (TimeoutError, asyncio.TimeoutError) as err:
                 raise stalled() from err
             try:
                 if not res.is_success:
                     raise RuntimeError(f"HTTP {res.status_code} for {name}")
                 got = 0
-                fd = os.open(file, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-                try:
+                with open(file, "xb") as out:
+                    os.chmod(file, 0o600)
                     chunks = res.aiter_bytes().__aiter__()
                     while True:
                         try:
@@ -186,18 +194,12 @@ async def download_verified(
                         got += len(chunk)
                         if got > size:
                             raise RuntimeError(f"{name}: more than the expected {size} bytes")
-                        os.write(fd, chunk)
-                finally:
-                    os.close(fd)
+                        out.write(chunk)
             finally:
                 await res.aclose()
-        h = hashlib.sha256()
-        with open(file, "rb") as f:
-            for block in iter(lambda: f.read(1 << 20), b""):
-                h.update(block)
-        on_disk = os.stat(file).st_size
-        if on_disk != size or h.hexdigest() != sha256:
-            raise RuntimeError(f"{name}: got {on_disk} bytes sha256 {h.hexdigest()}, expected {size} {sha256}")
+        on_disk, digest = await asyncio.to_thread(_sha256_of, file)
+        if on_disk != size or digest != sha256:
+            raise RuntimeError(f"{name}: got {on_disk} bytes sha256 {digest}, expected {size} {sha256}")
         return file, tmp
     except BaseException:
         shutil.rmtree(tmp, ignore_errors=True)
@@ -280,8 +282,8 @@ async def with_lock(path: str, run: Callable[[], Awaitable[T]], stale_ms: float 
             pass
 
 
-async def ensure_qdrant_async(
-    log: Callable[[str], None] | None = None, asset: QdrantAsset | None = None, transport: httpx.AsyncBaseTransport | None = None
+async def ensure_qdrant(
+    log: Callable[[str], None] | None = None, asset: QdrantAsset | None = None, http: httpx.AsyncClient | None = None
 ) -> str:
     """Fetch, verify and unpack the binary unless it is already there; its path. Raises on a network failure or stall,
     a size or hash mismatch (the download is deleted), a platform Qdrant does not ship for, or a folder others could
@@ -302,7 +304,7 @@ async def ensure_qdrant_async(
             return binary  # another run finished it while this one waited
         if log:
             log(f"[memtrails] fetching Qdrant {QDRANT_VERSION} ({round(a.size / 1e6)} MB)")
-        file, tmp = await download_verified(f"{QDRANT_RELEASE_BASE}/{a.asset}", cache, a.size, a.sha256, transport=transport)
+        file, tmp = await download_verified(f"{QDRANT_RELEASE_BASE}/{a.asset}", cache, a.size, a.sha256, http=http)
         try:
             # Unpacked into a fresh folder and moved into place whole: never a half-unpacked binary under the real name.
             archive = os.path.join(tmp, a.asset)
@@ -331,8 +333,3 @@ async def ensure_qdrant_async(
         return binary
 
     return await with_lock(directory, fetch)
-
-
-def ensure_qdrant(log: Callable[[str], None] | None = None) -> str:
-    """The pinned Qdrant binary, fetched and checked unless it is already there; its path."""
-    return asyncio.run(ensure_qdrant_async(log))

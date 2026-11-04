@@ -26,6 +26,7 @@ from urllib.parse import quote
 
 import httpx
 
+from .._http import new_client
 from .embedder import MEMORY_EMBEDDER
 from .text import SparseVector
 
@@ -86,31 +87,35 @@ class QdrantError(Exception):
 
 
 class QdrantClient:
-    """``endpoint`` may start Qdrant: every call waits for it. ``transport`` replaces the network (tests)."""
+    """``endpoint`` may start Qdrant: every call waits for it. ``http``: the client to call it with (one of its own when
+    none is given)."""
 
     def __init__(
         self,
         endpoint: EndpointFn,
         timeout_ms: float = 10_000,
         collection: str | None = None,
-        transport: httpx.AsyncBaseTransport | None = None,
+        http: httpx.AsyncClient | None = None,
     ) -> None:
         self._endpoint = endpoint
         self._timeout_ms = timeout_ms
         # A name you give is a path segment, never more of the path.
         self._at = f"/collections/{quote(collection or COLLECTION, safe='')}"
-        self._transport = transport
-        self._http: httpx.AsyncClient | None = None
+        self._given = http
+        self._own: httpx.AsyncClient | None = None
 
     def _client(self) -> httpx.AsyncClient:
-        if self._http is None:
-            self._http = httpx.AsyncClient(transport=self._transport, trust_env=False)
-        return self._http
+        if self._given is not None:
+            return self._given
+        if self._own is None:
+            self._own = new_client()
+        return self._own
 
     async def aclose(self) -> None:
-        if self._http is not None:
-            await self._http.aclose()
-            self._http = None
+        """Closes the client it made for itself (a client it was given is its owner's to close)."""
+        if self._own is not None:
+            await self._own.aclose()
+            self._own = None
 
     async def _call(self, method: str, path: str, body: Any = None, timeout_ms: float | None = None) -> Any:
         got = self._endpoint()

@@ -5,7 +5,7 @@ vector, ``sentence_embedding``) and what word by word keeps (a vector per word, 
 ``last_hidden_state``).
 
 The model and its tokenizer are a directory you give it (onnx/model_q4.onnx, tokenizer.json). One inference at a time,
-on a thread of its own, so the event loop stays free.
+on a thread, so the event loop stays free.
 """
 
 from __future__ import annotations
@@ -13,7 +13,6 @@ from __future__ import annotations
 import asyncio
 import os
 from collections.abc import Callable, Sequence
-from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Literal, Protocol
 
 import numpy as np
@@ -88,8 +87,9 @@ class LocalEmbedder:
         self._batch = max(1, batch)
         self._max_tokens = max_tokens
         self._names = [o.name for o in session.get_outputs()]
-        # One inference at a time, like lengths in one run: each text is padded to the run's longest.
-        self._pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="memtrails-embed")
+        # One inference at a time, like lengths in one run: each text is padded to the run's longest. Each runs on a thread,
+        # so the event loop stays free.
+        self._one = asyncio.Lock()
 
     def _ids(self, text: str, limit: int) -> tuple[list[int], bool]:
         ids = self._tokens(text)
@@ -146,10 +146,14 @@ class LocalEmbedder:
     async def embed(self, texts: Sequence[str], timeout_ms: float | None = None) -> list[Vector]:
         if not texts:
             return []
-        return await asyncio.get_running_loop().run_in_executor(self._pool, self._embed, list(texts))
+        async with self._one:
+            return await asyncio.to_thread(self._embed, list(texts))
 
     async def words(self, texts: list[str], kind: Literal["query", "document"]) -> list[WordVectors]:
-        return await asyncio.get_running_loop().run_in_executor(self._pool, self._words, texts, kind)
+        async with self._one:
+            return await asyncio.to_thread(self._words, texts, kind)
 
-    def close(self) -> None:
-        self._pool.shutdown(wait=True)
+    async def close(self) -> None:
+        """Once the inference running (if any) is done."""
+        async with self._one:
+            return

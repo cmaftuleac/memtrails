@@ -120,7 +120,9 @@ def test_the_index_has_the_kind_and_keeps_the_collection_in_its_segment() -> Non
             return httpx.Response(404, text='{"status":{"error":"not found"}}')
         return httpx.Response(200, text='{"result":true}')
 
-    client = QdrantClient(lambda: QdrantEndpoint("http://q", "k"), 1000, "a/b?c", transport=httpx.MockTransport(handler))
+    client = QdrantClient(
+        lambda: QdrantEndpoint("http://q", "k"), 1000, "a/b?c", http=httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    )
     run(client.ensure_collection())
     assert all(url.startswith("http://q/collections/a%2Fb%3Fc") for url, _ in calls)
     assert "engine" in [(b or {}).get("field_name") for _, b in calls]

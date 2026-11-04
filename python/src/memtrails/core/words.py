@@ -161,7 +161,8 @@ def word_reranker(encode: WordEncoder, store: WordStore) -> Rerank:
                 encoded = await encode(missing, "document")
                 store.put([(t, pack_words(encoded[i])) for i, t in enumerate(missing)])
             q = (await encode([query], "query"))[0]
-            return [max_sim(q, store.get(t) or PackedWords(0, q.dims, b"")) for t in documents]
+            packed = [store.get(t) or PackedWords(0, q.dims, b"") for t in documents]
+            return await asyncio.to_thread(lambda: [max_sim(q, p) for p in packed])
 
         try:
             return await asyncio.wait_for(work(), timeout_ms / 1000)

@@ -20,6 +20,7 @@ from typing import Any, Literal
 
 import httpx
 
+from ._http import using
 from ._js import flatten_ws, js_trim, stringify, u16slice
 from .core.redact import redact_string
 
@@ -89,7 +90,7 @@ class OpenAiAsk:
     ``api_key``: default $MEMTRAILS_LLM_API_KEY, else $OPENAI_API_KEY — the latter only for OpenAI's own address.
     ``model``: default $MEMTRAILS_MODEL. ``base_url``: default $MEMTRAILS_LLM_BASE_URL, else https://api.openai.com/v1.
     ``reasoning_effort`` is sent only when given. ``retries``: tries after a failure (default 5), waiting longer each
-    time. ``transport`` replaces the network (tests)."""
+    time. ``http``: the client to call it with (one for the call when none is given)."""
 
     def __init__(
         self,
@@ -99,7 +100,7 @@ class OpenAiAsk:
         reasoning_effort: Literal["minimal", "low", "medium", "high"] | None = None,
         on_usage: Callable[[LlmUsage], None] | None = None,
         retries: int = 5,
-        transport: httpx.AsyncBaseTransport | None = None,
+        http: httpx.AsyncClient | None = None,
     ) -> None:
         self.model = model
         self.api_key = api_key
@@ -107,7 +108,7 @@ class OpenAiAsk:
         self.reasoning_effort = reasoning_effort
         self.on_usage = on_usage
         self.retries = retries
-        self._transport = transport
+        self._http = http
 
     async def __call__(self, req: LlmRequest) -> LlmAnswer:
         model = req.model or self.model or _env("MEMTRAILS_MODEL")
@@ -132,7 +133,7 @@ class OpenAiAsk:
         tries = max(1, self.retries + 1)
         last = ""
         timeout = (req.timeout_ms if req.timeout_ms is not None else 180_000) / 1000
-        async with httpx.AsyncClient(transport=self._transport, trust_env=False) as http:
+        async with using(self._http) as http:
             for attempt in range(tries):
                 if attempt:
                     await asyncio.sleep(min(60.0, 2 ** (attempt - 1)) * (0.5 + random.random()))

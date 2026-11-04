@@ -5,15 +5,15 @@ dict-shaped tool — a name, a description, the input's JSON Schema (the referen
 MCP server or any function-calling API declares tools:
 
     for t in memory.tools():
-        server.add_tool(t.handler, name=t.name, description=t.description)   # or hand t.json_schema to a model
+        server.add_tool(t.handler, name=t.name, description=t.description)   # an async handler; or t.json_schema to a model
 
 The handler checks its arguments itself (a caller doing function calling hands the model's arguments straight to it)
-and always returns ``{"content": [{"type": "text", "text": …}], "isError"?: True}``.
+and always returns (awaited) ``{"content": [{"type": "text", "text": …}], "isError"?: True}``.
 """
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, Protocol
 
@@ -32,16 +32,16 @@ class AgentTool:
     description: str
     #: The input as JSON Schema, for function calling.
     json_schema: dict[str, Any]
-    #: Takes the arguments (a dict), returns the tool's result.
-    handler: Callable[[Any], ToolResult]
+    #: Takes the arguments (a dict) and returns the tool's result: ``await tool.handler({...})``.
+    handler: Callable[[Any], Awaitable[ToolResult]]
 
 
 class ToolProvider(Protocol):
     """What the tools read: a memory (open_memory) gives these."""
 
-    def search(self, q: Mapping[str, Any]) -> list[dict[str, Any]]: ...
+    async def search(self, q: Mapping[str, Any]) -> Sequence[Mapping[str, Any]]: ...
 
-    def open(self, id: str) -> dict[str, Any] | None: ...
+    async def open(self, id: str) -> Mapping[str, Any] | None: ...
 
 
 _DESCRIPTIONS = {
@@ -224,12 +224,12 @@ def _validate(schema: Mapping[str, Any], args: Any) -> tuple[dict[str, Any] | No
     return (None, "; ".join(issues)) if issues else (got, "")
 
 
-def _tool(name: str, schema: dict[str, Any], run: Callable[[dict[str, Any]], ToolResult]) -> AgentTool:
-    def handler(args: Any) -> ToolResult:
+def _tool(name: str, schema: dict[str, Any], run: Callable[[dict[str, Any]], Awaitable[ToolResult]]) -> AgentTool:
+    async def handler(args: Any) -> ToolResult:
         got, why = _validate(schema, args)
         if got is None:
             return _text(f"Invalid arguments: {why}", True)
-        return run(got)
+        return await run(got)
 
     return AgentTool(name=name, description=_DESCRIPTIONS[name], json_schema=schema, handler=handler)
 
@@ -316,7 +316,7 @@ EXPLORE_SCHEMA: dict[str, Any] = {
 def build_agent_tools(p: ToolProvider) -> list[AgentTool]:
     """memory_search, memory_open and memory_explore (when the provider explores) over a memory."""
 
-    def search(a: dict[str, Any]) -> ToolResult:
+    async def search(a: dict[str, Any]) -> ToolResult:
         try:
             q = {
                 "query": a["query"],
@@ -325,7 +325,7 @@ def build_agent_tools(p: ToolProvider) -> list[AgentTool]:
                 "from": a.get("from"),
                 "to": a.get("to"),
             }
-            hits = p.search({k: v for k, v in q.items() if v is not None})
+            hits = await p.search({k: v for k, v in q.items() if v is not None})
             if not hits:
                 return _text("Nothing in memory matches that.")
             return _text(
@@ -335,10 +335,10 @@ def build_agent_tools(p: ToolProvider) -> list[AgentTool]:
         except Exception as err:  # noqa: BLE001 - the agent is told, not the host
             return _text(str(err), True)
 
-    def open_(a: dict[str, Any]) -> ToolResult:
+    async def open_(a: dict[str, Any]) -> ToolResult:
         # An index that failed is not an id that is missing: the agent should not conclude the memory is gone.
         try:
-            it = p.open(a["id"])
+            it = await p.open(a["id"])
         except Exception as err:  # noqa: BLE001
             return _text(f"Memory could not be read: {err}", True)
         if not it:
@@ -363,13 +363,13 @@ def build_agent_tools(p: ToolProvider) -> list[AgentTool]:
     explore = getattr(p, "explore", None)
     if explore is not None:
 
-        def explore_(a: dict[str, Any]) -> ToolResult:
+        async def explore_(a: dict[str, Any]) -> ToolResult:
             topic = a.get("topic")
             if not (topic and topic.strip()) and not a.get("from"):
                 return _text("Give a topic, or memory ids to explore from.", True)
             try:
                 q = {"topic": topic, "from": a.get("from"), "collections": a.get("collections"), "limit": a.get("limit") or 10}
-                r = explore({k: v for k, v in q.items() if v is not None})
+                r = await explore({k: v for k, v in q.items() if v is not None})
             except Exception as err:  # noqa: BLE001
                 return _text(str(err), True)
             parts = []

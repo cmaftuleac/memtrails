@@ -579,8 +579,8 @@ class Consolidator:
             r["cued"] = c["cued"]
             if "paused" in c:
                 r["paused"] = c["paused"]
-        self.d.ltm.compact()
-        self.d.stm.compact()
+        await asyncio.to_thread(self.d.ltm.compact)
+        await asyncio.to_thread(self.d.stm.compact)
         return r
 
     async def _read(self, win: list[StmEntry], meta: dict[str, Any]) -> Any:

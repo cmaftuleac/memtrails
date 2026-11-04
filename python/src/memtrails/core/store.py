@@ -26,13 +26,14 @@ related, concepts, and for an observation eventAt, startAt, endAt, phase, about.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import os
 import threading
 from collections.abc import Callable, Iterator, Sequence
 from typing import Any, Generic, TypeVar
 
-from .._js import parse, stringify
+from .._js import now_ms, parse, stringify
 
 #: A record of the short-term log (see above).
 StmEntry = dict[str, Any]
@@ -72,7 +73,10 @@ def _dir(path: str) -> None:
 
 class JsonlLog(Generic[M]):
     """An append-only JSONL log, read back by byte offset: a later record for the same uid replaces the earlier one.
-    ``project`` is what stays in memory for each record."""
+    ``project`` is what stays in memory for each record.
+
+    A small append or read is done where it is asked for; a load or a compaction, which reads the whole file, is run on
+    a thread (``await asyncio.to_thread(log.load)``), and a lock keeps a put from landing in the middle of one."""
 
     def __init__(self, path: str, project: Callable[[dict[str, Any]], M]) -> None:
         self._path = path
@@ -80,6 +84,7 @@ class JsonlLog(Generic[M]):
         self._live: dict[str, tuple[int, int, M]] = {}
         self._lines = 0
         self._end = 0
+        self._lock = threading.RLock()
 
     @property
     def path(self) -> str:
@@ -96,7 +101,7 @@ class JsonlLog(Generic[M]):
         for uid, s in list(self._live.items()):
             yield uid, s[2]
 
-    def load(self) -> None:
+    def _load(self) -> None:
         self._live.clear()
         self._lines = 0
         self._end = 0
@@ -142,7 +147,7 @@ class JsonlLog(Generic[M]):
                 pass  # read-only: nothing is added after it either
         self._end = os.stat(self._path).st_size
 
-    def get(self, uid: str) -> dict[str, Any] | None:
+    def _get(self, uid: str) -> dict[str, Any] | None:
         s = self._live.get(uid)
         if not s:
             return None
@@ -160,7 +165,7 @@ class JsonlLog(Generic[M]):
             raise ValueError("not a record")
         return rec
 
-    def put(self, recs: Sequence[dict[str, Any]]) -> None:
+    def _put(self, recs: Sequence[dict[str, Any]]) -> None:
         if not recs:
             return
         _dir(self._path)
@@ -177,8 +182,7 @@ class JsonlLog(Generic[M]):
         self._end = at
         self._lines += len(recs)
 
-    def remove(self, uids: Sequence[str]) -> None:
-        """Forget these records: gone from memory, and from the file when it is next compacted."""
+    def _remove(self, uids: Sequence[str]) -> None:
         gone = [u for u in uids if u in self._live]
         if not gone:
             return
@@ -192,6 +196,29 @@ class JsonlLog(Generic[M]):
         for u in gone:
             self._live.pop(u, None)
 
+    def load(self) -> None:
+        """Reads the file's index in (each record's place and projection, never its text)."""
+        with self._lock:
+            self._load()
+
+    def get(self, uid: str) -> dict[str, Any] | None:
+        with self._lock:
+            return self._get(uid)
+
+    def put(self, recs: Sequence[dict[str, Any]]) -> None:
+        with self._lock:
+            self._put(recs)
+
+    def remove(self, uids: Sequence[str]) -> None:
+        """Forget these records: gone from memory, and from the file when it is next compacted."""
+        with self._lock:
+            self._remove(uids)
+
+    def compact(self) -> None:
+        """Rewrites the log without replaced lines once it is twice what is live (see _compact)."""
+        with self._lock:
+            self._compact()
+
     def all(self) -> Iterator[dict[str, Any]]:
         """Every live record, in file order."""
         for uid, _ in sorted(self._live.items(), key=lambda kv: kv[1][0]):
@@ -199,10 +226,7 @@ class JsonlLog(Generic[M]):
             if r is not None:
                 yield r
 
-    def flush(self) -> None:
-        """A file is written when ``put`` returns."""
-
-    def compact(self) -> None:
+    def _compact(self) -> None:
         """Rewrite the log without replaced lines once it is twice what is live. Record by record into a file beside it,
         made durable and then renamed over it: a log of any size, and a crash leaves the old one whole. A record that
         cannot be read is never dropped by a rewrite: it raises, and the log stays as it is."""
@@ -291,13 +315,13 @@ def ltm_log(path: str) -> LtmStore:
 
 
 class UsageBook:
-    """How often each long-term item was shown with a turn and opened by an agent. Saved at most once a minute."""
+    """How often each long-term item was shown with a turn and opened by an agent. Saved at most once a minute (a timer
+    on the event loop that noted it), and when the memory closes."""
 
     def __init__(self, path: str) -> None:
         self._path = path
-        self._lock = threading.Lock()
         self._dirty = False
-        self._timer: threading.Timer | None = None
+        self._timer: asyncio.TimerHandle | None = None
         try:
             with open(path, encoding="utf-8") as f:
                 data = parse(f.read())
@@ -306,50 +330,45 @@ class UsageBook:
             self._data = {}
 
     def of(self, uid: str) -> dict[str, Any]:
-        with self._lock:
-            u = self._data.get(uid)
-            return dict(u) if u else {"shown": 0, "opened": 0, "lastUsed": 0}
+        u = self._data.get(uid)
+        return dict(u) if u else {"shown": 0, "opened": 0, "lastUsed": 0}
 
     def note(self, uids: Sequence[str], what: str, now: int | float | None = None) -> None:
-        from .._js import now_ms
-
         t = now_ms() if now is None else now
-        with self._lock:
-            for uid in uids:
-                u = self._data.setdefault(uid, {"shown": 0, "opened": 0, "lastUsed": 0})
-                u[what] = u.get(what, 0) + 1
-                u["lastUsed"] = t
-            self._dirty = True
-            if self._timer is None:
-                self._timer = threading.Timer(60.0, self._tick)
-                self._timer.daemon = True
-                self._timer.start()
+        for uid in uids:
+            u = self._data.setdefault(uid, {"shown": 0, "opened": 0, "lastUsed": 0})
+            u[what] = u.get(what, 0) + 1
+            u["lastUsed"] = t
+        self._dirty = True
+        if self._timer is None:
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                return  # no event loop: saved when it is closed
+            self._timer = loop.call_later(60.0, self._tick)
 
     def _tick(self) -> None:
-        with self._lock:
-            self._timer = None
+        self._timer = None
         self.flush()
 
     def flush(self) -> None:
-        with self._lock:
-            if not self._dirty:
-                return
+        if not self._dirty:
+            return
+        try:
+            _dir(self._path)
+            fd = os.open(self._path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
             try:
-                _dir(self._path)
-                fd = os.open(self._path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-                try:
-                    os.write(fd, stringify(self._data).encode("utf-8"))
-                finally:
-                    os.close(fd)
-                self._dirty = False
-            except OSError:
-                pass  # read-only: kept in memory
+                os.write(fd, stringify(self._data).encode("utf-8"))
+            finally:
+                os.close(fd)
+            self._dirty = False
+        except OSError:
+            pass  # read-only: kept in memory
 
     def close(self) -> None:
-        with self._lock:
-            if self._timer is not None:
-                self._timer.cancel()
-                self._timer = None
+        if self._timer is not None:
+            self._timer.cancel()
+            self._timer = None
         self.flush()
 
 

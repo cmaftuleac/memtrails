@@ -11,8 +11,8 @@ import os
 import subprocess
 import sys
 import textwrap
-import threading
 import time
+from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Any
 
@@ -150,15 +150,21 @@ def servers(monkeypatch: pytest.MonkeyPatch) -> Servers:
     async def no_qdrant(**_: Any) -> str:
         raise RuntimeError("test: no Qdrant download")
 
-    monkeypatch.setattr(memory_module, "ensure_model_async", no_model)
-    monkeypatch.setattr(memory_module, "ensure_qdrant_async", no_qdrant)
+    monkeypatch.setattr(memory_module, "ensure_model", no_model)
+    monkeypatch.setattr(memory_module, "ensure_qdrant", no_qdrant)
     for k in ("MEMTRAILS_EMBED_URL", "MEMTRAILS_RERANK_URL"):
         monkeypatch.delenv(k, raising=False)
     return Servers()
 
 
 def opts(s: Servers, **more: Any) -> dict[str, Any]:
-    return {"embedding": {"server": {"url": E}}, "qdrant": {"url": Q}, "rerank": False, "transport": httpx.MockTransport(s), **more}
+    return {
+        "embedding": {"server": {"url": E}},
+        "qdrant": {"url": Q},
+        "rerank": False,
+        "http": httpx.AsyncClient(transport=httpx.MockTransport(s)),
+        **more,
+    }
 
 
 def records(n: int, start: int = 0) -> list[dict[str, Any]]:
@@ -201,86 +207,91 @@ def broken_qdrant_binary(tmp: Path) -> str:
     return str(path)
 
 
+async def until(ok: Any, s: float = 5) -> None:
+    end = time.monotonic() + s
+    while not ok():
+        assert time.monotonic() < end, "timed out"
+        await asyncio.sleep(0.01)
+
+
 @pytest.mark.skipif(sys.platform == "win32", reason="POSIX")
-def test_a_failed_open_stops_its_qdrant_and_frees_the_home(tmp_path: Path, servers: Servers) -> None:
+async def test_a_failed_open_stops_its_qdrant_and_frees_the_home(tmp_path: Path, servers: Servers) -> None:
     home = tmp_path / "home"
     binary = broken_qdrant_binary(tmp_path)
+    # The embedding server stood in for; memory's own Qdrant reached over loopback.
+    http = httpx.AsyncClient(mounts={E: httpx.MockTransport(servers)}, trust_env=False)
     with pytest.raises(Exception, match="500"):
-        open_memory(home, **opts(servers, qdrant={"binary": binary}))
+        await open_memory(home, **{**opts(servers, qdrant={"binary": binary}), "http": http})
     pid = int((home / "qdrant" / "spawns.log").read_text().split()[0])
-    try:
-        os.waitpid(pid, os.WNOHANG)
-    except ChildProcessError:
-        pass
-    assert not alive(pid)
+    await until(lambda: not alive(pid))
     assert not (home / "memory.lock").exists()
     with pytest.raises(Exception, match="500"):
-        open_memory(home, **opts(servers, qdrant={"binary": binary}))
+        await open_memory(home, **{**opts(servers, qdrant={"binary": binary}), "http": http})
 
 
-def test_a_binary_that_is_not_there(tmp_path: Path, servers: Servers) -> None:
+async def test_a_binary_that_is_not_there(tmp_path: Path, servers: Servers) -> None:
     with pytest.raises(RuntimeError, match=r"could not be started.*ENOENT"):
-        open_memory(tmp_path / "home", **opts(servers, qdrant={"binary": "memtrails-no-such-qdrant"}))
+        await open_memory(tmp_path / "home", **opts(servers, qdrant={"binary": "memtrails-no-such-qdrant"}))
     assert not (tmp_path / "home" / "memory.lock").exists()
 
 
-def test_one_process_a_home(tmp_path: Path, servers: Servers) -> None:
+async def test_one_process_a_home(tmp_path: Path, servers: Servers) -> None:
     home = tmp_path / "home"
-    a = open_memory(home, **opts(servers))
+    a = await open_memory(home, **opts(servers))
     with pytest.raises(RuntimeError, match=f"is open in process {os.getpid()}"):
-        open_memory(home, **opts(servers))
-    a.close()
+        await open_memory(home, **opts(servers))
+    await a.close()
     assert not (home / "memory.lock").exists()
-    open_memory(home, **opts(servers)).close()
+    await (await open_memory(home, **opts(servers))).close()
 
 
-def test_takes_over_a_dead_or_pre_reboot_lock(tmp_path: Path, servers: Servers) -> None:
+async def test_takes_over_a_dead_or_pre_reboot_lock(tmp_path: Path, servers: Servers) -> None:
     home = tmp_path / "home"
     home.mkdir()
     dead = int(subprocess.run([sys.executable, "-c", "import os; print(os.getpid())"], capture_output=True, text=True, check=True).stdout)
     assert not alive(dead)
     (home / "memory.lock").write_text(stringify({"pid": dead, "boot": boot_time()}))
-    open_memory(home, **opts(servers)).close()
+    await (await open_memory(home, **opts(servers))).close()
     (home / "memory.lock").write_text(stringify({"pid": os.getpid(), "boot": boot_time() - 3_600_000}))
-    open_memory(home, **opts(servers)).close()
+    await (await open_memory(home, **opts(servers))).close()
 
 
-def test_keeps_the_home_private(tmp_path: Path, servers: Servers) -> None:
+async def test_keeps_the_home_private(tmp_path: Path, servers: Servers) -> None:
     home = tmp_path / "home"
     home.mkdir()
     home.chmod(0o755)
-    open_memory(home, **opts(servers)).close()
+    await (await open_memory(home, **opts(servers))).close()
     assert home.stat().st_mode & 0o777 == 0o700
     fresh = tmp_path / "nested" / "mem"
-    open_memory(fresh, **opts(servers)).close()
+    await (await open_memory(fresh, **opts(servers))).close()
     assert fresh.stat().st_mode & 0o777 == 0o700
 
 
-def test_the_index_written_again_in_another_layout(tmp_path: Path, servers: Servers) -> None:
+async def test_the_index_written_again_in_another_layout(tmp_path: Path, servers: Servers) -> None:
     home = tmp_path / "home"
-    with open_memory(home, **opts(servers)) as m:
-        m.add(records(3))
+    async with await open_memory(home, **opts(servers)) as m:
+        await m.add(records(3))
     assert json.loads((home / "index.json").read_text()) == {"layout": INDEX_LAYOUT}
     (home / "index.json").unlink()
     servers.points["junk"] = {"id": "junk", "payload": {"item": "stm:junk", "tier": "stm"}}
-    open_memory(home, **opts(servers)).close()
+    await (await open_memory(home, **opts(servers))).close()
     assert "junk" not in servers.points
     assert len(servers.stm_items()) == 3
     drops = servers.drops
-    open_memory(home, **opts(servers)).close()
+    await (await open_memory(home, **opts(servers))).close()
     assert servers.drops == drops
     (home / "index.json").write_text(stringify({"layout": INDEX_LAYOUT - 1}))
     servers.points["junk"] = {"id": "junk", "payload": {"item": "stm:junk", "tier": "stm"}}
-    open_memory(home, **opts(servers)).close()
+    await (await open_memory(home, **opts(servers))).close()
     assert servers.drops == drops + 1
     assert "junk" not in servers.points
     assert len(servers.stm_items()) == 3
 
 
-def test_forgets_a_record_whole(tmp_path: Path, servers: Servers) -> None:
+async def test_forgets_a_record_whole(tmp_path: Path, servers: Servers) -> None:
     home = tmp_path / "home"
-    with open_memory(home, **opts(servers)) as m:
-        m.add({"id": "secret", "text": "The door code is 4711.", "at": "2025-01-02"})
+    async with await open_memory(home, **opts(servers)) as m:
+        await m.add({"id": "secret", "text": "The door code is 4711.", "at": "2025-01-02"})
     uid = record_uid({"id": "secret"})
     ep = {
         "uid": f"ep:{uid}",
@@ -312,102 +323,71 @@ def test_forgets_a_record_whole(tmp_path: Path, servers: Servers) -> None:
     def items() -> list[str]:
         return [str(p["payload"]["item"]) for p in servers.points.values()]
 
-    with open_memory(home, **opts(servers)) as m:
-        m.rebuild()
+    async with await open_memory(home, **opts(servers)) as m:
+        await m.rebuild()
         assert f"ep:{uid}" in items()
-        assert m.remove(["secret"]) == 1
+        assert await m.remove(["secret"]) == 1
         assert f"ep:{uid}" not in items()
-        m.rebuild()
+        await m.rebuild()
         assert f"ep:{uid}" not in items()
     log.load()
     assert log.get(f"ep:{uid}") is None
     assert '"removed":true' in (home / "knowledge.jsonl").read_text()
 
 
-def test_a_rebuild_asked_for_while_one_runs_waits(tmp_path: Path, servers: Servers) -> None:
-    with open_memory(tmp_path / "home", **opts(servers)) as m:
-        m.add(records(70))
+async def test_a_rebuild_asked_for_while_one_runs_waits(tmp_path: Path, servers: Servers) -> None:
+    async with await open_memory(tmp_path / "home", **opts(servers)) as m:
+        await m.add(records(70))
         servers.delay = 0.02
         drops = servers.drops
-        first = threading.Thread(target=m.rebuild)
-        first.start()
-        end = time.monotonic() + 5
-        while not (servers.drops > drops and servers.stm_items()):
-            assert time.monotonic() < end
-            time.sleep(0.01)
-        m.rebuild()
-        first.join()
+        first = asyncio.ensure_future(m.rebuild())
+        await until(lambda: servers.drops > drops and bool(servers.stm_items()))
+        await asyncio.gather(first, m.rebuild())
         assert len(servers.stm_items()) == 70
         assert not (tmp_path / "home" / "rebuild.json").exists()
 
 
-def test_two_consolidations_never_ask_at_once(tmp_path: Path, servers: Servers) -> None:
+async def test_two_consolidations_never_ask_at_once(tmp_path: Path, servers: Servers) -> None:
     state = {"now": 0, "most": 0}
-    lock = threading.Lock()
 
-    def ask(_: Any) -> dict[str, Any]:
-        with lock:
-            state["now"] += 1
-            state["most"] = max(state["most"], state["now"])
-        time.sleep(0.05)
-        with lock:
-            state["now"] -= 1
+    async def ask(_: Any) -> dict[str, Any]:
+        state["now"] += 1
+        state["most"] = max(state["most"], state["now"])
+        await asyncio.sleep(0.05)
+        state["now"] -= 1
         return {"unavailable": "test: the model is away"}
 
-    with open_memory(tmp_path / "home", **opts(servers, llm=ask, concurrency=1)) as m:
-        m.add({"id": "r", "text": "Something to read.", "at": "2025-01-02"})
-        workers = [threading.Thread(target=m.consolidate) for _ in range(2)]
-        for w in workers:
-            w.start()
-        for w in workers:
-            w.join()
+    async with await open_memory(tmp_path / "home", **opts(servers, llm=ask, concurrency=1)) as m:
+        await m.add({"id": "r", "text": "Something to read.", "at": "2025-01-02"})
+        await asyncio.gather(m.consolidate(), m.consolidate())
     assert state["most"] == 1
 
 
-def test_close_stops_a_running_rebuild_and_the_next_open_finishes_it(tmp_path: Path, servers: Servers) -> None:
+async def test_close_stops_a_running_rebuild_and_the_next_open_finishes_it(tmp_path: Path, servers: Servers) -> None:
     home = tmp_path / "home"
-    m = open_memory(home, **opts(servers))
-    m.add(records(200))
+    m = await open_memory(home, **opts(servers))
+    await m.add(records(200))
     servers.delay = 0.03
     upserts = servers.upserts
-    errors: list[BaseException] = []
-
-    def rebuild() -> None:
-        try:
-            m.rebuild()
-        except BaseException as err:  # noqa: BLE001 - recorded for the assertion below
-            errors.append(err)
-
-    running = threading.Thread(target=rebuild)
-    running.start()
-    end = time.monotonic() + 5
-    while servers.upserts <= upserts:
-        assert time.monotonic() < end
-        time.sleep(0.01)
-    m.close()
-    running.join()
-    assert errors == []  # stopped, not failed
+    running = asyncio.ensure_future(m.rebuild())
+    await until(lambda: servers.upserts > upserts)
+    await m.close()
+    await running  # stopped, not failed
     after = servers.upserts
-    time.sleep(0.3)
+    await asyncio.sleep(0.3)
     assert servers.upserts == after
     assert (home / "rebuild.json").exists()
     assert len(servers.stm_items()) < 200
+    with pytest.raises(RuntimeError, match="closed"):
+        await m.rebuild()
     servers.delay = 0
-    with open_memory(home, **opts(servers)) as again:
+    async with await open_memory(home, **opts(servers)) as again:
         assert not (home / "rebuild.json").exists()
         assert len(servers.stm_items()) == 200
         assert again.stats()["records"] == 200
 
 
-def test_a_closed_memory_refuses_work(tmp_path: Path, servers: Servers) -> None:
-    m = open_memory(tmp_path / "home", **opts(servers))
-    m.close()
-    m.close()
-    with pytest.raises(RuntimeError, match="closed"):
-        m.rebuild()
-
-
-def test_the_recall_record_is_trimmed_when_memory_opens(tmp_path: Path, servers: Servers) -> None:
+async def test_the_recall_record_is_trimmed_when_memory_opens(tmp_path: Path, servers: Servers) -> None:
     home = tmp_path / "home"
     home.mkdir()
     now = int(time.time() * 1000)
@@ -417,33 +397,38 @@ def test_the_recall_record_is_trimmed_when_memory_opens(tmp_path: Path, servers:
         + stringify({"t": now, "ev": "open", "item": "stm:new"})
         + "\n"
     )
-    with open_memory(home, **opts(servers)) as m:
-        m.add(records(2))
-        m.search({"query": "certificate"})
+    async with await open_memory(home, **opts(servers)) as m:
+        await m.add(records(2))
+        await m.search({"query": "certificate"})
     lines = [json.loads(x) for x in (home / "recall.jsonl").read_text().strip().split("\n")]
     assert [x.get("item", x["ev"]) for x in lines] == ["stm:new", "search"]
 
 
-def test_servers_the_environment_names(tmp_path: Path, servers: Servers, monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_servers_the_environment_names(tmp_path: Path, servers: Servers, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("MEMTRAILS_EMBED_URL", E)
     monkeypatch.setenv("MEMTRAILS_RERANK_URL", R)
-    with open_memory(tmp_path / "home", qdrant={"url": Q}, transport=httpx.MockTransport(servers)) as m:
-        m.add(records(3))
+    async with await open_memory(tmp_path / "home", qdrant={"url": Q}, http=httpx.AsyncClient(transport=httpx.MockTransport(servers))) as m:
+        await m.add(records(3))
         assert servers.embeds > 0
-        m.search({"query": "certificate"})
+        await m.search({"query": "certificate"})
         assert servers.reranks == 1
 
 
-def test_adds_nothing_twice_and_refuses_what_it_cannot_keep(tmp_path: Path, servers: Servers) -> None:
-    with open_memory(tmp_path / "home", **opts(servers)) as m:
-        assert m.add(records(4)) == {"added": 4, "unchanged": 0}
-        assert m.add(records(4)) == {"added": 0, "unchanged": 4}
-        assert m.import_(iter(records(10, 4)), batch=3) == {"added": 10, "unchanged": 0}
-        assert m.stats()["records"] == 14
+async def test_adds_nothing_twice_and_refuses_what_it_cannot_keep(tmp_path: Path, servers: Servers) -> None:
+    async def stream() -> AsyncIterator[dict[str, Any]]:
+        for r in records(10, 4):
+            yield r
+
+    async with await open_memory(tmp_path / "home", **opts(servers)) as m:
+        assert await m.add(records(4)) == {"added": 4, "unchanged": 0}
+        assert await m.add(records(4)) == {"added": 0, "unchanged": 4}
+        assert await m.import_(stream(), batch=3) == {"added": 10, "unchanged": 0}
+        assert await m.import_(iter(records(2, 20))) == {"added": 2, "unchanged": 0}
+        assert m.stats()["records"] == 16
         with pytest.raises(TypeError, match="id"):
-            m.add({"id": "", "text": "x"})
+            await m.add({"id": "", "text": "x"})
         with pytest.raises(TypeError, match="time"):
-            m.add({"id": "a", "text": "x", "at": "yesterday-ish"})
+            await m.add({"id": "a", "text": "x", "at": "yesterday-ish"})
         tools = {t.name: t for t in m.tools()}
         assert set(tools) == {"memory_search", "memory_open", "memory_explore"}
-        assert "certificate" in tools["memory_search"].handler({"query": "certificate"})["content"][0]["text"]
+        assert "certificate" in (await tools["memory_search"].handler({"query": "certificate"}))["content"][0]["text"]

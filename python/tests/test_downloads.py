@@ -15,11 +15,11 @@ import httpx
 import pytest
 
 from fakes import run
-from memtrails.core.model import ensure_model_async, model_ready
+from memtrails.core.model import ensure_model, model_ready
 from memtrails.core.qdrant_binary import (
     QDRANT_ASSETS,
     download_verified,
-    ensure_qdrant_async,
+    ensure_qdrant,
     qdrant_asset,
     qdrant_dir,
     qdrant_ready,
@@ -43,7 +43,7 @@ def answer(status: int, body: bytes) -> httpx.MockTransport:
 
 def test_a_download_that_does_not_match_is_not_kept() -> None:
     with pytest.raises(RuntimeError, match="expected"):
-        run(ensure_qdrant_async(transport=answer(200, bytes([1, 2, 3]))))
+        run(ensure_qdrant(http=httpx.AsyncClient(transport=answer(200, bytes([1, 2, 3])))))
     assert not qdrant_ready()
     leftovers = [n for n in os.listdir(os.path.dirname(qdrant_dir())) if n.startswith(".download-")]
     assert leftovers == []
@@ -51,7 +51,7 @@ def test_a_download_that_does_not_match_is_not_kept() -> None:
 
 def test_says_why_a_download_failed() -> None:
     with pytest.raises(RuntimeError, match="HTTP 404"):
-        run(ensure_qdrant_async(transport=answer(404, b"nope")))
+        run(ensure_qdrant(http=httpx.AsyncClient(transport=answer(404, b"nope"))))
 
 
 def test_two_downloads_at_once_never_take_each_others_file(tmp_path: Path) -> None:
@@ -62,8 +62,8 @@ def test_two_downloads_at_once_never_take_each_others_file(tmp_path: Path) -> No
         t = answer(200, data)
         return list(
             await asyncio.gather(
-                download_verified("https://x.test/f.bin", str(tmp_path), len(data), sha, transport=t),
-                download_verified("https://x.test/f.bin", str(tmp_path), len(data), sha, transport=t),
+                download_verified("https://x.test/f.bin", str(tmp_path), len(data), sha, http=httpx.AsyncClient(transport=t)),
+                download_verified("https://x.test/f.bin", str(tmp_path), len(data), sha, http=httpx.AsyncClient(transport=t)),
             )
         )
 
@@ -81,7 +81,7 @@ class Stall(httpx.AsyncByteStream):
 def test_gives_up_on_a_download_that_stops_sending(tmp_path: Path) -> None:
     t = httpx.MockTransport(lambda _r: httpx.Response(200, stream=Stall()))
     with pytest.raises(TimeoutError, match="no data"):
-        run(download_verified("https://x.test/f.bin", str(tmp_path), 10, "0" * 64, stall_ms=50, transport=t))
+        run(download_verified("https://x.test/f.bin", str(tmp_path), 10, "0" * 64, stall_ms=50, http=httpx.AsyncClient(transport=t)))
     assert os.listdir(tmp_path) == []
 
 
@@ -122,7 +122,7 @@ def test_the_model_is_fetched_checked_and_marked(tmp_path: Path, monkeypatch: py
         return httpx.Response(200, content=files[rel])
 
     d = str(tmp_path / "model")
-    assert run(ensure_model_async(d, transport=httpx.MockTransport(serve))) == d
+    assert run(ensure_model(d, http=httpx.AsyncClient(transport=httpx.MockTransport(serve)))) == d
     assert model_ready(d)
     assert (tmp_path / "model" / "onnx" / "model_q4.onnx").read_bytes() == files["onnx/model_q4.onnx"]
     os.remove(tmp_path / "model" / "tokenizer.json")
