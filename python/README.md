@@ -44,7 +44,8 @@ round: the same `records.jsonl` and `knowledge.jsonl` logs (crash recovery inclu
 `recall.jsonl`, `index.json`, `memory.lock`, `rebuild.json` and `sleep.json`; the same Qdrant collection (named vectors
 `dense` and `bm25`, payload fields, point ids, index layout 7); the same record ids and fingerprints; the same keyword
 tokens (ICU word segmentation, through `icu4py`, which ships ICU 78 — the reference's); and, on the same ONNX Runtime
-(1.23.2, pinned), the very same vectors. The one-process-a-home lock is shared: a memory open in Node cannot be opened in
+(1.23.2, pinned) and the same machine, the very same vectors (its 4-bit kernels differ slightly between CPU
+architectures, in both libraries). The one-process-a-home lock is shared: a memory open in Node cannot be opened in
 Python at the same time, and the other way round.
 
 Strings are measured as JavaScript measures them (UTF-16 code units), JSON is written as `JSON.stringify` writes it, and
