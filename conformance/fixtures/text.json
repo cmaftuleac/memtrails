@@ -1,0 +1,1283 @@
+{
+ "note": "String lengths and positions are in UTF-16 code units, as JavaScript counts them; termId hashes UTF-16 code units.",
+ "cases": [
+  {
+   "text": "",
+   "fold": "",
+   "tokens": [],
+   "firstWords5": "",
+   "children": [],
+   "docSparse": {
+    "indices": [],
+    "values": []
+   },
+   "cut20": "",
+   "cut1": "",
+   "conceptKey": ""
+  },
+  {
+   "text": "The proxy certificate expired on the 1st; renewal stopped because the cron job was removed.",
+   "fold": "the proxy certificate expired on the 1st; renewal stopped because the cron job was removed.",
+   "tokens": [
+    "the",
+    "proxy",
+    "certificate",
+    "expired",
+    "on",
+    "the",
+    "1st",
+    "renewal",
+    "stopped",
+    "because",
+    "the",
+    "cron",
+    "job",
+    "was",
+    "removed"
+   ],
+   "firstWords5": "The proxy certificate expired on",
+   "children": [
+    "The proxy certificate expired on the 1st; renewal stopped because the cron",
+    "expired on the 1st; renewal stopped because the cron job was removed"
+   ],
+   "docSparse": {
+    "indices": [
+     383959538,
+     864990770,
+     903456107,
+     1073217499,
+     1173119600,
+     1630810064,
+     1860367182,
+     2107770459,
+     2584303587,
+     2623740297,
+     3020861980,
+     3721670620,
+     3811586907
+    ],
+    "values": [
+     1.616026711185309,
+     1.616026711185309,
+     1.616026711185309,
+     1.616026711185309,
+     1.616026711185309,
+     1.616026711185309,
+     1.616026711185309,
+     1.616026711185309,
+     1.616026711185309,
+     1.616026711185309,
+     1.9634888438133875,
+     1.616026711185309,
+     1.616026711185309
+    ]
+   },
+   "cut20": "The proxy certificat…",
+   "cut1": "T…",
+   "conceptKey": "the proxy certificate expired on the 1st; renewal stopped because the cron job was removed"
+  },
+  {
+   "text": "Run deploy.sh on billing_api; see apps/web/main.ts and services/edge/letsencrypt_renewal_hook.sh",
+   "fold": "run deploy.sh on billing_api; see apps/web/main.ts and services/edge/letsencrypt_renewal_hook.sh",
+   "tokens": [
+    "run",
+    "deploy.sh",
+    "deploy",
+    "sh",
+    "on",
+    "billing_api",
+    "billing",
+    "api",
+    "see",
+    "apps/web/main.ts",
+    "apps",
+    "web",
+    "main",
+    "ts",
+    "and",
+    "services/edge/letsencrypt_renewal_hook.sh",
+    "services",
+    "edge",
+    "letsencrypt",
+    "renewal",
+    "hook",
+    "sh"
+   ],
+   "firstWords5": "Run deploy.sh on billing_api; see",
+   "children": [
+    "Run deploy.sh on billing_api; see apps/web/main.ts and services/edge/letsencrypt_renewal_hook.sh"
+   ],
+   "docSparse": {
+    "indices": [
+     254395046,
+     265927825,
+     718098122,
+     946514567,
+     1062342494,
+     1097859292,
+     1178947184,
+     1200937859,
+     1459017788,
+     1557350270,
+     1630810064,
+     2333193211,
+     2493878784,
+     2584303587,
+     2899117034,
+     3039226944,
+     3340298131,
+     3551317645,
+     3604893195,
+     3647643189,
+     3935363592
+    ],
+    "values": [
+     1.5827338129496402,
+     1.5827338129496402,
+     1.5827338129496402,
+     1.5827338129496402,
+     1.8410041841004186,
+     1.5827338129496402,
+     1.5827338129496402,
+     1.5827338129496402,
+     1.5827338129496402,
+     1.5827338129496402,
+     1.5827338129496402,
+     1.5827338129496402,
+     1.5827338129496402,
+     1.5827338129496402,
+     1.5827338129496402,
+     1.5827338129496402,
+     1.5827338129496402,
+     1.5827338129496402,
+     1.5827338129496402,
+     1.5827338129496402,
+     1.5827338129496402
+    ]
+   },
+   "cut20": "Run deploy.sh on bil…",
+   "cut1": "R…",
+   "conceptKey": "run deploy.sh on billing_api; see apps/web/main.ts and services/edge/letsencrypt_renewal_hook.sh"
+  },
+  {
+   "text": "Baza de date a căzut azi-noapte — am repornit serviciul și am verificat jurnalele.",
+   "fold": "baza de date a cazut azi-noapte — am repornit serviciul si am verificat jurnalele.",
+   "tokens": [
+    "baza",
+    "de",
+    "date",
+    "cazut",
+    "azi-noapte",
+    "azi",
+    "noapte",
+    "am",
+    "repornit",
+    "serviciul",
+    "si",
+    "am",
+    "verificat",
+    "jurnalele"
+   ],
+   "firstWords5": "Baza de date a căzut",
+   "children": [
+    "Baza de date a căzut azi-noapte — am repornit serviciul și am",
+    "date a căzut azi-noapte — am repornit serviciul și am verificat jurnalele"
+   ],
+   "docSparse": {
+    "indices": [
+     75441664,
+     341534545,
+     655343544,
+     767997273,
+     1076162899,
+     1079120113,
+     1545391778,
+     1726449913,
+     2180046731,
+     3289450229,
+     3564297305,
+     3773485680,
+     3826425820
+    ],
+    "values": [
+     1.620897521768252,
+     1.620897521768252,
+     1.620897521768252,
+     1.620897521768252,
+     1.8665638256845354,
+     1.620897521768252,
+     1.620897521768252,
+     1.620897521768252,
+     1.620897521768252,
+     1.620897521768252,
+     1.620897521768252,
+     1.620897521768252,
+     1.620897521768252
+    ]
+   },
+   "cut20": "Baza de date a căzut…",
+   "cut1": "B…",
+   "conceptKey": "baza de date a cazut azi-noapte — am repornit serviciul si am verificat jurnalele"
+  },
+  {
+   "text": "Бэкап базы данных не прошёл: диск заполнен на 98%.",
+   "fold": "бэкап базы данных не прошел: диск заполнен на 98%.",
+   "tokens": [
+    "бэкап",
+    "базы",
+    "данных",
+    "не",
+    "прошел",
+    "диск",
+    "заполнен",
+    "на",
+    "98"
+   ],
+   "firstWords5": "Бэкап базы данных не прошёл",
+   "children": [
+    "Бэкап базы данных не прошёл: диск заполнен на 98%."
+   ],
+   "docSparse": {
+    "indices": [
+     335455588,
+     424268006,
+     1504555086,
+     1746303786,
+     1819003568,
+     1873898497,
+     2058840183,
+     2316405128,
+     2400293223
+    ],
+    "values": [
+     1.6456987419245155,
+     1.6456987419245155,
+     1.6456987419245155,
+     1.6456987419245155,
+     1.6456987419245155,
+     1.6456987419245155,
+     1.6456987419245155,
+     1.6456987419245155,
+     1.6456987419245155
+    ]
+   },
+   "cut20": "Бэкап базы данных не…",
+   "cut1": "Б…",
+   "conceptKey": "бэкап базы данных не прошел: диск заполнен на 98%"
+  },
+  {
+   "text": "Ελέγξαμε τον διακομιστή· η μνήμη είναι εντάξει.",
+   "fold": "ελεγξαμε τον διακομιστη· η μνημη ειναι ενταξει.",
+   "tokens": [
+    "ελεγξαμε",
+    "τον",
+    "διακομιστη",
+    "μνημη",
+    "ειναι",
+    "ενταξει"
+   ],
+   "firstWords5": "Ελέγξαμε τον διακομιστή· η μνήμη",
+   "children": [
+    "Ελέγξαμε τον διακομιστή· η μνήμη είναι εντάξει."
+   ],
+   "docSparse": {
+    "indices": [
+     651536938,
+     1800876539,
+     2395536644,
+     2408734055,
+     3715186251,
+     3941186320
+    ],
+    "values": [
+     1.6609471516815377,
+     1.6609471516815377,
+     1.6609471516815377,
+     1.6609471516815377,
+     1.6609471516815377,
+     1.6609471516815377
+    ]
+   },
+   "cut20": "Ελέγξαμε τον διακομι…",
+   "cut1": "Ε…",
+   "conceptKey": "ελεγξαμε τον διακομιστη· η μνημη ειναι ενταξει"
+  },
+  {
+   "text": "数据库备份失败了，因为磁盘已满。我们明天再试。",
+   "fold": "数据库备份失败了,因为磁盘已满。我们明天再试。",
+   "tokens": [
+    "数据",
+    "库",
+    "备份",
+    "失败",
+    "了",
+    "因为",
+    "磁盘",
+    "已",
+    "满",
+    "我们",
+    "明天",
+    "再试"
+   ],
+   "firstWords5": "数据库备份失败了",
+   "children": [
+    "数据库备份失败了，因为磁盘已满。我们明天再试。"
+   ],
+   "docSparse": {
+    "indices": [
+     87743656,
+     627929107,
+     721360887,
+     896171265,
+     1687339436,
+     1689481724,
+     2000852629,
+     2204144249,
+     2272945887,
+     2320067771,
+     2521268322,
+     3537017328
+    ],
+    "values": [
+     1.6307277628032346,
+     1.6307277628032346,
+     1.6307277628032346,
+     1.6307277628032346,
+     1.6307277628032346,
+     1.6307277628032346,
+     1.6307277628032346,
+     1.6307277628032346,
+     1.6307277628032346,
+     1.6307277628032346,
+     1.6307277628032346,
+     1.6307277628032346
+    ]
+   },
+   "cut20": "数据库备份失败了，因为磁盘已满。我们明天…",
+   "cut1": "数…",
+   "conceptKey": "数据库备份失败了,因为磁盘已满。我们明天再试。"
+  },
+  {
+   "text": "データベースのバックアップは失敗しました。ディスクがいっぱいです。",
+   "fold": "データベースのバックアップは失敗しました。ディスクがいっぱいです。",
+   "tokens": [
+    "データベース",
+    "の",
+    "バックアップ",
+    "は",
+    "失敗",
+    "しま",
+    "した",
+    "ディスク",
+    "が",
+    "いっぱい",
+    "です"
+   ],
+   "firstWords5": "データベースのバックアップは失敗",
+   "children": [
+    "データベースのバックアップは失敗しました。ディスクがいっぱいです。"
+   ],
+   "docSparse": {
+    "indices": [
+     1325510279,
+     1498594219,
+     1608525709,
+     1922301717,
+     2018700408,
+     2619588881,
+     2633851069,
+     3374657195,
+     3928318622,
+     3945096241,
+     4221946763
+    ],
+    "values": [
+     1.6356877323420076,
+     1.6356877323420076,
+     1.6356877323420076,
+     1.6356877323420076,
+     1.6356877323420076,
+     1.6356877323420076,
+     1.6356877323420076,
+     1.6356877323420076,
+     1.6356877323420076,
+     1.6356877323420076,
+     1.6356877323420076
+    ]
+   },
+   "cut20": "データベースのバックアップは失敗しました…",
+   "cut1": "デ…",
+   "conceptKey": "データベースのバックアップは失敗しました。ディスクがいっぱいです。"
+  },
+  {
+   "text": "การสำรองข้อมูลล้มเหลวเพราะดิสก์เต็ม",
+   "fold": "การสํารองข้อมูลล้มเหลวเพราะดิสก์เต็ม",
+   "tokens": [
+    "กา",
+    "รสํา",
+    "รอง",
+    "ข้อมูล",
+    "ล้ม",
+    "เหลว",
+    "เพราะ",
+    "ดิสก์",
+    "เต็ม"
+   ],
+   "firstWords5": "การสำรองข้อมูลล้มเหลว",
+   "children": [
+    "การสำรองข้อมูลล้มเหลวเพราะดิสก์เต็ม"
+   ],
+   "docSparse": {
+    "indices": [
+     77370394,
+     597440416,
+     664489502,
+     1599213592,
+     2129849282,
+     2396743444,
+     3087358318,
+     3671390046,
+     4195229623
+    ],
+    "values": [
+     1.6456987419245155,
+     1.6456987419245155,
+     1.6456987419245155,
+     1.6456987419245155,
+     1.6456987419245155,
+     1.6456987419245155,
+     1.6456987419245155,
+     1.6456987419245155,
+     1.6456987419245155
+    ]
+   },
+   "cut20": "การสำรองข้อมูลล้มเหล…",
+   "cut1": "ก…",
+   "conceptKey": "การสํารองข้อมูลล้มเหลวเพราะดิสก์เต็ม"
+  },
+  {
+   "text": "Café, naïve, résumé, Ångström, ﬁle (ligature), ＦＵＬＬＷＩＤＴＨ, Ⅻ",
+   "fold": "cafe, naive, resume, angstrom, file (ligature), fullwidth, xii",
+   "tokens": [
+    "cafe",
+    "naive",
+    "resume",
+    "angstrom",
+    "file",
+    "ligature",
+    "fullwidth",
+    "xii"
+   ],
+   "firstWords5": "Café, naïve, résumé, Ångström, ﬁle",
+   "children": [
+    "Café, naïve, résumé, Ångström, ﬁle (ligature), ＦＵＬＬＷＩＤＴＨ, Ⅻ"
+   ],
+   "docSparse": {
+    "indices": [
+     233423766,
+     678388872,
+     1083572662,
+     2143739020,
+     2867484483,
+     3070856776,
+     3078276345,
+     4281967466
+    ],
+    "values": [
+     1.6507503410641202,
+     1.6507503410641202,
+     1.6507503410641202,
+     1.6507503410641202,
+     1.6507503410641202,
+     1.6507503410641202,
+     1.6507503410641202,
+     1.6507503410641202
+    ]
+   },
+   "cut20": "Café, naïve, résumé,…",
+   "cut1": "C…",
+   "conceptKey": "cafe, naive, resume, angstrom, file (ligature), fullwidth, xii"
+  },
+  {
+   "text": "Launch 🚀 went fine 👍🏽 — the 👨‍👩‍👧 photo is in /tmp/x.png",
+   "fold": "launch 🚀 went fine 👍🏽 — the 👨‍👩‍👧 photo is in /tmp/x.png",
+   "tokens": [
+    "launch",
+    "went",
+    "fine",
+    "the",
+    "photo",
+    "is",
+    "in",
+    "tmp/x.png",
+    "tmp",
+    "png"
+   ],
+   "firstWords5": "Launch 🚀 went fine 👍🏽 — the 👨‍👩‍👧 photo",
+   "children": [
+    "Launch 🚀 went fine 👍🏽 — the 👨‍👩‍👧 photo is in /tmp/x.png"
+   ],
+   "docSparse": {
+    "indices": [
+     1094220446,
+     1312329493,
+     1385689124,
+     1748353692,
+     2166822627,
+     3004525646,
+     3020861980,
+     3203434221,
+     3636055843,
+     4055382118
+    ],
+    "values": [
+     1.6406779661016953,
+     1.6406779661016953,
+     1.6406779661016953,
+     1.6406779661016953,
+     1.6406779661016953,
+     1.6406779661016953,
+     1.6406779661016953,
+     1.6406779661016953,
+     1.6406779661016953,
+     1.6406779661016953
+    ]
+   },
+   "cut20": "Launch 🚀 went fine …",
+   "cut1": "L…",
+   "conceptKey": "launch 🚀 went fine 👍🏽 — the 👨‍👩‍👧 photo is in /tmp/x.png"
+  },
+  {
+   "text": "a_b.c-d/e --flag=value ../../etc/passwd __init__.py v1.2.3 x",
+   "fold": "a_b.c-d/e --flag=value ../../etc/passwd __init__.py v1.2.3 x",
+   "tokens": [
+    "a_b.c-d/e",
+    "flag",
+    "value",
+    "etc/passwd",
+    "etc",
+    "passwd",
+    "init__.py",
+    "init",
+    "py",
+    "v1.2.3",
+    "v1"
+   ],
+   "firstWords5": "a_b.c-d/e --flag=value",
+   "children": [
+    "a_b.c-d/e --flag=value ../../etc/passwd __init__.py v1.2.3 x"
+   ],
+   "docSparse": {
+    "indices": [
+     204325091,
+     380752755,
+     1113510858,
+     1481532706,
+     2098883227,
+     2375820365,
+     2393162779,
+     2487895656,
+     2642310668,
+     3186272471,
+     3506501898
+    ],
+    "values": [
+     1.6356877323420076,
+     1.6356877323420076,
+     1.6356877323420076,
+     1.6356877323420076,
+     1.6356877323420076,
+     1.6356877323420076,
+     1.6356877323420076,
+     1.6356877323420076,
+     1.6356877323420076,
+     1.6356877323420076,
+     1.6356877323420076
+    ]
+   },
+   "cut20": "a_b.c-d/e --flag=val…",
+   "cut1": "a…",
+   "conceptKey": "a_b.c-d/e --flag=value ../../etc/passwd __init__.py v1.2.3 x"
+  },
+  {
+   "text": "Mixed: deploy-ul pe staging a mers, dar prod încă are vechiul .env",
+   "fold": "mixed: deploy-ul pe staging a mers, dar prod inca are vechiul .env",
+   "tokens": [
+    "mixed",
+    "deploy-ul",
+    "deploy",
+    "ul",
+    "pe",
+    "staging",
+    "mers",
+    "dar",
+    "prod",
+    "inca",
+    "are",
+    "vechiul",
+    "env"
+   ],
+   "firstWords5": "Mixed: deploy-ul pe staging",
+   "children": [
+    "Mixed: deploy-ul pe staging a mers, dar prod încă are vechiul",
+    "deploy-ul pe staging a mers, dar prod încă are vechiul .env"
+   ],
+   "docSparse": {
+    "indices": [
+     230739922,
+     1081029709,
+     1280201278,
+     1557350270,
+     1598240564,
+     2022607796,
+     2252569763,
+     2446665000,
+     2597808422,
+     2617439604,
+     3645837484,
+     3845391352,
+     3980276084
+    ],
+    "values": [
+     1.6257977830030235,
+     1.6257977830030235,
+     1.6257977830030235,
+     1.6257977830030235,
+     1.6257977830030235,
+     1.6257977830030235,
+     1.6257977830030235,
+     1.6257977830030235,
+     1.6257977830030235,
+     1.6257977830030235,
+     1.6257977830030235,
+     1.6257977830030235,
+     1.6257977830030235
+    ]
+   },
+   "cut20": "Mixed: deploy-ul pe …",
+   "cut1": "M…",
+   "conceptKey": "mixed: deploy-ul pe staging a mers, dar prod inca are vechiul .env"
+  },
+  {
+   "text": "A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A very long text that keeps going so that it needs more than one child window to hold every word.",
+   "fold": "a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a very long text that keeps going so that it needs more than one child window to hold every word.",
+   "tokens": [
+    "very",
+    "long",
+    "text",
+    "that",
+    "keeps",
+    "going",
+    "so",
+    "that",
+    "it",
+    "needs",
+    "more",
+    "than",
+    "one",
+    "child",
+    "window",
+    "to",
+    "hold",
+    "every",
+    "word"
+   ],
+   "firstWords5": "A A A A A",
+   "children": [
+    "A A A A A A A A A A A A",
+    "A A A A A A A A A A A A",
+    "A A A A A A A A A A A A",
+    "A A A A A A A A A A A A",
+    "A A A A A A A A A A A A",
+    "A A A A A A A A A A A A",
+    "A A A A A A A A A A A A",
+    "A A A A A A A A A A A A",
+    "A A A A A A A A A A A A",
+    "A A A A A A A A A A A A",
+    "A A A A A A A A A A A A",
+    "A A A A A A A A A A A A",
+    "A A A A A A A A A A A A",
+    "A A A A A A A A A A A A",
+    "A A A A A A A A A A A A",
+    "A A A A A A A A A A A A",
+    "A A A A A A very long text that keeps going",
+    "that keeps going so that it needs more than one child window",
+    "one child window to hold every word"
+   ],
+   "docSparse": {
+    "indices": [
+     156169988,
+     189712013,
+     1111836708,
+     1112675351,
+     1194886160,
+     1788406269,
+     2235156922,
+     2708649949,
+     2810861793,
+     2915453368,
+     3123124719,
+     3185987134,
+     3270303571,
+     3407360812,
+     3843578906,
+     3852476509,
+     3897901536,
+     3979690785
+    ],
+    "values": [
+     1.5968327284724515,
+     1.5968327284724515,
+     1.5968327284724515,
+     1.5968327284724515,
+     1.5968327284724515,
+     1.5968327284724515,
+     1.5968327284724515,
+     1.5968327284724515,
+     1.5968327284724515,
+     1.5968327284724515,
+     1.5968327284724515,
+     1.5968327284724515,
+     1.5968327284724515,
+     1.8505065952972664,
+     1.5968327284724515,
+     1.5968327284724515,
+     1.5968327284724515,
+     1.5968327284724515
+    ]
+   },
+   "cut20": "A A A A A A A A A A …",
+   "cut1": "A…",
+   "conceptKey": "a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a very long text that keeps going so that it needs more than one child window to hold every word"
+  },
+  {
+   "text": "hash 5f3c1a9e8b7d6c5f4e3d2c1b0a9f8e7d6c5b4a3f2e1d0c9b8a7f6e5d4c3b2a1f0e9d8c7b6a5f4e3d2c1b0a9f8e7d6c5b4a3f2e1d0c9b8a7f6e5d4",
+   "fold": "hash 5f3c1a9e8b7d6c5f4e3d2c1b0a9f8e7d6c5b4a3f2e1d0c9b8a7f6e5d4c3b2a1f0e9d8c7b6a5f4e3d2c1b0a9f8e7d6c5b4a3f2e1d0c9b8a7f6e5d4",
+   "tokens": [
+    "hash"
+   ],
+   "firstWords5": "hash 5f3c1a9e8b7d6c5f4e3d2c1b0a9f8e7d6c5b4a3f2e1d0c9b8a7f6e5d4c3b2a1f0e9d8c7b6a5f4e3d2c1b0a9f8e7d6c5b4a3f2e1d0c9b8a7f6e5d4",
+   "children": [
+    "hash 5f3c1a9e8b7d6c5f4e3d2c1b0a9f8e7d6c5b4a3f2e1d0c9b8a7f6e5d4c3b2a1f0e9d8c7b6a5f4e3d2c1b0a9f8e7d6c5b4a3f2e1d0c9b8a7f6e5d4"
+   ],
+   "docSparse": {
+    "indices": [
+     3469047761
+    ],
+    "values": [
+     1.6869989543394912
+    ]
+   },
+   "cut20": "hash 5f3c1a9e8b7d6c5…",
+   "cut1": "h…",
+   "conceptKey": "hash 5f3c1a9e8b7d6c5f4e3d2c1b0a9f8e7d6c5b4a3f2e1d0c9b8a7f6e5d4c3b2a1f0e9d8c7b6a5f4e3d2c1b0a9f8e7d6c5b4a3f2e1d0c9b8a7f6e5d4"
+  },
+  {
+   "text": "Line one\nLine two\r\n\tTabbed line   with   spaces\n\n",
+   "fold": "line one\nline two\r\n\ttabbed line   with   spaces\n\n",
+   "tokens": [
+    "line",
+    "one",
+    "line",
+    "two",
+    "tabbed",
+    "line",
+    "with",
+    "spaces"
+   ],
+   "firstWords5": "Line one Line two Tabbed",
+   "children": [
+    "Line one Line two Tabbed line with spaces"
+   ],
+   "docSparse": {
+    "indices": [
+     206241385,
+     400234023,
+     539475707,
+     3123124719,
+     3190065193,
+     3910027586
+    ],
+    "values": [
+     1.6507503410641202,
+     1.9803600654664488,
+     1.6507503410641202,
+     1.6507503410641202,
+     1.6507503410641202,
+     1.6507503410641202
+    ]
+   },
+   "cut20": "Line one\nLine two\r\n\t…",
+   "cut1": "L…",
+   "conceptKey": "line one line two tabbed line with spaces"
+  },
+  {
+   "text": "Ünïcödé ÄÖÜ ß ẞ İstanbul ı",
+   "fold": "unicode aou ß ß istanbul ı",
+   "tokens": [
+    "unicode",
+    "aou",
+    "istanbul"
+   ],
+   "firstWords5": "Ünïcödé ÄÖÜ ß ẞ İstanbul",
+   "children": [
+    "Ünïcödé ÄÖÜ ß ẞ İstanbul ı"
+   ],
+   "docSparse": {
+    "indices": [
+     103516576,
+     741093092,
+     1059843399
+    ],
+    "values": [
+     1.6764807758919296,
+     1.6764807758919296,
+     1.6764807758919296
+    ]
+   },
+   "cut20": "Ünïcödé ÄÖÜ ß ẞ İsta…",
+   "cut1": "Ü…",
+   "conceptKey": "unicode aou ß ß istanbul ı"
+  },
+  {
+   "text": "नमस्ते, सर्वर फिर से चालू है।",
+   "fold": "नमस्ते, सर्वर फिर से चालू है।",
+   "tokens": [
+    "नमस्ते",
+    "सर्वर",
+    "फिर",
+    "से",
+    "चालू",
+    "है"
+   ],
+   "firstWords5": "नमस्ते, सर्वर फिर से चालू",
+   "children": [
+    "नमस्ते, सर्वर फिर से चालू है।"
+   ],
+   "docSparse": {
+    "indices": [
+     78133504,
+     1768018605,
+     1839636404,
+     2485552981,
+     2758904381,
+     3767319129
+    ],
+    "values": [
+     1.6609471516815377,
+     1.6609471516815377,
+     1.6609471516815377,
+     1.6609471516815377,
+     1.6609471516815377,
+     1.6609471516815377
+    ]
+   },
+   "cut20": "नमस्ते, सर्वर फिर से…",
+   "cut1": "न…",
+   "conceptKey": "नमस्ते, सर्वर फिर से चालू है।"
+  },
+  {
+   "text": "مرحبا، الخادم يعمل الآن.",
+   "fold": "مرحبا، الخادم يعمل الآن.",
+   "tokens": [
+    "مرحبا",
+    "الخادم",
+    "يعمل",
+    "الآن"
+   ],
+   "firstWords5": "مرحبا، الخادم يعمل الآن.",
+   "children": [
+    "مرحبا، الخادم يعمل الآن."
+   ],
+   "docSparse": {
+    "indices": [
+     1007685694,
+     1561777949,
+     2010031065,
+     3187805171
+    ],
+    "values": [
+     1.6712707182320443,
+     1.6712707182320443,
+     1.6712707182320443,
+     1.6712707182320443
+    ]
+   },
+   "cut20": "مرحبا، الخادم يعمل ا…",
+   "cut1": "م…",
+   "conceptKey": "مرحبا، الخادم يعمل الآن"
+  },
+  {
+   "text": "שלום, השרת פועל.",
+   "fold": "שלום, השרת פועל.",
+   "tokens": [
+    "שלום",
+    "השרת",
+    "פועל"
+   ],
+   "firstWords5": "שלום, השרת פועל.",
+   "children": [
+    "שלום, השרת פועל."
+   ],
+   "docSparse": {
+    "indices": [
+     158159268,
+     193155470,
+     1687563384
+    ],
+    "values": [
+     1.6764807758919296,
+     1.6764807758919296,
+     1.6764807758919296
+    ]
+   },
+   "cut20": "שלום, השרת פועל.",
+   "cut1": "ש…",
+   "conceptKey": "שלום, השרת פועל"
+  }
+ ],
+ "termIds": [
+  {
+   "term": "",
+   "id": 2166136261
+  },
+  {
+   "term": "a",
+   "id": 3826002220
+  },
+  {
+   "term": "proxy",
+   "id": 2107770459
+  },
+  {
+   "term": "bază",
+   "id": 3418861075
+  },
+  {
+   "term": "数据库",
+   "id": 1793078144
+  },
+  {
+   "term": "🚀",
+   "id": 1261604408
+  },
+  {
+   "term": "deploy.sh",
+   "id": 1200937859
+  }
+ ],
+ "querySparse": {
+  "texts": [
+   "The proxy certificate expired on the 1st; renewal stopped because the cron job was removed.",
+   "Run deploy.sh on billing_api; see apps/web/main.ts and services/edge/letsencrypt_renewal_hook.sh",
+   "Baza de date a căzut azi-noapte — am repornit serviciul și am verificat jurnalele."
+  ],
+  "vector": {
+   "indices": [
+    75441664,
+    254395046,
+    265927825,
+    341534545,
+    383959538,
+    655343544,
+    718098122,
+    767997273,
+    864990770,
+    903456107,
+    946514567,
+    1062342494,
+    1073217499,
+    1076162899,
+    1079120113,
+    1097859292,
+    1173119600,
+    1178947184,
+    1200937859,
+    1459017788,
+    1545391778,
+    1557350270,
+    1630810064,
+    1726449913,
+    1860367182,
+    2107770459,
+    2180046731,
+    2333193211,
+    2493878784,
+    2584303587,
+    2623740297,
+    2899117034,
+    3020861980,
+    3039226944,
+    3289450229,
+    3340298131,
+    3551317645,
+    3564297305,
+    3604893195,
+    3647643189,
+    3721670620,
+    3773485680,
+    3811586907,
+    3826425820,
+    3935363592
+   ],
+   "values": [
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1
+   ]
+  }
+ },
+ "conceptKeys": [
+  {
+   "name": " Proxy.conf ",
+   "key": "proxy.conf"
+  },
+  {
+   "name": "proxy.conf",
+   "key": "proxy.conf"
+  },
+  {
+   "name": "acme-proxy:dev",
+   "key": "acme-proxy:dev"
+  },
+  {
+   "name": "  Harbour   rowing club ",
+   "key": "harbour rowing club"
+  },
+  {
+   "name": "\"quoted\"",
+   "key": "quoted"
+  },
+  {
+   "name": "Ångström!",
+   "key": "angstrom!"
+  }
+ ],
+ "sentenceSpans": [
+  {
+   "text": "",
+   "spans": []
+  },
+  {
+   "text": "The proxy certificate expired on the 1st; renewal stopped because the cron job was removed.",
+   "spans": [
+    [
+     0,
+     91
+    ]
+   ]
+  },
+  {
+   "text": "Run deploy.sh on billing_api; see apps/web/main.ts and services/edge/letsencrypt_renewal_hook.sh",
+   "spans": [
+    [
+     0,
+     96
+    ]
+   ]
+  },
+  {
+   "text": "Baza de date a căzut azi-noapte — am repornit serviciul și am verificat jurnalele.",
+   "spans": [
+    [
+     0,
+     82
+    ]
+   ]
+  },
+  {
+   "text": "Бэкап базы данных не прошёл: диск заполнен на 98%.",
+   "spans": [
+    [
+     0,
+     50
+    ]
+   ]
+  },
+  {
+   "text": "Ελέγξαμε τον διακομιστή· η μνήμη είναι εντάξει.",
+   "spans": [
+    [
+     0,
+     47
+    ]
+   ]
+  },
+  {
+   "text": "数据库备份失败了，因为磁盘已满。我们明天再试。",
+   "spans": [
+    [
+     0,
+     23
+    ]
+   ]
+  },
+  {
+   "text": "データベースのバックアップは失敗しました。ディスクがいっぱいです。",
+   "spans": [
+    [
+     0,
+     33
+    ]
+   ]
+  },
+  {
+   "text": "การสำรองข้อมูลล้มเหลวเพราะดิสก์เต็ม",
+   "spans": [
+    [
+     0,
+     35
+    ]
+   ]
+  },
+  {
+   "text": "Café, naïve, résumé, Ångström, ﬁle (ligature), ＦＵＬＬＷＩＤＴＨ, Ⅻ",
+   "spans": [
+    [
+     0,
+     59
+    ]
+   ]
+  },
+  {
+   "text": "Launch 🚀 went fine 👍🏽 — the 👨‍👩‍👧 photo is in /tmp/x.png",
+   "spans": [
+    [
+     0,
+     62
+    ]
+   ]
+  },
+  {
+   "text": "a_b.c-d/e --flag=value ../../etc/passwd __init__.py v1.2.3 x",
+   "spans": [
+    [
+     0,
+     60
+    ]
+   ]
+  },
+  {
+   "text": "Mixed: deploy-ul pe staging a mers, dar prod încă are vechiul .env",
+   "spans": [
+    [
+     0,
+     66
+    ]
+   ]
+  },
+  {
+   "text": "A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A very long text that keeps going so that it needs more than one child window to hold every word.",
+   "spans": [
+    [
+     0,
+     395
+    ]
+   ]
+  },
+  {
+   "text": "hash 5f3c1a9e8b7d6c5f4e3d2c1b0a9f8e7d6c5b4a3f2e1d0c9b8a7f6e5d4c3b2a1f0e9d8c7b6a5f4e3d2c1b0a9f8e7d6c5b4a3f2e1d0c9b8a7f6e5d4",
+   "spans": [
+    [
+     0,
+     122
+    ]
+   ]
+  },
+  {
+   "text": "Line one\nLine two\r\n\tTabbed line   with   spaces\n\n",
+   "spans": [
+    [
+     0,
+     8
+    ],
+    [
+     9,
+     17
+    ],
+    [
+     20,
+     47
+    ]
+   ]
+  },
+  {
+   "text": "Ünïcödé ÄÖÜ ß ẞ İstanbul ı",
+   "spans": [
+    [
+     0,
+     26
+    ]
+   ]
+  },
+  {
+   "text": "नमस्ते, सर्वर फिर से चालू है।",
+   "spans": [
+    [
+     0,
+     29
+    ]
+   ]
+  },
+  {
+   "text": "مرحبا، الخادم يعمل الآن.",
+   "spans": [
+    [
+     0,
+     24
+    ]
+   ]
+  },
+  {
+   "text": "שלום, השרת פועל.",
+   "spans": [
+    [
+     0,
+     16
+    ]
+   ]
+  }
+ ]
+}

@@ -1,0 +1,117 @@
+{
+ "fingerprint": [
+  {
+   "parts": [],
+   "fp": "da39a3ee5e6b4b0d"
+  },
+  {
+   "parts": [
+    "a"
+   ],
+   "fp": "0a04b971b03da607"
+  },
+  {
+   "parts": [
+    "a",
+    "b"
+   ],
+   "fp": "5b4085401e259f39"
+  },
+  {
+   "parts": [
+    "a",
+    [
+     "b",
+     "c"
+    ]
+   ],
+   "fp": "56cadcd6a40e252e"
+  },
+  {
+   "parts": [
+    "a",
+    null,
+    null,
+    ""
+   ],
+   "fp": "4d085804ce02b350"
+  },
+  {
+   "parts": [
+    "ünï",
+    "数据"
+   ],
+   "fp": "95106ae39a50f6ed"
+  }
+ ],
+ "pointId": [
+  {
+   "item": "stm:abc",
+   "n": 0,
+   "id": "08691872-8b1b-5a61-9c1b-53c276597bc8"
+  },
+  {
+   "item": "stm:abc",
+   "n": 3,
+   "id": "3aaf80c2-f373-5158-b187-9b4b557f9d56"
+  },
+  {
+   "item": "mem:xyz",
+   "n": 0,
+   "id": "ace8b863-8e56-5006-9c92-393ea7264c98"
+  },
+  {
+   "item": "ep:ü数",
+   "n": 12,
+   "id": "61004e3e-a64c-5e23-81eb-20aa28d4db64"
+  }
+ ],
+ "recordUid": [
+  {
+   "record": {
+    "id": "mail-1"
+   },
+   "uid": "3fbbc1008def290ba062213d5887f2aa"
+  },
+  {
+   "record": {
+    "id": "mail-1",
+    "source": "imap"
+   },
+   "uid": "b35df01b39393774ae8f8421da6e1024"
+  },
+  {
+   "record": {
+    "id": "ü/数:1",
+    "source": ""
+   },
+   "uid": "48f17bd64dc9533a364626640ce90f0e"
+  }
+ ],
+ "collectionKey": [
+  {
+   "collection": null,
+   "key": "default"
+  },
+  {
+   "collection": "",
+   "key": "default"
+  },
+  {
+   "collection": "  ",
+   "key": "default"
+  },
+  {
+   "collection": "Ops team",
+   "key": "Ops-team"
+  },
+  {
+   "collection": "a/b\\c:d",
+   "key": "a-b-c-d"
+  },
+  {
+   "collection": "Équipe  Ops",
+   "key": "Équipe-Ops"
+  }
+ ]
+}

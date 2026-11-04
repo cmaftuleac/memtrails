@@ -1,0 +1,66 @@
+[
+ {
+  "input": "my key is sk-proj-abcdefghijklmnopqrstuvwxyz0123456789ABCD ok",
+  "output": "my key is <redacted:sk> ok"
+ },
+ {
+  "input": "GITHUB_TOKEN=ghp_abcdefghijklmnopqrstuvwxyz0123",
+  "output": "GITHUB_TOKEN=<redacted>"
+ },
+ {
+  "input": "AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+  "output": "AWS_SECRET_ACCESS_KEY=<redacted>"
+ },
+ {
+  "input": "{\"api_key\": \"abc123def456\", \"password\":\"hunter2\"}",
+  "output": "{\"api_key\": \"<redacted>\", \"password\":\"<redacted>\"}"
+ },
+ {
+  "input": "postgres://admin:p@ss/w0rd@db.internal:5432/app",
+  "output": "postgres://admin:<redacted>@db.internal:5432/app"
+ },
+ {
+  "input": "https://user:pa/ss@example.com/path?token=xyz&ok=1",
+  "output": "https://user:<redacted>@example.com/path?token=<redacted>&ok=1"
+ },
+ {
+  "input": "Authorization: Bearer abcdefghijklmnopqrstuvwxyz.0123",
+  "output": "Authorization: Bearer <redacted>"
+ },
+ {
+  "input": "Write to jane.doe@example.com about the invoice.",
+  "output": "Write to <redacted:email>@example.com about the invoice."
+ },
+ {
+  "input": "see /Users/jane/projects/app and /home/bob/.ssh and C:\\Users\\Ana\\Desktop",
+  "output": "see ~/projects/app and ~/.ssh and ~\\Desktop"
+ },
+ {
+  "input": "-----BEGIN RSA PRIVATE KEY-----\nMIIEowIBAAKCAQEA\n-----END RSA PRIVATE KEY-----",
+  "output": "<redacted:private-key>"
+ },
+ {
+  "input": "the password field is required; token-based auth; max_tokens: 1200",
+  "output": "the password field is required; token-based auth; max_tokens: 1200"
+ },
+ {
+  "input": "commit 3b18e512dba79e4c8300dd08aeb37f8e728b8dad fixed it",
+  "output": "commit 3b18e512dba79e4c8300dd08aeb37f8e728b8dad fixed it"
+ },
+ {
+  "input": "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U",
+  "output": "<redacted:jwt>"
+ },
+ {
+  "input": "AKIAIOSFODNN7EXAMPLE and ASIAIOSFODNN7EXAMPLE",
+  "output": "<redacted:aws> and <redacted:aws>"
+ },
+ {
+  "input": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx high entropy run",
+  "output": "<redacted:entropy> high entropy run"
+ },
+ {
+  "input": "",
+  "output": ""
+ }
+]

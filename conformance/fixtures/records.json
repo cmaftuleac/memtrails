@@ -1,0 +1,325 @@
+{
+ "now": 1775131200000,
+ "invalid": [
+  {
+   "record": {
+    "id": "mail-1",
+    "kind": "email",
+    "author": "Ana",
+    "title": "Proxy certificate expired",
+    "at": "2026-04-02",
+    "text": "It expired on the 1st. Renewal stopped because the cron job was removed in March.",
+    "collection": "Ops team",
+    "thread": "cert"
+   },
+   "error": null
+  },
+  {
+   "record": {
+    "id": "note-7",
+    "text": "First line is the title\nand the rest is the body,\nover three lines."
+   },
+   "error": null
+  },
+  {
+   "record": {
+    "id": "n/ü:8",
+    "source": "slack",
+    "url": "https://example.com/m/8",
+    "text": "  spaced out  ",
+    "metadata": {
+     "channel": "ops",
+     "pinned": true,
+     "score": 3
+    }
+   },
+   "error": null
+  },
+  {
+   "record": {
+    "id": "",
+    "text": "no id"
+   },
+   "error": "a record needs an id"
+  },
+  {
+   "record": {
+    "id": "x",
+    "text": "",
+    "title": ""
+   },
+   "error": "record x: it has no text and no title"
+  },
+  {
+   "record": {
+    "id": "y",
+    "text": "bad time",
+    "at": "yesterday-ish"
+   },
+   "error": "record y: its time cannot be read (yesterday-ish)"
+  }
+ ],
+ "entries": [
+  {
+   "record": {
+    "id": "mail-1",
+    "kind": "email",
+    "author": "Ana",
+    "title": "Proxy certificate expired",
+    "at": "2026-04-02",
+    "text": "It expired on the 1st. Renewal stopped because the cron job was removed in March.",
+    "collection": "Ops team",
+    "thread": "cert"
+   },
+   "turn": 0,
+   "entry": {
+    "uid": "3fbbc1008def290ba062213d5887f2aa",
+    "fingerprint": "61cc60c6fdfe7e17524154680a90dec15ac7a8691f0c53281a4301fb58dcb1e7",
+    "engine": "email",
+    "session": "cert",
+    "turn": 0,
+    "cwd": null,
+    "project": "Ops-team",
+    "title": "Proxy certificate expired",
+    "ts": 1775088000000,
+    "synthetic": false,
+    "typed": "human",
+    "request": "Proxy certificate expired",
+    "reply": "Ana: It expired on the 1st. Renewal stopped because the cron job was removed in March.",
+    "said": "Ana: It expired on the 1st. Renewal stopped because the cron job was removed in March.",
+    "steps": [],
+    "files": [],
+    "done": false,
+    "record": {
+     "id": "mail-1",
+     "author": "Ana"
+    }
+   }
+  },
+  {
+   "record": {
+    "id": "note-7",
+    "text": "First line is the title\nand the rest is the body,\nover three lines."
+   },
+   "turn": 1,
+   "entry": {
+    "uid": "31761cf5d6b0b81f227344c086d0c6b3",
+    "fingerprint": "d362edb6d13da4eeee2ce626d3093cb8c39a2b9cb25de90b6ff44a76b3d71d29",
+    "engine": "record",
+    "session": "31761cf5d6b0b81f227344c086d0c6b3",
+    "turn": 1,
+    "cwd": null,
+    "project": "default",
+    "title": "First line is the title",
+    "ts": 1775131200000,
+    "synthetic": false,
+    "typed": "human",
+    "request": "First line is the title",
+    "reply": "and the rest is the body,\nover three lines.",
+    "said": "and the rest is the body,\nover three lines.",
+    "steps": [],
+    "files": [],
+    "done": false,
+    "record": {
+     "id": "note-7"
+    }
+   }
+  },
+  {
+   "record": {
+    "id": "n/ü:8",
+    "source": "slack",
+    "url": "https://example.com/m/8",
+    "text": "  spaced out  ",
+    "metadata": {
+     "channel": "ops",
+     "pinned": true,
+     "score": 3
+    }
+   },
+   "turn": 2,
+   "entry": {
+    "uid": "faf6abf21f2fe1a2c2262555a27d140d",
+    "fingerprint": "f7628d2f341fb85ff682f7fb1f54cd19600164aff287eba61a407e5ad94b4fb1",
+    "engine": "record",
+    "session": "faf6abf21f2fe1a2c2262555a27d140d",
+    "turn": 2,
+    "cwd": null,
+    "project": "default",
+    "title": "spaced out",
+    "ts": 1775131200000,
+    "synthetic": false,
+    "typed": "human",
+    "request": "spaced out",
+    "reply": "",
+    "said": "",
+    "steps": [],
+    "files": [
+     "https://example.com/m/8"
+    ],
+    "done": false,
+    "record": {
+     "id": "n/ü:8",
+     "source": "slack",
+     "url": "https://example.com/m/8",
+     "metadata": {
+      "channel": "ops",
+      "pinned": true,
+      "score": 3
+     }
+    }
+   }
+  }
+ ],
+ "conversation": {
+  "input": {
+   "id": "conv-1",
+   "source": "chat",
+   "collection": "personal",
+   "at": "2026-03-01T09:00:00Z",
+   "turns": [
+    {
+     "role": "assistant",
+     "text": "Hi! How can I help?"
+    },
+    {
+     "role": "user",
+     "text": "I started the cello in May.",
+     "author": "Priya"
+    },
+    {
+     "role": "assistant",
+     "text": "Lovely. Lessons?"
+    },
+    {
+     "role": "user",
+     "text": "Yes, every Tuesday.",
+     "at": "2026-03-01T09:05:00Z"
+    },
+    {
+     "role": "user",
+     "text": "   "
+    },
+    {
+     "role": "assistant",
+     "text": "Noted."
+    }
+   ]
+  },
+  "entries": [
+   {
+    "uid": "67b6925a1ea626cf530b8801e2809bbd",
+    "fingerprint": "1753b7ccb54281f592a186609d92c718e0e79c5a1634737b95b40eb86dc70aff",
+    "engine": "conversation",
+    "session": "conv-1",
+    "turn": 0,
+    "cwd": null,
+    "project": "personal",
+    "title": "Hi! How can I help?",
+    "ts": 1772355600000,
+    "synthetic": false,
+    "typed": "human",
+    "request": "Hi! How can I help?",
+    "reply": "Hi! How can I help?",
+    "said": "Hi! How can I help?",
+    "steps": [],
+    "files": [],
+    "done": false,
+    "record": {
+     "id": "conv-1#0",
+     "source": "chat"
+    }
+   },
+   {
+    "uid": "ea35b69b6c687e6f0f7b050a677cb0b9",
+    "fingerprint": "4aaaf9f7e4dc22959a37ab9ed3030fd79f99ff1261a258c17d95aaac6e058eed",
+    "engine": "conversation",
+    "session": "conv-1",
+    "turn": 1,
+    "cwd": null,
+    "project": "personal",
+    "title": "Priya: I started the cello in May.",
+    "ts": 1772355660000,
+    "synthetic": false,
+    "typed": "human",
+    "request": "Priya: I started the cello in May.",
+    "reply": "Lovely. Lessons?",
+    "said": "Lovely. Lessons?",
+    "steps": [],
+    "files": [],
+    "done": false,
+    "record": {
+     "id": "conv-1#1",
+     "source": "chat"
+    }
+   },
+   {
+    "uid": "09b8f4d985255d6061db01dacd3efc25",
+    "fingerprint": "274fe2296d14c7631326246e44c915ca8c16b897c72b808b75fa8a6781fe7b35",
+    "engine": "conversation",
+    "session": "conv-1",
+    "turn": 2,
+    "cwd": null,
+    "project": "personal",
+    "title": "Yes, every Tuesday.",
+    "ts": 1772355900000,
+    "synthetic": false,
+    "typed": "human",
+    "request": "Yes, every Tuesday.",
+    "reply": "Noted.",
+    "said": "Noted.",
+    "steps": [],
+    "files": [],
+    "done": false,
+    "record": {
+     "id": "conv-1#2",
+     "source": "chat"
+    }
+   }
+  ]
+ },
+ "rendered": [
+  {
+   "uid": "3fbbc1008def290ba062213d5887f2aa",
+   "rawKey": "Proxy certificate expired Ana: It expired on the 1st. Renewal stopped because the cron job was removed in March.",
+   "stmTitle": "Proxy certificate expired",
+   "episodeBody": "Proxy certificate expired\nAna: It expired on the 1st. Renewal stopped because the cron job was removed in March.",
+   "extraction": "## Record 1 · 2026-04-02 00:00 · email\nProxy certificate expired\nAna: It expired on the 1st. Renewal stopped because the cron job was removed in March."
+  },
+  {
+   "uid": "31761cf5d6b0b81f227344c086d0c6b3",
+   "rawKey": "First line is the title and the rest is the body, over three lines.",
+   "stmTitle": "First line is the title",
+   "episodeBody": "First line is the title\nand the rest is the body,\nover three lines.",
+   "extraction": "## Record 2 · 2026-04-02 12:00 · record\nFirst line is the title\nand the rest is the body,\nover three lines."
+  },
+  {
+   "uid": "faf6abf21f2fe1a2c2262555a27d140d",
+   "rawKey": "spaced out",
+   "stmTitle": "spaced out",
+   "episodeBody": "spaced out",
+   "extraction": "## Record 3 · 2026-04-02 12:00 · record\nspaced out"
+  },
+  {
+   "uid": "67b6925a1ea626cf530b8801e2809bbd",
+   "rawKey": "Hi! How can I help? Hi! How can I help?",
+   "stmTitle": "Hi! How can I help?",
+   "episodeBody": "Asked: Hi! How can I help?\nDone: Hi! How can I help?",
+   "extraction": "## Request 4 · 2026-03-01 09:00 · typed by the person\nHi! How can I help?\nAgent said:\nHi! How can I help?"
+  },
+  {
+   "uid": "ea35b69b6c687e6f0f7b050a677cb0b9",
+   "rawKey": "Priya: I started the cello in May. Lovely. Lessons?",
+   "stmTitle": "Priya: I started the cello in May.",
+   "episodeBody": "Asked: Priya: I started the cello in May.\nDone: Lovely. Lessons?",
+   "extraction": "## Request 5 · 2026-03-01 09:01 · typed by the person\nPriya: I started the cello in May.\nAgent said:\nLovely. Lessons?"
+  },
+  {
+   "uid": "09b8f4d985255d6061db01dacd3efc25",
+   "rawKey": "Yes, every Tuesday. Noted.",
+   "stmTitle": "Yes, every Tuesday.",
+   "episodeBody": "Asked: Yes, every Tuesday.\nDone: Noted.",
+   "extraction": "## Request 6 · 2026-03-01 09:05 · typed by the person\nYes, every Tuesday.\nAgent said:\nNoted."
+  }
+ ]
+}

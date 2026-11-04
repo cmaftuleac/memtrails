@@ -1,0 +1,182 @@
+{
+ "note": "timeOf follows JavaScript Date.parse for ISO 8601 and RFC 2822 dates; anything else is undefined (null here).",
+ "dateSpan": [
+  {
+   "date": "2024",
+   "span": {
+    "from": 1704067200000,
+    "to": 1735689599999
+   }
+  },
+  {
+   "date": "2024-02",
+   "span": {
+    "from": 1706745600000,
+    "to": 1709251199999
+   }
+  },
+  {
+   "date": "2024-02-29",
+   "span": {
+    "from": 1709164800000,
+    "to": 1709251199999
+   }
+  },
+  {
+   "date": "2023-02-29",
+   "span": null
+  },
+  {
+   "date": "2024-02-30",
+   "span": null
+  },
+  {
+   "date": "2024-13",
+   "span": null
+  },
+  {
+   "date": "2024-00",
+   "span": null
+  },
+  {
+   "date": "2024-12-31",
+   "span": {
+    "from": 1735603200000,
+    "to": 1735689599999
+   }
+  },
+  {
+   "date": "April 2026",
+   "span": null
+  },
+  {
+   "date": "",
+   "span": null
+  },
+  {
+   "date": "2024-1-5",
+   "span": null
+  }
+ ],
+ "readableDate": [
+  {
+   "date": "2024",
+   "text": "2024"
+  },
+  {
+   "date": "2024-02",
+   "text": "Feb 2024"
+  },
+  {
+   "date": "2024-02-29",
+   "text": "Thu 29 Feb 2024"
+  },
+  {
+   "date": "2023-02-29",
+   "text": "2023-02-29"
+  },
+  {
+   "date": "2024-02-30",
+   "text": "2024-02-30"
+  },
+  {
+   "date": "2024-13",
+   "text": "2024-13"
+  },
+  {
+   "date": "2024-00",
+   "text": "2024-00"
+  },
+  {
+   "date": "2024-12-31",
+   "text": "Tue 31 Dec 2024"
+  },
+  {
+   "date": "April 2026",
+   "text": "April 2026"
+  },
+  {
+   "date": "",
+   "text": ""
+  },
+  {
+   "date": "2024-1-5",
+   "text": "2024-1-5"
+  }
+ ],
+ "lastedText": [
+  {
+   "hit": {
+    "startAt": "2022-02"
+   },
+   "text": "since Feb 2022"
+  },
+  {
+   "hit": {
+    "endAt": "2022-05-03"
+   },
+   "text": "until Tue 3 May 2022"
+  },
+  {
+   "hit": {
+    "startAt": "2021-11",
+    "endAt": "2022-05"
+   },
+   "text": "Nov 2021 – May 2022"
+  },
+  {
+   "hit": {},
+   "text": ""
+  }
+ ],
+ "timeOf": [
+  {
+   "at": "2026-04-02",
+   "ms": 1775088000000
+  },
+  {
+   "at": "2026-04-02T10:30:00Z",
+   "ms": 1775125800000
+  },
+  {
+   "at": "2026-04-02T10:30:00+03:00",
+   "ms": 1775115000000
+  },
+  {
+   "at": "2026-04-02T10:30:00.123Z",
+   "ms": 1775125800123
+  },
+  {
+   "at": 1712050200000,
+   "ms": 1712050200000
+  },
+  {
+   "at": "Tue, 02 Apr 2024 10:30:00 +0000",
+   "ms": 1712053800000
+  },
+  {
+   "at": "Tue, 2 Apr 2024 10:30:00 GMT",
+   "ms": 1712053800000
+  },
+  {
+   "at": "not a date",
+   "ms": null
+  },
+  {
+   "at": "",
+   "ms": null
+  },
+  {
+   "at": null,
+   "ms": null
+  }
+ ],
+ "calendarOf": {
+  "times": [
+   1689328800000,
+   1689551940000,
+   1704067200000
+  ],
+  "text": "- Fri 2023-07-14: yesterday Thu 2023-07-13 · the days before Wed 2023-07-12, Tue 2023-07-11, Mon 2023-07-10, Sun 2023-07-09, Sat 2023-07-08, Fri 2023-07-07 · last week (the week before) 2023-07-07 to 2023-07-13 · last weekend 2023-07-08 to 2023-07-09 · this week 2023-07-10 to 2023-07-16 · last month 2023-06 · last year 2022\n- Sun 2023-07-16: yesterday Sat 2023-07-15 · the days before Fri 2023-07-14, Thu 2023-07-13, Wed 2023-07-12, Tue 2023-07-11, Mon 2023-07-10, Sun 2023-07-09 · last week (the week before) 2023-07-09 to 2023-07-15 · last weekend 2023-07-08 to 2023-07-09 · this week 2023-07-10 to 2023-07-16 · last month 2023-06 · last year 2022\n- Mon 2024-01-01: yesterday Sun 2023-12-31 · the days before Sat 2023-12-30, Fri 2023-12-29, Thu 2023-12-28, Wed 2023-12-27, Tue 2023-12-26, Mon 2023-12-25 · last week (the week before) 2023-12-25 to 2023-12-31 · last weekend 2023-12-30 to 2023-12-31 · this week 2024-01-01 to 2024-01-07 · last month 2023-12 · last year 2023"
+ }
+}

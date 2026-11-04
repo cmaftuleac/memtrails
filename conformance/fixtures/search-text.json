@@ -1,0 +1,43 @@
+{
+ "relevance": "1. (May 2026; told Sun 1 Mar 2026) Priya started the cello. (id obs:1)\n2. Lessons (fact · 2026-03-02 · id mem:2)\n   Lessons are on Tuesdays at the music school.\n3. Proxy (earlier work · 2026-04-02 · id stm:3)\n   The proxy certificate expired. … renewal stopped\n4. (Nov 2025 – Jan 2026; told Tue 3 Feb 2026) Rosa worked at the bakery. (id obs:4)",
+ "time": "Oldest first — the date is when it happened (and when it was told, when that differs).\n1. (Nov 2025 – Jan 2026; told Tue 3 Feb 2026) Rosa worked at the bakery. (id obs:4)\n2. Lessons (fact · 2026-03-02 · id mem:2)\n   Lessons are on Tuesdays at the music school.\n3. Proxy (earlier work · 2026-04-02 · id stm:3)\n   The proxy certificate expired. … renewal stopped\n4. (May 2026; told Sun 1 Mar 2026) Priya started the cello. (id obs:1)",
+ "compact": "1. (May 2026; told Sun 1 Mar 2026) Priya started the cello. (id x:0)\n2. (Mon 2 Mar 2026 · fact) Lessons are on Tuesdays at the music school. (id x:1)\n3. (Thu 2 Apr 2026 · earlier work) The proxy certificate expired. … renewal stopped (id x:2)\n4. (Nov 2025 – Jan 2026; told Tue 3 Feb 2026) Rosa worked at the bakery. (id x:3)\n5. (May 2026; told Sun 1 Mar 2026) Priya started the cello. (id x:4)\n6. (Mon 2 Mar 2026 · fact) Lessons are on Tuesdays at the music school. (id x:5)\n7. (Thu 2 Apr 2026 · earlier work) The proxy certificate expired. … renewal stopped (id x:6)\n8. (Nov 2025 – Jan 2026; told Tue 3 Feb 2026) Rosa worked at the bakery. (id x:7)\n9. (May 2026; told Sun 1 Mar 2026) Priya started the cello. (id x:8)\n10. (Mon 2 Mar 2026 · fact) Lessons are on Tuesdays at the music school. (id x:9)\n11. (Thu 2 Apr 2026 · earlier work) The proxy certificate expired. … renewal stopped (id x:10)\n12. (Nov 2025 – Jan 2026; told Tue 3 Feb 2026) Rosa worked at the bakery. (id x:11)\n13. (May 2026; told Sun 1 Mar 2026) Priya started the cello. (id x:12)\n14. (Mon 2 Mar 2026 · fact) Lessons are on Tuesdays at the music school. (id x:13)\n15. (Thu 2 Apr 2026 · earlier work) The proxy certificate expired. … renewal stopped (id x:14)\n16. (Nov 2025 – Jan 2026; told Tue 3 Feb 2026) Rosa worked at the bakery. (id x:15)\n17. (May 2026; told Sun 1 Mar 2026) Priya started the cello. (id x:16)\n18. (Mon 2 Mar 2026 · fact) Lessons are on Tuesdays at the music school. (id x:17)\n19. (Thu 2 Apr 2026 · earlier work) The proxy certificate expired. … renewal stopped (id x:18)\n20. (Nov 2025 – Jan 2026; told Tue 3 Feb 2026) Rosa worked at the bakery. (id x:19)\n21. (May 2026; told Sun 1 Mar 2026) Priya started the cello. (id x:20)\n22. (Mon 2 Mar 2026 · fact) Lessons are on Tuesdays at the music school. (id x:21)",
+ "hits": [
+  {
+   "id": "obs:1",
+   "kind": "observation",
+   "title": "cello",
+   "summary": "Priya started the cello.",
+   "ts": 1772323200000,
+   "eventAt": "2026-05",
+   "score": 0.9
+  },
+  {
+   "id": "mem:2",
+   "kind": "fact",
+   "title": "Lessons",
+   "summary": "Lessons are on Tuesdays at the music school.",
+   "ts": 1772409600000,
+   "score": 0.8
+  },
+  {
+   "id": "stm:3",
+   "kind": "episode",
+   "title": "Proxy",
+   "summary": "The proxy certificate expired.",
+   "match": "renewal   stopped",
+   "ts": 1775088000000,
+   "score": 0.7
+  },
+  {
+   "id": "obs:4",
+   "kind": "observation",
+   "title": "job",
+   "summary": "Rosa worked at the bakery.",
+   "ts": 1770076800000,
+   "startAt": "2025-11",
+   "endAt": "2026-01",
+   "score": 0.6
+  }
+ ]
+}
