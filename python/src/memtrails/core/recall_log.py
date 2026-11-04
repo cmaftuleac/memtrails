@@ -16,6 +16,7 @@ RECALL_TRIM_EVERY events).
 
 from __future__ import annotations
 
+import asyncio
 import os
 import threading
 from collections.abc import Callable
@@ -32,8 +33,8 @@ RECALL_TRIM_EVERY = 1000
 
 
 class RecallBook:
-    """The record, appended a line at a time. Writes are done in order on the caller's thread under a lock: a line is
-    a small append, and what is recorded is there when ``record`` returns."""
+    """The record, appended a line at a time. Writes are done in order under a lock: a line is a small append, and what
+    is recorded is there when ``record`` returns; a trim, which reads the whole file, runs on a thread."""
 
     def __init__(
         self, path: str, now: Callable[[], float] = now_ms, keep_ms: float = RECALL_KEEP_MS, keep_bytes: int = RECALL_KEEP_BYTES
@@ -44,6 +45,7 @@ class RecallBook:
         self._keep_bytes = keep_bytes
         self._lock = threading.Lock()
         self._appended = 0
+        self._trimming: asyncio.Task[int] | None = None
 
     def record(self, e: dict[str, Any]) -> None:
         """``e``: ``{"ev": "search", "project"?: …, "query": …, "shown": [...]}`` or ``{"ev": "open", "item": …}``."""
@@ -64,7 +66,13 @@ class RecallBook:
             self._appended += 1
             due = self._appended % RECALL_TRIM_EVERY == 0
         if due:
-            self.trim()
+            # A trim reads the whole record: on a thread when there is an event loop to keep free.
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                self.trim()
+                return
+            self._trimming = loop.create_task(asyncio.to_thread(self.trim))
 
     def trim(self) -> int:
         """The events older than ``keep_ms`` dropped, then the oldest until the rest fit ``keep_bytes`` — rewritten

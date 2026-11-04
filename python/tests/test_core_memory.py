@@ -1108,3 +1108,19 @@ class TestObservations:
         )
         hits = run(memory_search(s.recall(), {"query": "rotate the proxy certificate", "limit": 10}))
         assert len([h for h in hits if h["id"].endswith(e["uid"])]) == 1
+
+
+def test_the_recall_record_left_open_keeps_to_its_cap(tmp_path: Path) -> None:
+    from memtrails.core.recall_log import RECALL_TRIM_EVERY
+
+    path = tmp_path / "recall.jsonl"
+
+    async def fill() -> None:
+        book = RecallBook(str(path), keep_ms=DAY, keep_bytes=10_000)
+        for i in range(RECALL_TRIM_EVERY):
+            book.record({"ev": "open", "item": f"stm:{i}"})
+        assert book._trimming is not None
+        await book._trimming
+
+    run(fill())
+    assert os.stat(path).st_size <= 10_000
