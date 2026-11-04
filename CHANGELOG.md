@@ -8,6 +8,8 @@ versions follow [Semantic Versioning](https://semver.org/).
 - `bench/audited.ts`: judged LoCoMo answers without the questions whose golden answer an independent audit
   ([locomo-audit](https://github.com/dial481/locomo-audit)) found wrong, dropped for every system alike. As shipped,
   84.8 against Mem0's 79.9 (+109/−49).
+- `gather`: a memory a small model keeps by quoting its whole line (`[m3] (2023-06-03) …`) now counts; it read as nothing
+  kept before.
 
 ## [0.3.0] — 2026-11-02
 

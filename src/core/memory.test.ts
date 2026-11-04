@@ -882,6 +882,15 @@ describe('observations — every dated thing a conversation told', () => {
     expect(JSON.stringify(asked.at(-1)!.schema)).not.toContain('"notes"');
   });
 
+  it('takes a kept memory a small model quoted whole by its label', async () => {
+    const s = setup();
+    await writeLtm(s.base, ['bought an evening gown', 'went camping'].map((t, n) => item({ uid: `obs:${n}`, kind: 'observation', title: `Melanie ${t}`, summary: `Melanie ${t}`, eventAt: '2023-05', scope: 'person' })));
+    const ask = async (a: LlmRequest): Promise<LlmAnswer> => ({ answer: {
+      keep: a.prompt.split('\n').filter((l) => l.startsWith('[m') && l.includes('gown')), searches: [] } });
+    const g = await memoryGather(deps(s), { query: 'what did Melanie buy' }, { ask });
+    expect(g.kept).toEqual(['obs:0']);
+  });
+
   it('gathers what happened in the question\'s dates first, and still what lies outside them', async () => {
     const s = setup();
     const said = [['adopted a puppy named Toby', '2023-07'], ['adopted a second dog named Buddy', '2023-10'], ['adopted Scout, a third dog', '2023-11']];

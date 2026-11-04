@@ -87,7 +87,8 @@ async function pick(ask: Ask, question: string, list: RecalledItem[], notes = fa
     if (!('answer' in a)) return { keep: part.map((h) => h.id), searches: [] as string[], notes: [] as string[] };
     const got = a.answer as { keep?: unknown; searches?: unknown; notes?: unknown };
     const ids = Array.isArray(got.keep) ? got.keep.filter((x): x is string => typeof x === 'string') : [];
-    const keep = ids.map((x) => part[Number(x.replace(/^m/, '')) - 1]?.id).filter((x): x is string => !!x);
+    // A small model can quote the line it means ("[m3] (2023-06-03) …"), so the label is looked for, not assumed to be all of it.
+    const keep = ids.map((x) => part[Number(/\bm(\d+)/.exec(x)?.[1] ?? 0) - 1]?.id).filter((x): x is string => !!x);
     const searches = Array.isArray(got.searches) ? got.searches.filter((x): x is string => typeof x === 'string' && !!x.trim()) : [];
     const said = notes && Array.isArray(got.notes) ? got.notes.filter((x): x is string => typeof x === 'string' && !!x.trim()).map((x) => redactString(x.trim())) : [];
     return { keep, searches, notes: said };
