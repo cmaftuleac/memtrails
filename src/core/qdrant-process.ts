@@ -7,14 +7,17 @@
  * second and spent 2.7–4 ms/s of CPU with 69 threads; with one it is 6.5 wake-ups a second and ~0.2 ms/s.
  *
  * A process that dies by itself is started again with a growing pause; five deaths in ten minutes stop the attempts
- * until the next `start()`.
+ * until the next `start()`. A start that fails leaves nothing running and nothing scheduled. It gets a minimal
+ * environment, proves it is ours before it is handed anything, is stopped when the host exits, and one a crashed host
+ * left on the same storage is stopped before the next starts.
  */
 import type { ChildProcess } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
-import { closeSync, mkdirSync, openSync, statSync, renameSync, writeFileSync } from 'node:fs';
+import { chmodSync, closeSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:net';
+import { uptime } from 'node:os';
 import { join, resolve } from 'node:path';
-import { spawn } from 'node:child_process';
 
 export interface QdrantEndpoint {
   url: string;
@@ -59,13 +62,64 @@ export function qdrantConfig(storage: string, port: number): string {
 }
 
 const LOG_MAX = 4 * 1024 * 1024;
+/** Beside the storage: the pid of the Qdrant running on it, with its config and the machine's boot (reapLeftover). */
+const PID_FILE = 'qdrant.pid';
 
-/** The process's log beside its data, rotated once at start when it has grown past 4 MB. */
+/** The process's log beside its data, rotated once at start when it has grown past 4 MB. Private: it names paths. */
 function openLog(dir: string): number {
   const path = join(dir, 'qdrant.log');
   try { if (statSync(path).size > LOG_MAX) renameSync(path, `${path}.1`); } catch { /* none yet */ }
-  mkdirSync(dir, { recursive: true });
-  return openSync(path, 'a');
+  mkdirSync(dir, { recursive: true, mode: 0o700 });
+  const fd = openSync(path, 'a', 0o600);
+  try { chmodSync(path, 0o600); } catch { /* not ours to change: written all the same */ }
+  return fd;
+}
+
+/** When this machine started, in ms: a pid written down before a reboot names some other process now. */
+export function bootTime(): number {
+  return Date.now() - uptime() * 1000;
+}
+
+/** The same boot as `boot` (bootTime() of then): a minute apart at most, uptime being in whole seconds on some systems. */
+export function sameBoot(boot: unknown): boolean {
+  return typeof boot === 'number' && Math.abs(bootTime() - boot) < 60_000;
+}
+
+/** A process with this pid exists — one of another user's too (EPERM). */
+export function alive(pid: number): boolean {
+  if (!Number.isInteger(pid) || pid <= 0) return false;
+  try { process.kill(pid, 0); return true; } catch (err) { return (err as NodeJS.ErrnoException).code === 'EPERM'; }
+}
+
+const pause = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
+
+/** A running process's command line, or null when it cannot be read (no /proc and no ps, Windows). */
+function commandOf(pid: number): string | null {
+  try { return readFileSync(`/proc/${pid}/cmdline`, 'utf8').split('\0').join(' '); } catch { /* not Linux */ }
+  if (process.platform === 'win32') return null;
+  try {
+    return execFileSync('ps', ['-ww', '-o', 'command=', '-p', String(pid)], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 5000 });
+  } catch { return null; }
+}
+
+/** What Qdrant gets of the environment: what a process needs to run and the key. None of the host's secrets, and none
+ *  of its QDRANT__* variables — they override the config (QDRANT__SERVICE__HOST=0.0.0.0 would open it to the network). */
+function childEnv(apiKey: string): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = {};
+  for (const k of ['PATH', 'HOME', 'TMPDIR', 'TEMP', 'TMP', 'SystemRoot', 'USERPROFILE']) if (process.env[k] !== undefined) env[k] = process.env[k];
+  return { ...env, QDRANT__SERVICE__API_KEY: apiKey, QDRANT__TELEMETRY_DISABLED: 'true' };
+}
+
+/** Every Qdrant this process started and has not seen exit: stopped when the host exits without `close()` (an 'exit'
+ *  handler can only send the signal; a host killed outright leaves its Qdrant to the next start's reapLeftover). */
+const running = new Set<ChildProcess>();
+let exitHook = false;
+function track(child: ChildProcess): void {
+  running.add(child);
+  child.once('exit', () => running.delete(child));
+  if (exitHook) return;
+  exitHook = true;
+  process.on('exit', () => { for (const c of running) { try { c.kill('SIGTERM'); } catch { /* gone */ } } });
 }
 
 export class QdrantProcess {
@@ -87,12 +141,15 @@ export class QdrantProcess {
     return this.endpoint;
   }
 
+  /** Up and proven ours (owned), or it throws — and then nothing of this start keeps running or is started again: the
+   *  caller was told, and may not be there to stop it. */
   async start(): Promise<QdrantEndpoint> {
     this.stopping = false;
     if (this.endpoint && this.child && this.child.exitCode === null) return this.endpoint;
+    mkdirSync(this.opts.dir, { recursive: true, mode: 0o700 });
+    await this.reapLeftover();
     const port = await freePort();
     const apiKey = randomBytes(24).toString('hex');
-    mkdirSync(this.opts.dir, { recursive: true });
     const config = join(this.opts.dir, 'config.yaml');
     writeFileSync(config, qdrantConfig(this.opts.dir, port), { mode: 0o600 });
     const fd = openLog(this.opts.dir);
@@ -101,42 +158,111 @@ export class QdrantProcess {
       child = spawn(this.opts.binary, ['--config-path', config, '--disable-telemetry'], {
         cwd: this.opts.dir,
         stdio: ['ignore', fd, fd],
-        // Only the key: the rest is in the config file.
-        env: { ...process.env, QDRANT__SERVICE__API_KEY: apiKey, QDRANT__TELEMETRY_DISABLED: 'true' },
+        env: childEnv(apiKey),
       });
     } finally {
       closeSync(fd);
     }
     this.child = child;
+    // A binary that is missing or cannot run is an 'error', never an 'exit' — unheard, it is thrown in the host.
+    let failed: Error | null = null;
+    child.on('error', (err) => { failed ??= err; });
     child.once('exit', (code, signal) => this.exited(child, code, signal));
+    if (child.pid) this.recordPid(child, config);
     const endpoint = { url: `http://127.0.0.1:${port}`, apiKey };
-    await this.ready(endpoint, child);
+    try {
+      await this.ready(endpoint, child, () => failed);
+      await this.owned(endpoint, child);
+      if (this.child !== child) throw new Error('Qdrant was stopped while it started');
+    } catch (err) {
+      if (this.child === child) this.child = null; // exited() then schedules nothing
+      if (child.pid && child.exitCode === null && child.signalCode === null) child.kill('SIGTERM');
+      throw err;
+    }
     this.endpoint = endpoint;
     this.opts.log(`[memory] Qdrant up on 127.0.0.1:${port}`);
     return endpoint;
   }
 
-  /** Answering `/readyz` within 30 s, or the start failed. */
-  private async ready(e: QdrantEndpoint, child: ChildProcess): Promise<void> {
+  /** The pid file, and the child tracked for the host's exit; the file goes when that child does. */
+  private recordPid(child: ChildProcess, config: string): void {
+    const file = join(this.opts.dir, PID_FILE);
+    writeFileSync(file, JSON.stringify({ pid: child.pid, config, boot: bootTime() }), { mode: 0o600 });
+    track(child);
+    child.once('exit', () => {
+      try { if ((JSON.parse(readFileSync(file, 'utf8')) as { pid?: number }).pid === child.pid) rmSync(file, { force: true }); } catch { /* none */ }
+    });
+  }
+
+  /** A Qdrant left running on this storage by a host that died without `close()` (a crash, a kill): stopped before
+   *  another starts on it. Only when the pid is still the process written down — this boot, its command naming this
+   *  folder's config — never an unrelated process that has the pid since. */
+  private async reapLeftover(): Promise<void> {
+    const file = join(this.opts.dir, PID_FILE);
+    let rec: { pid?: unknown; config?: unknown; boot?: unknown };
+    try { rec = JSON.parse(readFileSync(file, 'utf8')) as typeof rec; } catch { return; }
+    const pid = Number(rec.pid);
+    const config = join(this.opts.dir, 'config.yaml');
+    if (rec.config === config && sameBoot(rec.boot) && pid !== this.child?.pid && alive(pid) && commandOf(pid)?.includes(config)) {
+      this.opts.log(`[memory] stopping the Qdrant left running on ${this.opts.dir} (pid ${pid})`);
+      for (const [signal, ms] of [['SIGTERM', 10_000], ['SIGKILL', 2000]] as const) {
+        try { process.kill(pid, signal); } catch { /* gone */ }
+        for (const until = Date.now() + ms; alive(pid) && Date.now() < until;) await pause(50);
+        if (!alive(pid)) break;
+      }
+    }
+    rmSync(file, { force: true });
+  }
+
+  /** Answering `/readyz` within 30 s, or the start failed. /readyz asks no key, so none is sent: what answers may not be
+   *  ours (owned). */
+  private async ready(e: QdrantEndpoint, child: ChildProcess, failed: () => Error | null): Promise<void> {
     const until = Date.now() + 30_000;
     while (Date.now() < until) {
-      if (child.exitCode !== null) throw new Error(`Qdrant exited (${child.exitCode}) while starting — see ${join(this.opts.dir, 'qdrant.log')}`);
+      const err = failed();
+      if (err) throw new Error(`Qdrant could not be started (${this.opts.binary}): ${err.message}`);
+      if (child.exitCode !== null || child.signalCode !== null) throw new Error(`Qdrant exited (${child.signalCode ?? child.exitCode}) while starting — see ${join(this.opts.dir, 'qdrant.log')}`);
       try {
-        const r = await fetch(`${e.url}/readyz`, { headers: { 'api-key': e.apiKey }, signal: AbortSignal.timeout(1000) });
+        const r = await fetch(`${e.url}/readyz`, { signal: AbortSignal.timeout(1000) });
+        await r.arrayBuffer().catch(() => undefined);
         if (r.ok) return;
       } catch { /* not listening yet */ }
-      await new Promise((r) => setTimeout(r, 100));
+      await pause(100);
     }
-    child.kill('SIGTERM');
     throw new Error('Qdrant did not answer within 30 s');
+  }
+
+  /** The port was free when picked, not when Qdrant bound it: another local process may have taken it, answered
+   *  /readyz, and would be handed the key and every document. Ours is still running, refuses a wrong key and takes
+   *  this run's — the wrong key asked first, so a process that takes any key never sees the real one. */
+  private async owned(e: QdrantEndpoint, child: ChildProcess): Promise<void> {
+    const status = async (key: string): Promise<number> => {
+      const r = await fetch(`${e.url}/collections`, { headers: { 'api-key': key }, signal: AbortSignal.timeout(5000) });
+      await r.arrayBuffer().catch(() => undefined);
+      return r.status;
+    };
+    const gone = (): boolean => child.exitCode !== null || child.signalCode !== null;
+    const notOurs = `what answers on ${e.url} is not this memory's Qdrant`;
+    if (gone()) throw new Error(`${notOurs}: ours exited — see ${join(this.opts.dir, 'qdrant.log')}`);
+    const wrong = await status(randomBytes(24).toString('hex'));
+    if (wrong !== 401 && wrong !== 403) throw new Error(`${notOurs}: it took a wrong key (${wrong})`);
+    const right = await status(e.apiKey);
+    if (right !== 200) throw new Error(`${notOurs}: it refused this run's key (${right})`);
+    if (gone()) throw new Error(`${notOurs}: ours exited — see ${join(this.opts.dir, 'qdrant.log')}`);
   }
 
   private exited(child: ChildProcess, code: number | null, signal: NodeJS.Signals | null): void {
     if (this.child !== child) return;
+    // One that never came up is its start()'s to report: that start rejects, and schedules nothing.
+    const wasUp = this.endpoint !== null;
     this.child = null;
     this.endpoint = null;
-    if (this.stopping) return;
-    const why = `Qdrant stopped (${signal ?? code})`;
+    if (this.stopping || !wasUp) return;
+    this.restartLater(`Qdrant stopped (${signal ?? code})`);
+  }
+
+  /** Started again after a growing pause; a restart that fails counts as another death. */
+  private restartLater(why: string): void {
     this.opts.log(`[memory] ${why}`);
     const now = Date.now();
     this.deaths = [...this.deaths.filter((t) => now - t < 10 * 60_000), now];
@@ -144,11 +270,15 @@ export class QdrantProcess {
       this.opts.onDown?.(`${why}; five times in ten minutes, so it is left stopped`);
       return;
     }
-    const pause = Math.min(60_000, 1000 * 2 ** (this.deaths.length - 1));
+    const wait = Math.min(60_000, 1000 * 2 ** (this.deaths.length - 1));
     this.restartTimer = setTimeout(() => {
       this.restartTimer = null;
-      this.start().catch((err) => this.opts.onDown?.((err as Error).message));
-    }, pause);
+      if (this.stopping) return;
+      this.start().catch((err) => {
+        this.opts.onDown?.((err as Error).message);
+        if (!this.stopping) this.restartLater((err as Error).message);
+      });
+    }, wait);
     this.restartTimer.unref?.();
   }
 
@@ -165,7 +295,7 @@ export class QdrantProcess {
   async stopAndWait(ms = 10_000): Promise<void> {
     const c = this.child;
     this.stop();
-    if (!c || c.exitCode !== null) return;
+    if (!c || c.exitCode !== null || c.signalCode !== null) return;
     await new Promise<void>((resolve) => {
       const t = setTimeout(resolve, ms);
       c.once('exit', () => { clearTimeout(t); resolve(); });

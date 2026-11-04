@@ -14,7 +14,7 @@
  * Appended in order, a line at a time; a write that fails is dropped (recall never waits on, or fails for, its record).
  * The ids are the logs' own (`stm:…`, long-term uids): a rebuild from the logs keeps them (only `qdrant/` is made
  * again), so the record outlives a rebuild and stays true to it. Kept: the last RECALL_KEEP_MS, at most
- * RECALL_KEEP_BYTES of the newest (`trim()`).
+ * RECALL_KEEP_BYTES of the newest (`trim()`: when memory opens, and every RECALL_TRIM_EVERY events).
  */
 import { appendFile, mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
@@ -28,8 +28,12 @@ export type RecallEvent =
   | { ev: 'search'; project?: string; query: string; shown: string[] }
   | { ev: 'open'; item: string };
 
+/** Events between trims of a book left open for long (a server): the cap holds without a restart. */
+export const RECALL_TRIM_EVERY = 1000;
+
 export class RecallBook {
   private chain: Promise<void> = Promise.resolve();
+  private appended = 0;
 
   constructor(
     private readonly path: string,
@@ -45,6 +49,7 @@ export class RecallBook {
         await appendFile(this.path, line, { mode: 0o600 });
       })
       .catch(() => { /* recall never fails for its record */ });
+    if (++this.appended % RECALL_TRIM_EVERY === 0) void this.trim();
   }
 
   /** The events older than `keep.ms` dropped, then the oldest until the rest fit `keep.bytes` — rewritten between

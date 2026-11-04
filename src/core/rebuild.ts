@@ -19,6 +19,8 @@ interface RebuildDeps {
 
 export class MemoryRebuild {
   private running: Promise<void> | null = null;
+  /** The generation `running` was started for: a run() of the same one joins it, a later one waits for it. */
+  private runningFor = -1;
   private generation = 0;
   constructor(private readonly d: RebuildDeps) {}
 
@@ -27,12 +29,23 @@ export class MemoryRebuild {
 
   pending(): boolean { return existsSync(this.d.path); }
 
-  /** Written BEFORE clearing an old index. A crash at any later point leaves a resumable rebuild. */
-  begin(): void { this.save({ phase: 'ltm', after: null }); }
+  /** Written BEFORE clearing an old index. A crash at any later point leaves a resumable rebuild. A run in flight is
+   *  cancelled: it wrote into the index about to be cleared, and must neither move nor delete the new checkpoint. */
+  begin(): void {
+    this.generation++;
+    this.save({ phase: 'ltm', after: null });
+  }
 
+  /** Joins the run in flight for the same begin(); after a newer begin(), waits for the cancelled one to stop first. */
   run(): Promise<void> {
-    this.running ??= this.resume(this.generation).finally(() => { this.running = null; });
-    return this.running;
+    const generation = this.generation;
+    if (this.running && this.runningFor === generation) return this.running;
+    const before = this.running?.catch(() => {});
+    const work = before ? before.then(() => this.resume(generation)) : this.resume(generation);
+    const p: Promise<void> = work.finally(() => { if (this.running === p) this.running = null; });
+    this.running = p;
+    this.runningFor = generation;
+    return p;
   }
 
   private save(checkpoint: Checkpoint): void {
