@@ -9,9 +9,18 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from conftest import FIXTURES, fixture
 
-from memtrails.importers import decode_encoded_words, from_eml, from_files, from_jsonl, from_mbox, from_slack_export, front_matter, slack_text
+from conftest import FIXTURES, fixture
+from memtrails.importers import (
+    decode_encoded_words,
+    from_eml,
+    from_files,
+    from_jsonl,
+    from_mbox,
+    from_slack_export,
+    front_matter,
+    slack_text,
+)
 from memtrails.importers.text import decode_bytes, decode_entities, html_title, html_to_text, split_text
 
 KEY = fixture("rust-importers.json")
@@ -50,7 +59,9 @@ async def test_jsonl() -> None:
 
 async def test_files() -> None:
     skipped: list[dict[str, str]] = []
-    records = await collect(from_files(IN / "files", collection="docs", max_chars=1500, on_skip=lambda p, r: skipped.append({"path": p, "reason": r})))
+    records = await collect(
+        from_files(IN / "files", collection="docs", max_chars=1500, on_skip=lambda p, r: skipped.append({"path": p, "reason": r}))
+    )
     assert stable(records, IN / "files") == KEY["files"]["records"]
     assert skipped == KEY["files"]["skipped"]
 
