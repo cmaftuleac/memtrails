@@ -12,6 +12,7 @@ matching are ASCII-only (the ``ASCII`` flag), ``\\s`` is JavaScript's whitespace
 
 from __future__ import annotations
 
+import bisect
 from typing import Any
 
 import regex
@@ -123,14 +124,28 @@ _SECRET_WORD = regex.compile(
 )
 
 
+_SEPARATOR = regex.compile(r"[=:]")
+_WORD_CHARS = frozenset("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_")
+#: How far past a secret word's start its separator can be: the longest secret word, a quote and 16 spaces.
+_SEPARATOR_REACH = 64 + 36
+
+
 def _key_values(s: str) -> str:
+    """The ``key=value`` rule applied where it can match: within 64 characters before a secret word, with a ``=`` or
+    ``:`` close enough after it to end the name, at a word boundary."""
     out: list[str] = []
+    seps = [m.start() for m in _SEPARATOR.finditer(s)]
     done = 0
     tried = 0
     for w in _SECRET_WORD.finditer(s):
         start = max(done, tried, w.start() - 64)
         tried = w.start() + 1
+        near = bisect.bisect_left(seps, start)
+        if near == len(seps) or seps[near] > w.start() + _SEPARATOR_REACH:
+            continue
         for p in range(start, w.start() + 1):
+            if p and (s[p - 1] in _WORD_CHARS) == (s[p] in _WORD_CHARS):
+                continue  # no word boundary: \b fails here
             m = _KEY_VALUE.match(s, p)
             if not m:
                 continue
