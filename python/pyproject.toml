@@ -1,0 +1,76 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "memtrails"
+version = "0.4.0"
+description = "Retrieval and exploration for any text — e-mail, chat, notes, documents, news, commits, conversations. Searchable at once, on your own machine, in any language; optional consolidation into typed knowledge with a language model."
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Corneliu Maftuleac" }]
+requires-python = ">=3.10"
+keywords = ["retrieval", "search", "memory", "rag", "agent-memory", "long-term-memory", "embeddings", "late-interaction",
+  "colbert", "maxsim", "qdrant", "knowledge-graph", "llm", "mcp", "multilingual"]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Developers",
+  "Operating System :: MacOS",
+  "Operating System :: POSIX :: Linux",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
+  "Topic :: Text Processing :: Indexing",
+  "Typing :: Typed",
+]
+dependencies = [
+  "httpx>=0.27",
+  "icu4py>=1.1",
+  "numpy>=1.24",
+  "onnxruntime>=1.20",
+  "regex>=2024.4.16",
+  "tokenizers>=0.20",
+]
+
+[project.optional-dependencies]
+dev = ["mypy==2.4.1", "pytest==9.2.0", "ruff==0.17.3"]
+
+[project.urls]
+Homepage = "https://github.com/cmaftuleac/memtrails"
+Repository = "https://github.com/cmaftuleac/memtrails"
+Issues = "https://github.com/cmaftuleac/memtrails/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/memtrails"]
+
+[tool.hatch.build.targets.sdist]
+include = ["src/memtrails", "README.md", "LICENSE", "pyproject.toml"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = ["integration: needs the real embedding model and a real Qdrant (MEMTRAILS_INTEGRATION=1)"]
+filterwarnings = ["error::pytest.PytestUnraisableExceptionWarning"]
+
+[tool.ruff]
+line-length = 140
+target-version = "py310"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "SIM", "RUF", "BLE"]
+ignore = ["RUF001", "RUF002", "RUF003", "SIM108", "B008", "SIM102", "SIM105"]
+
+[tool.mypy]
+python_version = "3.10"
+strict = true
+warn_return_any = false
+disallow_any_generics = false
+files = ["src/memtrails"]
+
+[[tool.mypy.overrides]]
+module = ["icu4py.*", "regex", "regex.*", "tokenizers", "onnxruntime"]
+ignore_missing_imports = true
