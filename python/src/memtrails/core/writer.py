@@ -24,22 +24,20 @@ from .qdrant_client import PointStruct, point_id
 from .text import children, concept_key, doc_sparse, first_words
 
 
-class IndexClient(Protocol):
-    """What the writers need of the index (qdrant_client.py QdrantClient, or a stand-in)."""
-
-    async def upsert(self, points: Sequence[PointStruct], wait: bool = False) -> None: ...
-
-    async def delete_items(self, items: Sequence[str]) -> None: ...
-
-    async def delete_parts(self, items: Sequence[str], part: str) -> None: ...
-
-    async def set_payload(self, items: Sequence[str], payload: dict[str, Any], key_only: bool = False) -> None: ...
-
-
 @dataclass
 class WriterDeps:
+    """An index and an embedder: what the writers write with."""
+
     client: Any
     embed: Embed
+
+
+class _Deps(Protocol):
+    @property
+    def client(self) -> Any: ...
+
+    @property
+    def embed(self) -> Embed: ...
 
 
 def embed_budget(n: int) -> int:
@@ -64,7 +62,7 @@ def stm_title(e: Mapping[str, Any]) -> str:
     return cut(first, 100) or e["title"]
 
 
-async def write_stm(d: WriterDeps, entries: Sequence[Mapping[str, Any]]) -> None:
+async def write_stm(d: _Deps, entries: Sequence[Mapping[str, Any]]) -> None:
     if not entries:
         return
     # The raw key (its start), and the whole body in chunks: every word of a captured request can be found.
@@ -176,7 +174,7 @@ def _ltm_payload(it: Mapping[str, Any]) -> dict[str, Any]:
     return out
 
 
-async def write_cues(d: WriterDeps, items: Sequence[Mapping[str, Any]]) -> None:
+async def write_cues(d: _Deps, items: Sequence[Mapping[str, Any]]) -> None:
     """Only the cues of these items, written again (the key and the children stay as they are)."""
     live = [it for it in items if it.get("status") == "active"]
     texts = [doc_text(it["title"], c) for it in live for c in it.get("cues") or []]
@@ -205,7 +203,7 @@ async def write_cues(d: WriterDeps, items: Sequence[Mapping[str, Any]]) -> None:
 LONG_SUMMARY_CHUNKS = 5
 
 
-async def write_ltm(d: WriterDeps, items: Sequence[Mapping[str, Any]]) -> None:
+async def write_ltm(d: _Deps, items: Sequence[Mapping[str, Any]]) -> None:
     """Embed and write long-term items: their old points out, the key point, the children and the cues in. Cues are
     embedded as documents titled by the item (how they were measured); the item, not the cue, is what comes back."""
     live = [it for it in items if it.get("status") == "active"]
@@ -285,7 +283,7 @@ def concept_keys(names: Sequence[str] | None) -> list[str]:
     return list(dict.fromkeys(k for k in (concept_key(n) for n in names or []) if k))
 
 
-async def write_concepts(d: WriterDeps, items: Sequence[Mapping[str, Any]]) -> None:
+async def write_concepts(d: _Deps, items: Sequence[Mapping[str, Any]]) -> None:
     """Only the concepts of these items, written again (their keys on the key point)."""
     for it in items:
         if it.get("status") == "active":

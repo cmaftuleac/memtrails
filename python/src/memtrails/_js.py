@@ -17,6 +17,7 @@ import math
 import re
 import sys
 import time
+import unicodedata
 from array import array
 from collections.abc import Mapping, Sequence
 from datetime import datetime, timedelta, timezone
@@ -810,3 +811,37 @@ def local_ms(dt: datetime) -> float:
             + dt.microsecond // 1000
         )
     return math.floor((dt - _EPOCH).total_seconds() * 1000)
+
+
+def _collation_key(s: str) -> tuple[tuple[tuple[int, str], ...], tuple[str, ...], tuple[int, ...]]:
+    chars = [c for c in unicodedata.normalize("NFD", s)]
+    primary: list[tuple[int, str]] = []
+    secondary: list[str] = []
+    tertiary: list[int] = []
+    for c in chars:
+        cat = unicodedata.category(c)
+        if cat.startswith("M"):
+            if secondary:
+                secondary[-1] += c
+            continue
+        if cat.startswith("L"):
+            primary.append((2, c.casefold()))
+            tertiary.append(1 if c != c.lower() else 0)
+        elif cat == "Nd":
+            primary.append((1, str(unicodedata.digit(c))))
+            tertiary.append(0)
+        else:
+            primary.append((0, c))
+            tertiary.append(0)
+        secondary.append("")
+    return tuple(primary), tuple(secondary), tuple(tertiary)
+
+
+def locale_compare(a: str, b: str) -> int:
+    """``a.localeCompare(b)`` as ICU's root collation orders the strings memory compares (names, ids): spaces and
+    punctuation before digits before letters, letters by their base first (case and accents ignored), then accents
+    (none first), then case (lower first). Strings that differ only where ICU ranks finer are ordered by code point."""
+    ka, kb = _collation_key(a), _collation_key(b)
+    if ka != kb:
+        return -1 if ka < kb else 1
+    return (a > b) - (a < b)
