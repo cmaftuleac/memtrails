@@ -14,13 +14,14 @@ from typing import Any
 
 import regex
 
-from .._js import JS_SPACE, from16, js_trim, js_trim_end, to16
+from .._js import JS_SPACE, UNDEFINED, from16, js_trim, js_trim_end, to16
 
 _NAMED: dict[str, str] = {
     "amp": "&",
     "lt": "<",
     "gt": ">",
     "quot": '"',
+    "apos": "'",
     "nbsp": " ",
     "ensp": " ",
     "emsp": " ",
@@ -368,74 +369,143 @@ def tidy(s: str) -> str:
 
 
 _LABEL_PLAIN = regex.compile(r"^(us-?ascii|ascii|ansi_x3\.4-1968|utf-?8|unicode-1-1-utf-8|x-unknown|unknown(-8bit)?|default)$")
-#: WHATWG labels whose decoder is not Python's codec of the same name (TextDecoder reads latin1 as windows-1252, and so
-#: on).
-_WHATWG = {
-    "latin1": "cp1252",
-    "iso-8859-1": "cp1252",
-    "iso8859-1": "cp1252",
-    "iso_8859-1": "cp1252",
-    "l1": "cp1252",
-    "cp819": "cp1252",
-    "ibm819": "cp1252",
-    "iso-ir-100": "cp1252",
-    "csisolatin1": "cp1252",
-    "iso-8859-9": "cp1254",
-    "iso8859-9": "cp1254",
-    "latin5": "cp1254",
-    "l5": "cp1254",
-    "iso-8859-11": "cp874",
-    "tis-620": "cp874",
-    "windows-874": "cp874",
-    "gb2312": "gbk",
-    "x-gbk": "gbk",
-    "chinese": "gbk",
-    "csgb2312": "gbk",
-    "gb_2312-80": "gbk",
-    "iso-ir-58": "gbk",
-    "big5": "big5hkscs",
-    "big5-hkscs": "big5hkscs",
-    "cn-big5": "big5hkscs",
-    "x-x-big5": "big5hkscs",
-    "shift_jis": "cp932",
-    "sjis": "cp932",
-    "ms_kanji": "cp932",
-    "windows-31j": "cp932",
-    "x-sjis": "cp932",
-    "csshiftjis": "cp932",
-    "euc-kr": "cp949",
-    "ks_c_5601-1987": "cp949",
-    "ks_c_5601-1989": "cp949",
-    "korean": "cp949",
-    "windows-949": "cp949",
-    "cseuckr": "cp949",
-    "macintosh": "mac_roman",
-    "mac": "mac_roman",
-    "x-mac-roman": "mac_roman",
-    "csmacintosh": "mac_roman",
-    "x-mac-cyrillic": "mac_cyrillic",
-    "koi8": "koi8_r",
-    "koi8_r": "koi8_r",
-    "cskoi8r": "koi8_r",
-    "koi8-ru": "koi8_u",
-    "utf-16": "utf-16-le",
-    "utf-16le": "utf-16-le",
-    "utf-16be": "utf-16-be",
-    "ucs-2": "utf-16-le",
-    "unicode": "utf-16-le",
+#: The WHATWG Encoding Standard's labels, and the Python codec that decodes each encoding as TextDecoder does. A label
+#: not here (a codec Python knows but a browser does not, or one of the "replacement" labels) is read as unknown.
+_ENCODINGS: dict[str, tuple[str, ...]] = {
+    "utf-8": ("unicode-1-1-utf-8", "unicode11utf8", "unicode20utf8", "utf-8", "utf8", "x-unicode20utf8"),
+    "cp866": ("866", "cp866", "csibm866", "ibm866"),
+    "iso8859_2": ("csisolatin2", "iso-8859-2", "iso-ir-101", "iso8859-2", "iso88592", "iso_8859-2", "iso_8859-2:1987", "l2", "latin2"),
+    "iso8859_3": ("csisolatin3", "iso-8859-3", "iso-ir-109", "iso8859-3", "iso88593", "iso_8859-3", "iso_8859-3:1988", "l3", "latin3"),
+    "iso8859_4": ("csisolatin4", "iso-8859-4", "iso-ir-110", "iso8859-4", "iso88594", "iso_8859-4", "iso_8859-4:1988", "l4", "latin4"),
+    "iso8859_5": ("csisolatincyrillic", "cyrillic", "iso-8859-5", "iso-ir-144", "iso8859-5", "iso88595", "iso_8859-5", "iso_8859-5:1988"),
+    "iso8859_6": (
+        "arabic",
+        "asmo-708",
+        "csiso88596e",
+        "csiso88596i",
+        "csisolatinarabic",
+        "ecma-114",
+        "iso-8859-6",
+        "iso-8859-6-e",
+        "iso-8859-6-i",
+        "iso-ir-127",
+        "iso8859-6",
+        "iso88596",
+        "iso_8859-6",
+        "iso_8859-6:1987",
+    ),
+    "iso8859_7": (
+        "csisolatingreek",
+        "ecma-118",
+        "elot_928",
+        "greek",
+        "greek8",
+        "iso-8859-7",
+        "iso-ir-126",
+        "iso8859-7",
+        "iso88597",
+        "iso_8859-7",
+        "iso_8859-7:1987",
+        "sun_eu_greek",
+    ),
+    "iso8859_8": (
+        "csiso88598e",
+        "csisolatinhebrew",
+        "hebrew",
+        "iso-8859-8",
+        "iso-8859-8-e",
+        "iso-ir-138",
+        "iso8859-8",
+        "iso88598",
+        "iso_8859-8",
+        "iso_8859-8:1988",
+        "visual",
+        "csiso88598i",
+        "iso-8859-8-i",
+        "logical",
+    ),
+    "iso8859_10": ("csisolatin6", "iso-8859-10", "iso-ir-157", "iso8859-10", "iso885910", "l6", "latin6"),
+    "iso8859_13": ("iso-8859-13", "iso8859-13", "iso885913"),
+    "iso8859_14": ("iso-8859-14", "iso8859-14", "iso885914"),
+    "iso8859_15": ("csisolatin9", "iso-8859-15", "iso8859-15", "iso885915", "iso_8859-15", "l9"),
+    "iso8859_16": ("iso-8859-16",),
+    "koi8_r": ("cskoi8r", "koi", "koi8", "koi8-r", "koi8_r"),
+    "koi8_u": ("koi8-ru", "koi8-u"),
+    "mac_roman": ("csmacintosh", "mac", "macintosh", "x-mac-roman"),
+    "cp874": ("dos-874", "iso-8859-11", "iso8859-11", "iso885911", "tis-620", "windows-874"),
+    "cp1250": ("cp1250", "windows-1250", "x-cp1250"),
+    "cp1251": ("cp1251", "windows-1251", "x-cp1251"),
+    "cp1252": (
+        "ansi_x3.4-1968",
+        "ascii",
+        "cp1252",
+        "cp819",
+        "csisolatin1",
+        "ibm819",
+        "iso-8859-1",
+        "iso-ir-100",
+        "iso8859-1",
+        "iso88591",
+        "iso_8859-1",
+        "iso_8859-1:1987",
+        "l1",
+        "latin1",
+        "us-ascii",
+        "windows-1252",
+        "x-cp1252",
+    ),
+    "cp1253": ("cp1253", "windows-1253", "x-cp1253"),
+    "cp1254": (
+        "cp1254",
+        "csisolatin5",
+        "iso-8859-9",
+        "iso-ir-148",
+        "iso8859-9",
+        "iso88599",
+        "iso_8859-9",
+        "iso_8859-9:1989",
+        "l5",
+        "latin5",
+        "windows-1254",
+        "x-cp1254",
+    ),
+    "cp1255": ("cp1255", "windows-1255", "x-cp1255"),
+    "cp1256": ("cp1256", "windows-1256", "x-cp1256"),
+    "cp1257": ("cp1257", "windows-1257", "x-cp1257"),
+    "cp1258": ("cp1258", "windows-1258", "x-cp1258"),
+    "mac_cyrillic": ("x-mac-cyrillic", "x-mac-ukrainian"),
+    "gbk": ("chinese", "csgb2312", "csiso58gb231280", "gb2312", "gb_2312", "gb_2312-80", "gbk", "iso-ir-58", "x-gbk"),
+    "gb18030": ("gb18030",),
+    "big5hkscs": ("big5", "big5-hkscs", "cn-big5", "csbig5", "x-x-big5"),
+    "euc_jp": ("cseucpkdfmtjapanese", "euc-jp", "x-euc-jp"),
+    "iso2022_jp": ("csiso2022jp", "iso-2022-jp"),
+    "cp932": ("csshiftjis", "ms932", "ms_kanji", "shift-jis", "shift_jis", "sjis", "windows-31j", "x-sjis"),
+    "cp949": (
+        "cseuckr",
+        "csksc56011987",
+        "euc-kr",
+        "iso-ir-149",
+        "korean",
+        "ks_c_5601-1987",
+        "ks_c_5601-1989",
+        "ksc5601",
+        "ksc_5601",
+        "windows-949",
+    ),
+    "utf-16-be": ("unicodefffe", "utf-16be"),
+    "utf-16-le": ("csunicode", "iso-10646-ucs-2", "ucs-2", "unicode", "unicodefeff", "utf-16", "utf-16le"),
+    "x-user-defined": ("x-user-defined",),
 }
-#: Labels TextDecoder does not know: Python would decode them, the reference reads them as below.
-_NOT_WHATWG = {"utf-32", "utf-32le", "utf-32be", "utf-7", "iso-8859-12"}
+_LABELS = {label: codec for codec, labels in _ENCODINGS.items() for label in labels}
 
 
 def _codec(label: str) -> str | None:
-    if label in _NOT_WHATWG:
-        return None
-    name = _WHATWG.get(label, label)
-    try:
-        return codecs.lookup(name).name
-    except LookupError:
-        return None
+    return _LABELS.get(label)
+
+
+def _user_defined(data: bytes) -> str:
+    """WHATWG's x-user-defined: ASCII as itself, every other byte in the private-use area at U+F780."""
+    return "".join(chr(b) if b < 0x80 else chr(0xF780 + b - 0x80) for b in data)
 
 
 def decode_bytes(data: bytes, charset: str | None = None) -> str:
@@ -445,6 +515,8 @@ def decode_bytes(data: bytes, charset: str | None = None) -> str:
         codec = _codec(label)
         if codec == "cp1252":
             return win1252(data)
+        if codec == "x-user-defined":
+            return _user_defined(data)
         if codec is not None:
             # TextDecoder drops a byte order mark that matches its encoding.
             bom = {"utf-16-le": b"\xff\xfe", "utf-16-be": b"\xfe\xff", "utf-8": b"\xef\xbb\xbf"}.get(codec)
@@ -494,14 +566,21 @@ def split_text(text: str, max_chars: int) -> list[str]:
     return parts
 
 
+def undef(v: Any) -> Any:
+    """None as JavaScript's ``undefined``: a field the importer has no value for, left out of the record (a ``null`` read
+    from a source is kept, as the reference keeps it)."""
+    return UNDEFINED if v is None else v
+
+
 def record(r: Mapping[str, Any]) -> dict[str, Any]:
-    """A record without its empty fields (None or ``''``, the text excepted), and without empty metadata values."""
+    """A record without its empty fields (``UNDEFINED`` or ``''``, the text excepted), and without empty metadata
+    values."""
     out: dict[str, Any] = {}
     for k, v in r.items():
-        if v is None or (v == "" and k != "text"):
+        if v is UNDEFINED or (v == "" and k != "text"):
             continue
         if k == "metadata" and isinstance(v, Mapping):
-            m = {mk: mv for mk, mv in v.items() if mv is not None and mv != ""}
+            m = {mk: mv for mk, mv in v.items() if mv is not UNDEFINED and mv != ""}
             if m:
                 out["metadata"] = m
             continue

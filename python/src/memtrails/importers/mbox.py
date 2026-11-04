@@ -23,9 +23,9 @@ from typing import Any
 
 import regex
 
-from .._js import JS_SPACE, js_trim, js_trim_end, u16slice, utf8
+from .._js import JS_SPACE, UNDEFINED, js_trim, js_trim_end, u16slice, utf8
 from ..records import time_of
-from .text import decode_bytes, html_to_text, read_lines, record
+from .text import decode_bytes, html_to_text, read_lines, record, undef
 
 _WS = regex.compile(f"[{JS_SPACE}]+")
 
@@ -389,11 +389,11 @@ def _message_record(lines: list[str], from_line: str, source: str, opts: _Option
             "text": text,
             "kind": "email",
             "source": source,
-            "collection": collection,
-            "author": _person_of(sender) if sender else None,
-            "at": at,
+            "collection": undef(collection),
+            "author": _person_of(sender) if sender else UNDEFINED,
+            "at": undef(at),
             "thread": next(iter(_ids(e.headers.get("references"))), None) or in_reply_to or rid,
-            "metadata": {"from": sender, "to": h("to"), "cc": h("cc"), "inReplyTo": in_reply_to},
+            "metadata": {"from": sender, "to": h("to"), "cc": h("cc"), "inReplyTo": undef(in_reply_to)},
         }
     )
 

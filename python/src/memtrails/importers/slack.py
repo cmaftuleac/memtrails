@@ -19,8 +19,8 @@ from typing import Any
 
 import regex
 
-from .._js import js_trim, parse
-from .text import record
+from .._js import UNDEFINED, js_trim, parse
+from .text import record, undef
 
 #: Message subtypes left out by default: events about the channel, not things said in it.
 SLACK_SKIPPED_SUBTYPES = [
@@ -216,17 +216,17 @@ async def from_slack_export(
                         "text": text,
                         "kind": "message",
                         "source": src,
-                        "author": author,
+                        "author": undef(author),
                         "collection": collection if collection is not None else name,
                         "thread": f"{name}:{m.get('thread_ts') or ts}",
-                        "at": ms,
-                        "url": f"{workspace_url.rstrip('/')}/archives/{cid}/p{ts.replace('.', '', 1)}" if workspace_url else None,
+                        "at": undef(ms),
+                        "url": f"{workspace_url.rstrip('/')}/archives/{cid}/p{ts.replace('.', '', 1)}" if workspace_url else UNDEFINED,
                         "metadata": {
                             "channel": name,
                             "ts": ts,
-                            "threadTs": m.get("thread_ts"),
-                            "subtype": m.get("subtype"),
-                            "replies": m.get("reply_count"),
+                            "threadTs": m.get("thread_ts", UNDEFINED),
+                            "subtype": m.get("subtype", UNDEFINED),
+                            "replies": m.get("reply_count", UNDEFINED),
                         },
                     }
                 )

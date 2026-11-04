@@ -13,7 +13,7 @@ from typing import Any
 
 from .._js import js_trim, parse
 from ..records import invalid_record
-from .text import read_lines, record
+from .text import read_lines, record, undef
 
 JsonlMap = Callable[[Any, int], "dict[str, Any] | None"]
 
@@ -67,9 +67,9 @@ async def from_jsonl(
         filled = record(
             {
                 **r,
-                "source": r.get("source") if r.get("source") is not None else source,
-                "collection": r.get("collection") if r.get("collection") is not None else collection,
-                "kind": r.get("kind") if r.get("kind") is not None else kind,
+                "source": r.get("source") if r.get("source") is not None else undef(source),
+                "collection": r.get("collection") if r.get("collection") is not None else undef(collection),
+                "kind": r.get("kind") if r.get("kind") is not None else undef(kind),
             }
         )
         wrong = invalid_record(filled)

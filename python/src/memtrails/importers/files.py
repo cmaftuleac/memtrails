@@ -22,7 +22,7 @@ import regex
 
 from .._js import JS_SPACE, from16, js_trim, js_trim_end, num_str, to16
 from ..records import time_of
-from .text import decode_bytes, html_title, html_to_text, record, split_text
+from .text import decode_bytes, html_title, html_to_text, record, split_text, undef
 
 #: The extensions read by default: text formats only.
 TEXT_EXTENSIONS = [
@@ -282,8 +282,8 @@ async def from_files(
             "title": title,
             "kind": kind,
             "source": src,
-            "collection": collection,
-            "author": author,
+            "collection": undef(collection),
+            "author": undef(author),
             "at": math.floor(at + 0.5),
             "url": Path(full).as_uri(),
         }

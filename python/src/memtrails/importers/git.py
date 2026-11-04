@@ -19,8 +19,8 @@ from typing import Any
 
 import regex
 
-from .._js import iso, js_trim, local_ms
-from .text import record
+from .._js import UNDEFINED, iso, js_trim, local_ms
+from .text import record, undef
 
 
 def _when(t: str | datetime | int | float) -> str:
@@ -135,11 +135,11 @@ async def from_git(
                 "text": text,
                 "kind": "commit",
                 "author": author,
-                "at": date or None,
+                "at": date or UNDEFINED,
                 "thread": thread if thread is not None else name,
                 "source": source if source is not None else name,
-                "collection": collection,
-                "url": url(sha) if url else None,
+                "collection": undef(collection),
+                "url": url(sha) if url else UNDEFINED,
                 "metadata": {"sha": sha, "email": email, "parents": parents},
             }
         )
