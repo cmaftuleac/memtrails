@@ -175,7 +175,7 @@ async def download_verified(
                 got = 0
                 fd = os.open(file, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
                 try:
-                    chunks = res.aiter_raw().__aiter__()
+                    chunks = res.aiter_bytes().__aiter__()
                     while True:
                         try:
                             chunk = await asyncio.wait_for(chunks.__anext__(), stall)

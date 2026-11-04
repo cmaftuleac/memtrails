@@ -264,7 +264,11 @@ class _Engine:
             await self.proc.start()
             proc = self.proc
             endpoint = proc.current
-        self.client = QdrantClient(endpoint, 10_000, q.get("collection") or COLLECTION if q.get("url") else COLLECTION, transport=transport)
+        # A server you name is reached through ``transport``; memory's own Qdrant always over loopback.
+        own = not q.get("url")
+        self.client = QdrantClient(
+            endpoint, 10_000, COLLECTION if own else q.get("collection") or COLLECTION, transport=None if own else transport
+        )
         await self.client.ensure_collection()
 
         self.stm = stm_log(os.path.join(self.dir, "records.jsonl"))
@@ -573,6 +577,12 @@ class Memory:
         self._closed = False
         self._close_lock = threading.Lock()
 
+    def _do(self, work: Coroutine[Any, Any, T]) -> T:
+        if self._closed:
+            work.close()
+            raise RuntimeError("memory is closed")
+        return self._loop.run(work)
+
     def __enter__(self) -> Memory:
         return self
 
@@ -585,11 +595,11 @@ class Memory:
         """Add or update records. Unchanged ones cost nothing. Searchable when this returns: ``{added, unchanged}``.
         Raises ``TypeError`` for a record it cannot keep, saying why."""
         listed = [records] if isinstance(records, Mapping) else list(records)
-        return self._loop.run(self._engine.add(listed))
+        return self._do(self._engine.add(listed))
 
     def add_conversation(self, conversation: Conversation | Mapping[str, Any]) -> dict[str, int]:
         """Add or update a conversation: one record for each time the person speaks, with what was answered."""
-        return self._loop.run(self._engine.add_conversation(conversation))
+        return self._do(self._engine.add_conversation(conversation))
 
     def import_(
         self,
@@ -620,7 +630,7 @@ class Memory:
                 except StopAsyncIteration:
                     return _END
 
-            while (r := self._loop.run(nxt())) is not _END:
+            while (r := self._do(nxt())) is not _END:
                 part.append(r)
                 if len(part) >= size:
                     flush(part)
@@ -636,61 +646,61 @@ class Memory:
 
     def remove(self, ids: Sequence[str | Mapping[str, Any]]) -> int:
         """Forget records (by id, or ``{id, source}``): gone from search. Returns how many were found."""
-        return self._loop.run(self._engine.remove(ids))
+        return self._do(self._engine.remove(ids))
 
     # --- finding ---
 
     def search(self, q: SearchOptions | Mapping[str, Any]) -> list[RecalledItem]:
         """Best first: records and what consolidation learned, each with its key text, dates, and the passage that
         matched."""
-        return self._loop.run(memory_search(self._engine.deps, q))
+        return self._do(memory_search(self._engine.deps, q))
 
     def search_text(self, q: SearchOptions | Mapping[str, Any]) -> str:
         """The same search as a reader is shown it: one line a memory, best first or oldest first (``order: time``)."""
-        hits = self._loop.run(memory_search(self._engine.deps, q))
+        hits = self._do(memory_search(self._engine.deps, q))
         return search_text(hits, q.get("order") or "relevance")
 
     def room(self, q: SearchOptions | Mapping[str, Any]) -> str:
         """What a small room should hold for a question: the best sentences of what search found, oldest first, in
         ``chars`` (6,000). Needs the local model."""
-        return self._loop.run(self._engine.room(q))
+        return self._do(self._engine.room(q))
 
     def open(self, id: str) -> dict[str, Any] | None:
         """One item whole, by the id search returned; for something learned, ``sources``: the records it was learned
         from."""
-        return self._loop.run(self._engine.open(id))
+        return self._do(self._engine.open(id))
 
     def explore(self, q: Mapping[str, Any]) -> Explored:
         """Around a topic (``topic``), or around items you found (``from``: ids): what the concept graph reaches that
         search did not (``related``, with ``via``), and its ``concepts``."""
-        return self._loop.run(memory_explore(self._engine.deps, q))
+        return self._do(memory_explore(self._engine.deps, q))
 
     def gather(self, q: SearchOptions | Mapping[str, Any], notes: bool = False) -> Gathered:
         """A set for a question that counts, lists or totals: a wide search, then the language model keeps every
         instance (``found``: those first). ``limit`` 200 by default; with ``notes``, what the kept memories say."""
         e = self._engine
-        return self._loop.run(memory_gather(e.deps, q, ask=e.ask, limit=q.get("limit") or None, notes=notes))
+        return self._do(memory_gather(e.deps, q, ask=e.ask, limit=q.get("limit") or None, notes=notes))
 
     # --- knowledge ---
 
     def consolidate(self) -> dict[str, Any]:
         """Read what was added since last time and keep typed knowledge, dated observations and kept episodes. Needs a
         language model; ``paused`` says why it did not read, when it did not."""
-        return self._loop.run(self._engine.consolidate())
+        return self._do(self._engine.consolidate())
 
     def sleep(self) -> dict[str, Any]:
         """The offline pass: merge near-duplicates, retire what was superseded, link, write profiles. Once a day."""
-        return self._loop.run(self._engine.sleep())
+        return self._do(self._engine.sleep())
 
     # --- upkeep ---
 
     def index_words(self) -> int:
         """Encode what word by word and the room do not hold yet (done after every add, consolidate and sleep)."""
-        return self._loop.run(self._engine.exclusive(self._engine.index_words))
+        return self._do(self._engine.exclusive(self._engine.index_words))
 
     def rebuild(self) -> None:
         """Write the index again from the logs."""
-        self._loop.run(self._engine.rebuild())
+        self._do(self._engine.rebuild())
 
     def tools(self) -> list[AgentTool]:
         """Tool definitions an agent can be handed: memory_search, memory_open, memory_explore."""
@@ -708,7 +718,7 @@ class Memory:
                 return
             self._closed = True
         try:
-            self._loop.run(self._engine.close())
+            self._loop.run(self._engine.close())  # closing: not refused
         finally:
             self._release()
             self._loop.stop()
@@ -750,7 +760,7 @@ def open_memory(
     OpenAI-compatible one's options (``model``, ``api_key``, ``base_url``, ``reasoning_effort``, ``on_usage``,
     ``retries``); default the environment's (MEMTRAILS_MODEL and a key). ``qdrant``: a server of your own, or a binary;
     default, a process of its own (the pinned binary, fetched on first use). ``concurrency``: windows the language model
-    reads at once (4). ``transport``: replaces the network for the HTTP servers memory talks to (tests)."""
+    reads at once (4). ``transport``: replaces the network for the servers you name (the embedding, rerank and Qdrant servers; tests)."""
     directory = os.path.abspath(os.fspath(home))
     say = log or (lambda _line: None)
     # Private: the logs, the index and the word vectors are everything that was added (a shared machine).
