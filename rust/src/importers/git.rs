@@ -6,18 +6,20 @@
 //! `max_files`). author: the author's name. at: the author date. kind `commit`; thread: the option's or the
 //! repository's name; source: the option's or the repository's name; metadata { sha, email, parents }.
 
-use std::io::Read;
 use std::path::Path;
-use std::process::{Child, ChildStdout, Command, Stdio};
+use std::process::Stdio;
 use std::sync::{Arc, LazyLock};
-use std::thread::JoinHandle;
 
 use rand::RngCore;
 use regex::Regex;
 use serde_json::Value;
 
 use super::text::{crlf_to_lf, re, resolve_path, Draft};
-use super::Records;
+use tokio::io::AsyncReadExt;
+use tokio::process::{Child, ChildStdout, Command};
+use tokio::task::JoinHandle;
+
+use super::RecordStream;
 use crate::error::{Error, Result};
 use crate::js;
 use crate::records::{At, MemoryRecord};
@@ -211,22 +213,22 @@ impl Log {
     }
 
     /// git's exit, after its output ended: an error unless it succeeded or the repository has no commits yet.
-    fn exit(&mut self) -> Result<()> {
+    async fn exit(&mut self) -> Result<()> {
         let Some(mut child) = self.child.take() else { return Ok(()) };
-        let status = child.wait().map_err(|e| Error::Import(format!("git log failed in {}: {e}", self.repo)))?;
-        let stderr = self.stderr.take().and_then(|h| h.join().ok()).unwrap_or_default();
+        let status = child.wait().await.map_err(|e| Error::Import(format!("git log failed in {}: {e}", self.repo)))?;
+        let stderr = match self.stderr.take() {
+            Some(h) => h.await.unwrap_or_default(),
+            None => String::new(),
+        };
         if !status.success() && !EMPTY_HISTORY.is_match(&stderr) {
             let code = status.code().map_or_else(|| "null".to_string(), |c| c.to_string());
             return Err(Error::Import(format!("git log failed ({code}) in {}: {}", self.repo, js::trim(&stderr))));
         }
         Ok(())
     }
-}
 
-impl Iterator for Log {
-    type Item = Result<MemoryRecord>;
-
-    fn next(&mut self) -> Option<Self::Item> {
+    /// The next commit, as git's output comes in; at its end, git's exit.
+    async fn next(&mut self) -> Option<Result<MemoryRecord>> {
         loop {
             if self.finished {
                 return None;
@@ -236,8 +238,8 @@ impl Iterator for Log {
                 Some(None) => continue,
                 None => {}
             }
-            let mut piece = [0u8; 64 * 1024];
-            match self.stdout.read(&mut piece) {
+            let mut piece = vec![0u8; 64 * 1024];
+            match self.stdout.read(&mut piece).await {
                 Ok(0) => {
                     self.finished = true;
                     let last = if self.buffer.starts_with(&self.start) {
@@ -246,7 +248,7 @@ impl Iterator for Log {
                     } else {
                         None
                     };
-                    if let Err(e) = self.exit() {
+                    if let Err(e) = self.exit().await {
                         return Some(Err(e));
                     }
                     return last.map(Ok);
@@ -262,20 +264,8 @@ impl Iterator for Log {
     }
 }
 
-impl Drop for Log {
-    /// A reader that stops early stops git too.
-    fn drop(&mut self) {
-        if let Some(mut child) = self.child.take() {
-            if matches!(child.try_wait(), Ok(None)) {
-                let _ = child.kill();
-            }
-            let _ = child.wait();
-        }
-    }
-}
-
 /// Records from a repository's commits, newest first (as `git log` gives them).
-pub fn from_git(repo_dir: impl AsRef<Path>, opts: GitOptions) -> Result<Records> {
+pub async fn from_git(repo_dir: impl AsRef<Path>, opts: GitOptions) -> Result<RecordStream> {
     let repo = resolve_path(repo_dir.as_ref()).map_err(|e| Error::io(repo_dir.as_ref(), e))?;
     let name = repo.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
     let mut raw = [0u8; 16];
@@ -329,15 +319,17 @@ pub fn from_git(repo_dir: impl AsRef<Path>, opts: GitOptions) -> Result<Records>
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
+        // A reader that stops early stops git too: the child goes with the stream.
+        .kill_on_drop(true)
         .spawn()
         .map_err(|e| Error::Import(format!("{program} could not be run: {e}")))?;
     let stdout = child.stdout.take().ok_or_else(|| Error::Import("git gave no output".into()))?;
     let stderr = child.stderr.take().map(|mut err| {
-        std::thread::spawn(move || {
+        tokio::spawn(async move {
             // Kept to 4,000 characters; the rest is read and dropped so git never blocks on a full pipe.
-            let mut buf = [0u8; 4096];
+            let mut buf = vec![0u8; 4096];
             let mut out = String::new();
-            while let Ok(n) = err.read(&mut buf) {
+            while let Ok(n) = err.read(&mut buf).await {
                 if n == 0 {
                     break;
                 }
@@ -348,7 +340,7 @@ pub fn from_git(repo_dir: impl AsRef<Path>, opts: GitOptions) -> Result<Records>
             out
         })
     });
-    Ok(Box::new(Log {
+    let log = Log {
         child: Some(child),
         stdout,
         stderr,
@@ -361,5 +353,6 @@ pub fn from_git(repo_dir: impl AsRef<Path>, opts: GitOptions) -> Result<Records>
         max_files: opts.max_files.unwrap_or(50),
         o: opts,
         finished: false,
-    }))
+    };
+    Ok(Box::pin(futures::stream::unfold(log, |mut log| async move { log.next().await.map(|r| (r, log)) })))
 }

@@ -12,7 +12,7 @@ use std::sync::{Arc, Mutex};
 use serde_json::Value;
 
 use super::text::{js_string, Draft};
-use super::Records;
+use super::{blocking_stream, RecordStream};
 use crate::error::{Error, Result};
 use crate::js;
 use crate::records::{invalid_record, At, MemoryRecord};
@@ -228,10 +228,13 @@ impl Iterator for Reader {
     }
 }
 
-/// Records from a JSON Lines file.
-pub fn from_jsonl(path: impl AsRef<Path>, opts: JsonlOptions) -> Result<Records> {
-    let path = path.as_ref();
-    let file = File::open(path).map_err(|e| Error::io(path, e))?;
-    let stats = opts.stats.clone().unwrap_or_default();
-    Ok(Box::new(Reader { lines: Lines::new(BufReader::new(file)), n: 0, o: opts, stats }))
+/// Records from a JSON Lines file, read a line at a time.
+pub async fn from_jsonl(path: impl AsRef<Path>, opts: JsonlOptions) -> Result<RecordStream> {
+    let path = path.as_ref().to_path_buf();
+    blocking_stream(move || {
+        let file = File::open(&path).map_err(|e| Error::io(&path, e))?;
+        let stats = opts.stats.clone().unwrap_or_default();
+        Ok(Reader { lines: Lines::new(BufReader::new(file)), n: 0, o: opts, stats })
+    })
+    .await
 }

@@ -24,7 +24,7 @@ use sha2::{Digest, Sha256};
 
 use super::jsonl::Lines;
 use super::text::{base64_lenient, crlf_to_lf, decode_bytes, html_to_text, latin1, latin1_bytes, re, Draft};
-use super::Records;
+use super::{blocking_stream, RecordStream};
 use crate::error::{Error, Result};
 use crate::js;
 use crate::records::{time_of, At, MemoryRecord};
@@ -633,35 +633,42 @@ impl Iterator for Mbox {
 }
 
 /// Records from an mbox file, a message at a time.
-pub fn from_mbox(path: impl AsRef<Path>, opts: MboxOptions) -> Result<Records> {
-    let path = path.as_ref();
-    let file = File::open(path).map_err(|e| Error::io(path, e))?;
-    Ok(Box::new(Mbox {
-        lines: Lines::new(BufReader::new(file)),
-        msg: None,
-        from_line: String::new(),
-        size: 0,
-        previous_blank: true,
-        index: 0,
-        max: opts.max_message_bytes.unwrap_or(32 * 1024 * 1024),
-        source: opts.source.clone().unwrap_or_else(|| stem(path)),
-        o: opts,
-        done: false,
-    }))
+pub async fn from_mbox(path: impl AsRef<Path>, opts: MboxOptions) -> Result<RecordStream> {
+    let path = path.as_ref().to_path_buf();
+    blocking_stream(move || {
+        let file = File::open(&path).map_err(|e| Error::io(&path, e))?;
+        Ok(Mbox {
+            lines: Lines::new(BufReader::new(file)),
+            msg: None,
+            from_line: String::new(),
+            size: 0,
+            previous_blank: true,
+            index: 0,
+            max: opts.max_message_bytes.unwrap_or(32 * 1024 * 1024),
+            source: opts.source.clone().unwrap_or_else(|| stem(&path)),
+            o: opts,
+            done: false,
+        })
+    })
+    .await
 }
 
 /// The record of one `.eml` file (an RFC 5322 message).
-pub fn from_eml(path: impl AsRef<Path>, opts: MboxOptions) -> Result<Records> {
-    let path = path.as_ref();
-    let bytes = fs::read(path).map_err(|e| Error::io(path, e))?;
-    let mut lines = split_crlf(&latin1(&bytes));
-    let from_line = if lines.first().is_some_and(|l| l.starts_with("From ")) { lines.remove(0) } else { String::new() };
-    let source = opts.source.clone().unwrap_or_else(|| stem(path));
-    let r = message_record(lines, &from_line, &source, &opts);
-    if r.is_none() {
-        if let Some(cb) = &opts.on_skip {
-            cb("no subject and no text", 0);
+pub async fn from_eml(path: impl AsRef<Path>, opts: MboxOptions) -> Result<RecordStream> {
+    let path = path.as_ref().to_path_buf();
+    blocking_stream(move || {
+        let bytes = fs::read(&path).map_err(|e| Error::io(&path, e))?;
+        let mut lines = split_crlf(&latin1(&bytes));
+        let from_line =
+            if lines.first().is_some_and(|l| l.starts_with("From ")) { lines.remove(0) } else { String::new() };
+        let source = opts.source.clone().unwrap_or_else(|| stem(&path));
+        let r = message_record(lines, &from_line, &source, &opts);
+        if r.is_none() {
+            if let Some(cb) = &opts.on_skip {
+                cb("no subject and no text", 0);
+            }
         }
-    }
-    Ok(Box::new(r.into_iter().map(Ok)))
+        Ok(r.into_iter().map(Ok))
+    })
+    .await
 }

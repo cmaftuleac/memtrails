@@ -5,8 +5,10 @@ use std::collections::HashMap;
 use std::fs;
 use std::time::Instant;
 
+use futures::TryStreamExt;
 use memtrails::importers::{
-    from_eml, from_files, from_slack_export, html_title, html_to_text, FilesOptions, MboxOptions, Records, SlackOptions,
+    from_eml, from_files, from_slack_export, html_title, html_to_text, FilesOptions, MboxOptions, RecordStream,
+    SlackOptions,
 };
 use memtrails::js::date_parse;
 use memtrails::records::{At, MemoryRecord};
@@ -14,21 +16,21 @@ use serde_json::json;
 
 const N: usize = 200_000;
 
-fn all(r: memtrails::Result<Records>) -> Vec<MemoryRecord> {
-    r.expect("the source opens").collect::<memtrails::Result<Vec<_>>>().expect("every record reads")
+async fn all(r: memtrails::Result<RecordStream>) -> Vec<MemoryRecord> {
+    r.expect("the source opens").try_collect().await.expect("every record reads")
 }
 
 /// The reference's bound is one second; a debug build is several times slower than a release one.
-fn timed(label: &str, f: impl FnOnce()) {
+async fn timed(label: &str, f: impl std::future::Future<Output = ()>) {
     let limit = if cfg!(debug_assertions) { 4000 } else { 1000 };
     let t = Instant::now();
-    f();
+    f.await;
     let ms = t.elapsed().as_millis();
     assert!(ms < limit, "{label}: {ms} ms");
 }
 
-#[test]
-fn html_stays_linear_on_runs_of_unclosed_tags() {
+#[tokio::test]
+async fn html_stays_linear_on_runs_of_unclosed_tags() {
     for open in [
         "<script",
         "<style",
@@ -48,15 +50,16 @@ fn html_stays_linear_on_runs_of_unclosed_tags() {
         "<<",
     ] {
         let s = open.repeat(N.div_ceil(open.len()));
-        timed(open, || {
+        timed(open, async {
             html_to_text(&s, true);
             html_title(&s);
-        });
+        })
+        .await;
     }
 }
 
-#[test]
-fn html_drops_hidden_elements_keeps_pre_as_written_runs_an_unclosed_script_to_the_end() {
+#[tokio::test]
+async fn html_drops_hidden_elements_keeps_pre_as_written_runs_an_unclosed_script_to_the_end() {
     assert_eq!(html_to_text("<p>a</p><SCRIPT type=\"x\">b</script ><p>c</p>", false), "a\n\nc");
     assert_eq!(html_to_text("<p>a</p><iframe src=x>keep<p>b</p>", false), "a\nkeep\nb");
     assert_eq!(html_to_text("a <script>var x = 1; <p>never</p>", false), "a");
@@ -69,8 +72,8 @@ fn html_drops_hidden_elements_keeps_pre_as_written_runs_an_unclosed_script_to_th
     assert_eq!(html_to_text("<p>a</p> 1 < 2", false), "a\n1 < 2");
 }
 
-#[test]
-fn html_finds_the_title_else_the_first_h1_in_the_first_64_kb() {
+#[tokio::test]
+async fn html_finds_the_title_else_the_first_h1_in_the_first_64_kb() {
     assert_eq!(
         html_title("<html><title lang=ro>Caf&eacute; <b>bun</b></title ><h1>H</h1>").as_deref(),
         Some("Café bun")
@@ -80,8 +83,8 @@ fn html_finds_the_title_else_the_first_h1_in_the_first_64_kb() {
     assert_eq!(html_title(&format!("{}<title>late</title>", " ".repeat(70_000))), None);
 }
 
-#[test]
-fn files_read_in_linear_time() {
+#[tokio::test]
+async fn files_read_in_linear_time() {
     let sp = " ".repeat(N);
     let files: Vec<(&str, String)> = vec![
         ("atx.md", format!("# a{sp}b")),
@@ -99,14 +102,15 @@ fn files_read_in_linear_time() {
     for (name, text) in files {
         let dir = tempfile::tempdir().unwrap();
         fs::write(dir.path().join(name), text).unwrap();
-        timed(name, || {
-            all(from_files(dir.path(), FilesOptions::default()));
-        });
+        timed(name, async {
+            all(from_files(dir.path(), FilesOptions::default()).await).await;
+        })
+        .await;
     }
 }
 
-#[test]
-fn files_keep_the_titles_the_regexes_found() {
+#[tokio::test]
+async fn files_keep_the_titles_the_regexes_found() {
     let dir = tempfile::tempdir().unwrap();
     let cases: [(&str, &str, &str); 11] = [
         ("atx.md", "intro\n# Plan   ##  \nbody", "Plan"),
@@ -124,7 +128,8 @@ fn files_keep_the_titles_the_regexes_found() {
     for (name, text, _) in &cases {
         fs::write(dir.path().join(name), text).unwrap();
     }
-    let titles: HashMap<String, String> = all(from_files(dir.path(), FilesOptions::default()))
+    let titles: HashMap<String, String> = all(from_files(dir.path(), FilesOptions::default()).await)
+        .await
         .into_iter()
         .map(|r| (r.id, r.title.unwrap_or_default()))
         .collect();
@@ -133,13 +138,13 @@ fn files_keep_the_titles_the_regexes_found() {
     }
 }
 
-#[test]
-fn files_read_front_matter_as_before() {
+#[tokio::test]
+async fn files_read_front_matter_as_before() {
     let dir = tempfile::tempdir().unwrap();
     fs::write(dir.path().join("a.md"), "---\ntitle: T # a comment\nurl: http://x.org/a:b\nk:v\ncount: 3\n---\nbody")
         .unwrap();
     fs::write(dir.path().join("b.md"), "+++\ntitle = \"TOML\"\nn = 2 # c\n+++\nbody").unwrap();
-    let records = all(from_files(dir.path(), FilesOptions::default()));
+    let records = all(from_files(dir.path(), FilesOptions::default()).await).await;
     assert_eq!(records[0].title.as_deref(), Some("T"));
     assert_eq!(
         serde_json::to_value(records[0].metadata.as_ref().unwrap()).unwrap(),
@@ -149,8 +154,8 @@ fn files_read_front_matter_as_before() {
     assert_eq!(serde_json::to_value(records[1].metadata.as_ref().unwrap()).unwrap(), json!({ "n": 2 }));
 }
 
-#[test]
-fn email_reads_in_linear_time() {
+#[tokio::test]
+async fn email_reads_in_linear_time() {
     let sp = " ".repeat(N);
     let emls = [
         ("from-at.eml", format!("From: {}(x\nSubject: s\n\nhi\n", "a@".repeat(N / 2))),
@@ -162,14 +167,15 @@ fn email_reads_in_linear_time() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join(name);
         fs::write(&path, text).unwrap();
-        timed(name, || {
-            all(from_eml(&path, MboxOptions::default()));
-        });
+        timed(name, async {
+            all(from_eml(&path, MboxOptions::default()).await).await;
+        })
+        .await;
     }
 }
 
-#[test]
-fn email_still_names_the_sender_and_reads_the_date() {
+#[tokio::test]
+async fn email_still_names_the_sender_and_reads_the_date() {
     let dir = tempfile::tempdir().unwrap();
     let mut authors = Vec::new();
     for (i, from) in
@@ -178,15 +184,15 @@ fn email_still_names_the_sender_and_reads_the_date() {
         let path = dir.path().join(format!("{i}.eml"));
         fs::write(&path, format!("From: {from}\nDate: Fri, 1 Mar 2024 10:00:00 +0000 (UTC)\nSubject: s\n\nhi\n"))
             .unwrap();
-        let r = all(from_eml(&path, MboxOptions::default())).remove(0);
+        let r = all(from_eml(&path, MboxOptions::default()).await).await.remove(0);
         authors.push(r.author.unwrap_or_default());
         assert_eq!(r.at, date_parse("2024-03-01T10:00:00Z").map(At::Ms));
     }
     assert_eq!(authors, ["Pop, Ana", "ana@x.org", "Ana Pop", "ana@x.org ()", "Ana"]);
 }
 
-#[test]
-fn a_slack_export_naming_folders_outside_itself_reads_none_of_them() {
+#[tokio::test]
+async fn a_slack_export_naming_folders_outside_itself_reads_none_of_them() {
     let base = tempfile::tempdir().unwrap();
     let root = base.path().join("export");
     let outside = base.path().join("secret");
@@ -206,6 +212,6 @@ fn a_slack_export_naming_folders_outside_itself_reads_none_of_them() {
     .unwrap();
     fs::write(root.join("dms.json"), json!([{ "id": "../secret", "members": ["U1"] }]).to_string()).unwrap();
     let texts: Vec<String> =
-        all(from_slack_export(&root, SlackOptions::default())).into_iter().map(|r| r.text).collect();
+        all(from_slack_export(&root, SlackOptions::default()).await).await.into_iter().map(|r| r.text).collect();
     assert_eq!(texts, ["inside"]);
 }

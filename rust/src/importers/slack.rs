@@ -16,7 +16,7 @@ use regex::{Captures, Regex};
 use serde_json::Value;
 
 use super::text::{js_number_of, js_string, re, resolve_path, truthy, Draft};
-use super::Records;
+use super::{blocking_stream, RecordStream};
 use crate::error::{Error, Result};
 use crate::js;
 use crate::records::{At, MemoryRecord};
@@ -341,9 +341,9 @@ impl Iterator for Export {
     }
 }
 
-/// Records from an unzipped Slack export folder.
-pub fn from_slack_export(dir: impl AsRef<Path>, opts: SlackOptions) -> Result<Records> {
-    let root = resolve_path(dir.as_ref()).map_err(|e| Error::io(dir.as_ref(), e))?;
+/// The export's people and conversations, read; its days still to read.
+fn export(dir: &Path, opts: SlackOptions) -> Result<Export> {
+    let root = resolve_path(dir).map_err(|e| Error::io(dir, e))?;
     let source = opts
         .source
         .clone()
@@ -408,15 +408,11 @@ pub fn from_slack_export(dir: impl AsRef<Path>, opts: SlackOptions) -> Result<Re
         }
     }
     let channel_names = conversations.iter().map(|c| (c.id.clone(), c.name.clone())).collect();
-    Ok(Box::new(Export {
-        root,
-        source,
-        skip,
-        users,
-        channel_names,
-        conversations,
-        current: None,
-        out: VecDeque::new(),
-        o: opts,
-    }))
+    Ok(Export { root, source, skip, users, channel_names, conversations, current: None, out: VecDeque::new(), o: opts })
+}
+
+/// Records from an unzipped Slack export folder.
+pub async fn from_slack_export(dir: impl AsRef<Path>, opts: SlackOptions) -> Result<RecordStream> {
+    let dir = dir.as_ref().to_path_buf();
+    blocking_stream(move || export(&dir, opts)).await
 }

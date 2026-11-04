@@ -6,17 +6,18 @@ use std::process::{Command, Stdio};
 use std::sync::{Arc, Mutex};
 
 use base64::Engine;
+use futures::{StreamExt, TryStreamExt};
 use memtrails::importers::{
     batches, decode_encoded_words, from_eml, from_files, from_git, from_jsonl, from_mbox, from_slack_export,
-    html_to_text, split_text, FilesOptions, GitOptions, GitTime, JsonlOptions, JsonlStats, MboxOptions, Records,
+    html_to_text, split_text, FilesOptions, GitOptions, GitTime, JsonlOptions, JsonlStats, MboxOptions, RecordStream,
     SlackOptions,
 };
 use memtrails::js::{date_parse, len16};
 use memtrails::records::{At, MemoryRecord};
 use serde_json::{json, Value};
 
-fn all(r: memtrails::Result<Records>) -> Vec<MemoryRecord> {
-    r.expect("the source opens").collect::<memtrails::Result<Vec<_>>>().expect("every record reads")
+async fn all(r: memtrails::Result<RecordStream>) -> Vec<MemoryRecord> {
+    r.expect("the source opens").try_collect().await.expect("every record reads")
 }
 
 fn ms(at: &Option<At>) -> Option<f64> {
@@ -33,8 +34,8 @@ fn meta(r: &MemoryRecord, key: &str) -> Option<Value> {
 // ---------------------------------------------------------------------------------------------------------------
 // JSON Lines
 
-#[test]
-fn jsonl_reads_record_shaped_lines_in_any_language_and_skips_and_counts_the_bad_ones() {
+#[tokio::test]
+async fn jsonl_reads_record_shaped_lines_in_any_language_and_skips_and_counts_the_bad_ones() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("records.jsonl");
     let lines = [
@@ -62,7 +63,9 @@ fn jsonl_reads_record_shaped_lines_in_any_language_and_skips_and_counts_the_bad_
             source: Some("notes".into()),
             ..Default::default()
         },
-    ));
+    )
+    .await)
+    .await;
     assert_eq!(records.iter().map(|r| r.id.as_str()).collect::<Vec<_>>(), ["ja", "7", "ar"]);
     assert_eq!(records[0].title.as_deref(), Some("会議"));
     assert_eq!(records[0].text, "会議は火曜日に延期されました 🎉");
@@ -75,8 +78,8 @@ fn jsonl_reads_record_shaped_lines_in_any_language_and_skips_and_counts_the_bad_
     assert!(skipped[1].contains("needs an id"));
 }
 
-#[test]
-fn jsonl_maps_any_object_shape_leaving_out_what_map_returns_none_for() {
+#[tokio::test]
+async fn jsonl_maps_any_object_shape_leaving_out_what_map_returns_none_for() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("chat.jsonl");
     let objs = [
@@ -105,7 +108,9 @@ fn jsonl_maps_any_object_shape_leaving_out_what_map_returns_none_for() {
             on_skip: Some(Arc::new(move |_l: &str, r: &str, _n: usize| seen.lock().unwrap().push(r.into()))),
             ..Default::default()
         },
-    ));
+    )
+    .await)
+    .await;
     let got: Vec<(String, String, String)> =
         records.iter().map(|r| (r.id.clone(), r.author.clone().unwrap_or_default(), r.text.clone())).collect();
     assert_eq!(
@@ -118,9 +123,9 @@ fn jsonl_maps_any_object_shape_leaving_out_what_map_returns_none_for() {
     assert_eq!(*reasons.lock().unwrap(), ["left out by map"]);
 }
 
-#[test]
-fn batches_group_items_as_they_come() {
-    let got: Vec<Vec<i32>> = batches(0..7, 3).collect();
+#[tokio::test]
+async fn batches_group_items_as_they_come() {
+    let got: Vec<Vec<i32>> = batches(futures::stream::iter(0..7), 3).collect().await;
     assert_eq!(got, vec![vec![0, 1, 2], vec![3, 4, 5], vec![6]]);
 }
 
@@ -184,13 +189,15 @@ fn notes_folder() -> tempfile::TempDir {
     dir
 }
 
-#[test]
-fn files_reads_text_files_skipping_dot_folders_node_modules_and_other_extensions() {
+#[tokio::test]
+async fn files_reads_text_files_skipping_dot_folders_node_modules_and_other_extensions() {
     let dir = notes_folder();
     let records = all(from_files(
         dir.path(),
         FilesOptions { collection: Some("docs".into()), max_chars: Some(2000), ..Default::default() },
-    ));
+    )
+    .await)
+    .await;
     let ids: Vec<&str> = records.iter().map(|r| r.id.as_str()).filter(|id| !id.starts_with("big.md")).collect();
     assert_eq!(ids, ["notițe/plan.md", "notițe/日本/メモ.md", "page.html", "readme.txt"]);
     assert!(records.iter().all(|r| r.collection.as_deref() == Some("docs") && r.kind.as_deref() == Some("note")));
@@ -223,11 +230,12 @@ fn files_reads_text_files_skipping_dot_folders_node_modules_and_other_extensions
     assert!(page.text.contains("Ünïcödé <ok>"));
 }
 
-#[test]
-fn files_cuts_a_large_file_into_parts_that_share_a_thread_and_keep_every_word() {
+#[tokio::test]
+async fn files_cuts_a_large_file_into_parts_that_share_a_thread_and_keep_every_word() {
     let dir = notes_folder();
     let parts: Vec<MemoryRecord> =
-        all(from_files(dir.path(), FilesOptions { max_chars: Some(2000), ..Default::default() }))
+        all(from_files(dir.path(), FilesOptions { max_chars: Some(2000), ..Default::default() }).await)
+            .await
             .into_iter()
             .filter(|r| r.id.starts_with("big.md"))
             .collect();
@@ -245,16 +253,16 @@ fn files_cuts_a_large_file_into_parts_that_share_a_thread_and_keep_every_word() 
     assert_eq!(words(&joined), words(&big_text()));
 }
 
-#[test]
-fn split_text_cuts_text_without_spaces_at_a_sentence_end_and_never_inside_a_character() {
+#[tokio::test]
+async fn split_text_cuts_text_without_spaces_at_a_sentence_end_and_never_inside_a_character() {
     let cjk = "今日は晴れです。".repeat(40) + &"😀".repeat(200);
     let parts = split_text(&cjk, 150);
     assert_eq!(parts.concat(), cjk);
     assert!(parts[0].ends_with('。'));
 }
 
-#[test]
-fn html_blockquotes_drop_when_asked() {
+#[tokio::test]
+async fn html_blockquotes_drop_when_asked() {
     assert_eq!(
         html_to_text("<p>Yes.</p><blockquote>Old <blockquote>older</blockquote> text</blockquote><p>Bye</p>", true),
         "Yes.\n\nBye"
@@ -338,15 +346,15 @@ fn history() -> tempfile::TempDir {
     dir
 }
 
-#[test]
-fn git_reads_every_commit_newest_first_whatever_its_message_holds() {
+#[tokio::test]
+async fn git_reads_every_commit_newest_first_whatever_its_message_holds() {
     if !git_available() {
         return;
     }
     let dir = history();
     let repo = dir.path();
     let name = repo.file_name().unwrap().to_string_lossy().into_owned();
-    let records = all(from_git(repo, GitOptions::default()));
+    let records = all(from_git(repo, GitOptions::default()).await).await;
     assert_eq!(records.len(), 2);
     let (second, first) = (&records[0], &records[1]);
     assert_eq!(second.title.as_deref(), Some("Tricky message with %H and --- and \u{1e}\u{1f} in it"));
@@ -373,14 +381,14 @@ fn git_reads_every_commit_newest_first_whatever_its_message_holds() {
     );
 }
 
-#[test]
-fn git_takes_max_count_paths_since_thread_and_a_link() {
+#[tokio::test]
+async fn git_takes_max_count_paths_since_thread_and_a_link() {
     if !git_available() {
         return;
     }
     let dir = history();
     let repo = dir.path();
-    assert_eq!(all(from_git(repo, GitOptions { max_count: Some(1), ..Default::default() })).len(), 1);
+    assert_eq!(all(from_git(repo, GitOptions { max_count: Some(1), ..Default::default() }).await).await.len(), 1);
     let only_notes = all(from_git(
         repo,
         GitOptions {
@@ -389,7 +397,9 @@ fn git_takes_max_count_paths_since_thread_and_a_link() {
             url: Some(Arc::new(|sha: &str| format!("https://example.org/c/{sha}"))),
             ..Default::default()
         },
-    ));
+    )
+    .await)
+    .await;
     assert_eq!(
         only_notes.iter().map(|r| r.title.clone().unwrap()).collect::<Vec<_>>(),
         ["Adaugă notițele în japoneză 🗾"]
@@ -397,41 +407,48 @@ fn git_takes_max_count_paths_since_thread_and_a_link() {
     assert_eq!(only_notes[0].thread.as_deref(), Some("history"));
     assert_eq!(only_notes[0].url, Some(format!("https://example.org/c/{}", only_notes[0].id)));
     let since = date_parse("2024-03-02T00:00:00Z").unwrap();
-    assert_eq!(all(from_git(repo, GitOptions { since: Some(GitTime::Ms(since)), ..Default::default() })).len(), 1);
     assert_eq!(
-        all(from_git(repo, GitOptions { branch: Some("main".into()), max_files: Some(1), ..Default::default() })).len(),
+        all(from_git(repo, GitOptions { since: Some(GitTime::Ms(since)), ..Default::default() }).await).await.len(),
+        1
+    );
+    assert_eq!(
+        all(from_git(repo, GitOptions { branch: Some("main".into()), max_files: Some(1), ..Default::default() }).await)
+            .await
+            .len(),
         2
     );
-    let capped = all(from_git(repo, GitOptions { max_files: Some(1), ..Default::default() }));
+    let capped = all(from_git(repo, GitOptions { max_files: Some(1), ..Default::default() }).await).await;
     assert!(capped[1].text.ends_with("Files: README.md, … and 1 more"), "{}", capped[1].text);
 }
 
-#[test]
-fn git_stops_when_the_reader_stops_early_and_fails_loudly_on_a_bad_revision() {
+#[tokio::test]
+async fn git_stops_when_the_reader_stops_early_and_fails_loudly_on_a_bad_revision() {
     if !git_available() {
         return;
     }
     let dir = history();
-    let mut it = from_git(dir.path(), GitOptions::default()).unwrap();
-    let first = it.next().unwrap().unwrap();
+    let mut it = from_git(dir.path(), GitOptions::default()).await.unwrap();
+    let first = it.next().await.unwrap().unwrap();
     assert_eq!(first.id.len(), 40);
     drop(it);
     let bad: memtrails::Result<Vec<_>> =
         from_git(dir.path(), GitOptions { rev: Some("no-such-branch".into()), ..Default::default() })
+            .await
             .unwrap()
-            .collect();
+            .try_collect()
+            .await;
     assert!(bad.unwrap_err().to_string().contains("git log failed"));
-    assert!(from_git(dir.path(), GitOptions { rev: Some("--all".into()), ..Default::default() }).is_err());
+    assert!(from_git(dir.path(), GitOptions { rev: Some("--all".into()), ..Default::default() }).await.is_err());
 }
 
-#[test]
-fn git_reads_an_empty_repository_as_nothing() {
+#[tokio::test]
+async fn git_reads_an_empty_repository_as_nothing() {
     if !git_available() {
         return;
     }
     let dir = tempfile::tempdir().unwrap();
     git_in(dir.path(), &["init", "-q"], &[], None);
-    assert!(all(from_git(dir.path(), GitOptions::default())).is_empty());
+    assert!(all(from_git(dir.path(), GitOptions::default()).await).await.is_empty());
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -480,13 +497,15 @@ fn slack_export() -> tempfile::TempDir {
     dir
 }
 
-#[test]
-fn slack_reads_every_message_that_says_something_with_names_links_and_threads() {
+#[tokio::test]
+async fn slack_reads_every_message_that_says_something_with_names_links_and_threads() {
     let dir = slack_export();
     let records = all(from_slack_export(
         dir.path(),
         SlackOptions { workspace_url: Some("https://example.slack.com/".into()), ..Default::default() },
-    ));
+    )
+    .await)
+    .await;
     assert_eq!(
         records.iter().map(|r| r.id.as_str()).collect::<Vec<_>>(),
         [
@@ -522,8 +541,8 @@ fn slack_reads_every_message_that_says_something_with_names_links_and_threads() 
     assert_eq!(other.source, records[0].source);
 }
 
-#[test]
-fn slack_reads_only_the_channels_asked_for_into_the_collection_given_without_bots_when_asked() {
+#[tokio::test]
+async fn slack_reads_only_the_channels_asked_for_into_the_collection_given_without_bots_when_asked() {
     let dir = slack_export();
     let records = all(from_slack_export(
         dir.path(),
@@ -533,7 +552,9 @@ fn slack_reads_only_the_channels_asked_for_into_the_collection_given_without_bot
             skip_bots: true,
             ..Default::default()
         },
-    ));
+    )
+    .await)
+    .await;
     assert_eq!(records.len(), 4);
     assert!(records.iter().all(|r| r.collection.as_deref() == Some("team") && r.id.starts_with("C1:")));
 }
@@ -654,10 +675,10 @@ fn mailbox() -> (tempfile::TempDir, std::path::PathBuf) {
     (dir, path)
 }
 
-#[test]
-fn mbox_reads_a_thread_of_multipart_quoted_printable_base64_and_encoded_word_mail() {
+#[tokio::test]
+async fn mbox_reads_a_thread_of_multipart_quoted_printable_base64_and_encoded_word_mail() {
     let (_dir, path) = mailbox();
-    let records = all(from_mbox(&path, MboxOptions::default()));
+    let records = all(from_mbox(&path, MboxOptions::default()).await).await;
     assert_eq!(records.len(), 3);
     let (a, b, c) = (&records[0], &records[1], &records[2]);
     assert_eq!(a.id, "m1@example.org");
@@ -688,13 +709,15 @@ fn mbox_reads_a_thread_of_multipart_quoted_printable_base64_and_encoded_word_mai
     assert_eq!(c.thread.as_deref(), Some(c.id.as_str()));
 }
 
-#[test]
-fn mbox_keeps_quoted_lines_and_the_signature_when_asked() {
+#[tokio::test]
+async fn mbox_keeps_quoted_lines_and_the_signature_when_asked() {
     let (_dir, path) = mailbox();
     let records = all(from_mbox(
         &path,
         MboxOptions { keep_quoted: true, keep_signature: true, collection: Some("work".into()), ..Default::default() },
-    ));
+    )
+    .await)
+    .await;
     let (a, b, c) = (&records[0], &records[1], &records[2]);
     assert!(a.text.contains("> Ce s-a hotărât?"));
     assert!(a.text.contains("-- \nAndré, București"));
@@ -703,8 +726,8 @@ fn mbox_keeps_quoted_lines_and_the_signature_when_asked() {
     assert_eq!(a.collection.as_deref(), Some("work"));
 }
 
-#[test]
-fn encoded_words_q_underscores_words_joined_across_spaces_plain_text_between_kept() {
+#[tokio::test]
+async fn encoded_words_q_underscores_words_joined_across_spaces_plain_text_between_kept() {
     assert_eq!(
         decode_encoded_words("=?utf-8?Q?Gr=C3=BC=C3=9Fe_aus?= =?utf-8?Q?_K=C3=B6ln?= und mehr"),
         "Grüße aus Köln und mehr"
@@ -712,13 +735,13 @@ fn encoded_words_q_underscores_words_joined_across_spaces_plain_text_between_kep
     assert_eq!(decode_encoded_words("=?unknown-x?Q?abc?="), "abc");
 }
 
-#[test]
-fn eml_reads_one_message_with_crlf_line_endings() {
+#[tokio::test]
+async fn eml_reads_one_message_with_crlf_line_endings() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("note.eml");
     let msg = first_message();
     fs::write(&path, msg.split('\n').skip(1).collect::<Vec<_>>().join("\r\n")).unwrap();
-    let records = all(from_eml(&path, MboxOptions::default()));
+    let records = all(from_eml(&path, MboxOptions::default()).await).await;
     let r = &records[0];
     assert_eq!(r.id, "m1@example.org");
     assert_eq!(r.title.as_deref(), Some("会議の議事録 — 2024年"));

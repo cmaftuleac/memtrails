@@ -6,10 +6,11 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
 
+use futures::TryStreamExt;
 use memtrails::importers::{
     decode_bytes, decode_encoded_words, decode_entities, from_eml, from_files, from_jsonl, from_mbox,
     from_slack_export, front_matter, html_title, html_to_text, slack_text, split_text, FilesOptions, JsonlOptions,
-    MboxOptions, Records, SlackOptions,
+    MboxOptions, RecordStream, SlackOptions,
 };
 use memtrails::records::MemoryRecord;
 use serde_json::{json, Value};
@@ -40,8 +41,9 @@ fn norm(v: Value) -> Value {
     }
 }
 
-fn values(r: memtrails::Result<Records>) -> Vec<Value> {
-    r.expect("the source opens").map(|x| norm(serde_json::to_value(x.expect("the record reads")).unwrap())).collect()
+async fn values(r: memtrails::Result<RecordStream>) -> Vec<Value> {
+    let records: Vec<MemoryRecord> = r.expect("the source opens").try_collect().await.expect("every record reads");
+    records.into_iter().map(|x| norm(serde_json::to_value(x).unwrap())).collect()
 }
 
 fn same(got: Vec<Value>, want: &Value, what: &str) {
@@ -52,29 +54,33 @@ fn same(got: Vec<Value>, want: &Value, what: &str) {
     }
 }
 
-#[test]
-fn jsonl_matches_the_reference() {
+#[tokio::test]
+async fn jsonl_matches_the_reference() {
     let f = fixture();
     let skipped = std::sync::Arc::new(std::sync::Mutex::new(Vec::<Value>::new()));
     let seen = skipped.clone();
-    let got = values(from_jsonl(
-        inputs().join("records.jsonl"),
-        JsonlOptions {
-            source: Some("notes".into()),
-            kind: Some("record".into()),
-            on_skip: Some(std::sync::Arc::new(move |_l: &str, reason: &str, n: usize| {
-                let reason = if reason.starts_with("not JSON") { "not JSON" } else { reason };
-                seen.lock().unwrap().push(json!({ "line": n, "reason": reason }));
-            })),
-            ..Default::default()
-        },
-    ));
+    let got = values(
+        from_jsonl(
+            inputs().join("records.jsonl"),
+            JsonlOptions {
+                source: Some("notes".into()),
+                kind: Some("record".into()),
+                on_skip: Some(std::sync::Arc::new(move |_l: &str, reason: &str, n: usize| {
+                    let reason = if reason.starts_with("not JSON") { "not JSON" } else { reason };
+                    seen.lock().unwrap().push(json!({ "line": n, "reason": reason }));
+                })),
+                ..Default::default()
+            },
+        )
+        .await,
+    )
+    .await;
     same(got, &f["jsonl"]["records"], "jsonl");
     assert_eq!(Value::Array(skipped.lock().unwrap().clone()), f["jsonl"]["skipped"]);
 }
 
-#[test]
-fn files_match_the_reference() {
+#[tokio::test]
+async fn files_match_the_reference() {
     let f = fixture();
     let dir = inputs().join("files");
     let skipped = std::sync::Arc::new(std::sync::Mutex::new(Vec::<Value>::new()));
@@ -90,9 +96,11 @@ fn files_match_the_reference() {
             ..Default::default()
         },
     )
+    .await
     .unwrap()
-    .map(Result::unwrap)
-    .collect();
+    .try_collect()
+    .await
+    .unwrap();
     let want = f["files"]["records"].as_array().unwrap();
     let mut roots: Vec<String> = Vec::new();
     let got: Vec<Value> = records
@@ -125,68 +133,84 @@ fn files_match_the_reference() {
     assert_eq!(Value::Array(skipped.lock().unwrap().clone()), f["files"]["skipped"]);
 }
 
-#[test]
-fn slack_matches_the_reference() {
+#[tokio::test]
+async fn slack_matches_the_reference() {
     let f = fixture();
     let dir = inputs().join("slack");
     same(
-        values(from_slack_export(
-            &dir,
-            SlackOptions { workspace_url: Some("https://example.slack.com/".into()), ..Default::default() },
-        )),
+        values(
+            from_slack_export(
+                &dir,
+                SlackOptions { workspace_url: Some("https://example.slack.com/".into()), ..Default::default() },
+            )
+            .await,
+        )
+        .await,
         &f["slack"]["records"],
         "slack",
     );
     same(
-        values(from_slack_export(
-            &dir,
-            SlackOptions {
-                channels: Some(vec!["#general".into(), "D1".into()]),
-                collection: Some("team".into()),
-                skip_bots: true,
-                source: Some("ws".into()),
-                ..Default::default()
-            },
-        )),
+        values(
+            from_slack_export(
+                &dir,
+                SlackOptions {
+                    channels: Some(vec!["#general".into(), "D1".into()]),
+                    collection: Some("team".into()),
+                    skip_bots: true,
+                    source: Some("ws".into()),
+                    ..Default::default()
+                },
+            )
+            .await,
+        )
+        .await,
         &f["slack"]["filtered"],
         "slack filtered",
     );
 }
 
-#[test]
-fn mail_matches_the_reference() {
+#[tokio::test]
+async fn mail_matches_the_reference() {
     let f = fixture();
     let mbox = inputs().join("mail/Inbox.mbox");
     let skipped = std::sync::Arc::new(std::sync::Mutex::new(Vec::<usize>::new()));
     let seen = skipped.clone();
     same(
-        values(from_mbox(
-            &mbox,
-            MboxOptions {
-                on_skip: Some(std::sync::Arc::new(move |_r: &str, i: usize| seen.lock().unwrap().push(i))),
-                ..Default::default()
-            },
-        )),
+        values(
+            from_mbox(
+                &mbox,
+                MboxOptions {
+                    on_skip: Some(std::sync::Arc::new(move |_r: &str, i: usize| seen.lock().unwrap().push(i))),
+                    ..Default::default()
+                },
+            )
+            .await,
+        )
+        .await,
         &f["mbox"]["records"],
         "mbox",
     );
     assert_eq!(json!(*skipped.lock().unwrap()), f["mbox"]["skipped"]);
     same(
-        values(from_mbox(
-            &mbox,
-            MboxOptions {
-                keep_quoted: true,
-                keep_signature: true,
-                collection: Some("work".into()),
-                source: Some("box".into()),
-                ..Default::default()
-            },
-        )),
+        values(
+            from_mbox(
+                &mbox,
+                MboxOptions {
+                    keep_quoted: true,
+                    keep_signature: true,
+                    collection: Some("work".into()),
+                    source: Some("box".into()),
+                    ..Default::default()
+                },
+            )
+            .await,
+        )
+        .await,
         &f["mbox"]["kept"],
         "mbox kept",
     );
-    let mut eml = values(from_eml(inputs().join("mail/note.eml"), MboxOptions::default()));
-    eml.extend(values(from_eml(inputs().join("mail/bare.eml"), MboxOptions::default())));
+    let mut eml = values(from_eml(inputs().join("mail/note.eml"), MboxOptions::default()).await).await;
+    eml.extend(values(from_eml(inputs().join("mail/bare.eml"), MboxOptions::default()).await).await);
     same(eml, &f["eml"], "eml");
 }
 
@@ -194,8 +218,8 @@ fn s(v: &Value) -> &str {
     v.as_str().expect("a string")
 }
 
-#[test]
-fn text_tools_match_the_reference() {
+#[tokio::test]
+async fn text_tools_match_the_reference() {
     let f = fixture();
     for c in f["html"].as_array().unwrap() {
         let html = s(&c["html"]);

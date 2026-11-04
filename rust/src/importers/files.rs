@@ -18,7 +18,7 @@ use regex::Regex;
 use serde_json::Value;
 
 use super::text::{decode_bytes, file_url, html_title, html_to_text, re, split_text, Draft};
-use super::Records;
+use super::{blocking_stream, RecordStream};
 use crate::error::{Error, Result};
 use crate::js;
 use crate::records::{time_of, At, MemoryRecord};
@@ -462,9 +462,9 @@ impl Iterator for Walk {
     }
 }
 
-/// Records from the text files in a folder and its subfolders.
-pub fn from_files(dir: impl AsRef<Path>, opts: FilesOptions) -> Result<Records> {
-    let root = super::text::resolve_path(dir.as_ref()).map_err(|e| Error::io(dir.as_ref(), e))?;
+/// The walk over a folder, its top level listed.
+fn walk(dir: &Path, opts: FilesOptions) -> Result<Walk> {
+    let root = super::text::resolve_path(dir).map_err(|e| Error::io(dir, e))?;
     let include = opts
         .include
         .clone()
@@ -490,5 +490,11 @@ pub fn from_files(dir: impl AsRef<Path>, opts: FilesOptions) -> Result<Records> 
     };
     let first = walk.list("")?;
     walk.pending.push(first);
-    Ok(Box::new(walk))
+    Ok(walk)
+}
+
+/// Records from the text files in a folder and its subfolders.
+pub async fn from_files(dir: impl AsRef<Path>, opts: FilesOptions) -> Result<RecordStream> {
+    let dir = dir.as_ref().to_path_buf();
+    blocking_stream(move || walk(&dir, opts)).await
 }
