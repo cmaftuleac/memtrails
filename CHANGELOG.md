@@ -5,6 +5,8 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.4.0] — 2026-11-04
+
 - Prompt examples are invented now. The extraction and gathering prompts had a few example sentences taken from LoCoMo
   conversations, one of them (in `gather`'s notes rule) from a held-out conversation. Their effect on the published
   results, measured on the judged answers: leaving out every held-out question that mentions any of those words or
