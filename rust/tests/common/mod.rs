@@ -2,6 +2,8 @@
 //! network, no dependency.
 #![allow(dead_code)]
 
+pub mod fake_qdrant;
+
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
