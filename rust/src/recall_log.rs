@@ -126,7 +126,7 @@ impl RecallBook {
             }
         }
         let _ = self.jobs.send(Job::Line(format!("{}\n", js::stringify(&Value::Object(m)))));
-        if (self.appended.fetch_add(1, Ordering::SeqCst) + 1) % RECALL_TRIM_EVERY == 0 {
+        if (self.appended.fetch_add(1, Ordering::SeqCst) + 1).is_multiple_of(RECALL_TRIM_EVERY) {
             let (tx, _rx) = tokio::sync::oneshot::channel();
             let _ = self.jobs.send(Job::Trim(tx));
         }

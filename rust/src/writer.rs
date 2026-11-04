@@ -342,6 +342,18 @@ pub fn date_span(d: &str) -> Option<DateSpan> {
     })
 }
 
+/// The shape of a date (`YYYY`, `YYYY-MM`, `YYYY-MM-DD`, ASCII digits), whether or not the day exists.
+pub(crate) fn is_date_shape(d: &str) -> bool {
+    let b = d.as_bytes();
+    let digits = |r: std::ops::Range<usize>| b[r].iter().all(u8::is_ascii_digit);
+    match b.len() {
+        4 => digits(0..4),
+        7 => digits(0..4) && b[4] == b'-' && digits(5..7),
+        10 => digits(0..4) && b[4] == b'-' && digits(5..7) && b[7] == b'-' && digits(8..10),
+        _ => false,
+    }
+}
+
 /// A summary this many chunks long (~380 words) is also chunked: its key vector reads only its start.
 pub const LONG_SUMMARY_CHUNKS: usize = 5;
 

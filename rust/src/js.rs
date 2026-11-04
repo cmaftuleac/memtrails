@@ -85,6 +85,18 @@ pub(crate) fn head16(s: &str, n: usize) -> &str {
     &s[..byte_at16(s, n)]
 }
 
+/// `s.slice(-n)` in UTF-16 units (`s.slice(-0)` is the whole string, as in JavaScript).
+pub(crate) fn tail16(s: &str, n: usize) -> &str {
+    if n == 0 {
+        return s;
+    }
+    let len = len16(s);
+    if n >= len {
+        return s;
+    }
+    &s[byte_at16(s, len - n)..]
+}
+
 /// A number as JavaScript writes it (`String(n)`, and inside `JSON.stringify`): integers without a fraction,
 /// exponents from 1e21 and below 1e-6.
 pub fn number(x: f64) -> String {
@@ -169,7 +181,7 @@ fn write_json(v: &Value, out: &mut String) {
 /// A whole number of milliseconds as a JSON number when it is one (so a log line reads `1775088000000`, as
 /// JavaScript writes it, not `1775088000000.0`).
 pub(crate) fn ms_value(ms: f64) -> Value {
-    if ms.fract() == 0.0 && ms.abs() < 9.0e15 {
+    if ms.fract() == 0.0 && ms.abs() <= 9_007_199_254_740_991.0 {
         Value::from(ms as i64)
     } else {
         serde_json::Number::from_f64(ms).map(Value::Number).unwrap_or(Value::Null)
@@ -267,6 +279,31 @@ const MONTH_NAMES: [&str; 12] = [
     "November",
     "December",
 ];
+
+/// `toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' })`.
+pub(crate) fn long_day(ms: f64) -> String {
+    let u = utc_of(ms);
+    format!("{} {} {}", u.day, MONTH_NAMES[(u.month - 1) as usize], u.year)
+}
+
+/// `a.localeCompare(b)` as ICU's root collation orders most text: by the letters first (case and accents aside), then
+/// by accents, then lower case before upper case.
+pub(crate) fn locale_compare(a: &str, b: &str) -> std::cmp::Ordering {
+    crate::text::fold(a).cmp(&crate::text::fold(b)).then_with(|| a.to_lowercase().cmp(&b.to_lowercase())).then_with(
+        || {
+            for (x, y) in a.chars().zip(b.chars()) {
+                if x != y {
+                    return match (x.is_lowercase(), y.is_lowercase()) {
+                        (true, false) => std::cmp::Ordering::Less,
+                        (false, true) => std::cmp::Ordering::Greater,
+                        _ => x.cmp(&y),
+                    };
+                }
+            }
+            a.len().cmp(&b.len())
+        },
+    )
+}
 
 /// Local wall-clock fields as milliseconds since the epoch, the way `new Date(y, m, d, …)` reads them: in the
 /// machine's time zone; a time the clocks skipped is read with the offset before the change.
