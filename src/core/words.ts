@@ -12,7 +12,7 @@
  * numbers with those signs, over √dims. Kept by the text's hash, so an unchanged text is never encoded twice.
  */
 import { createHash } from 'node:crypto';
-import { appendFile, mkdir, readFile } from 'node:fs/promises';
+import { appendFile, mkdir, readFile, truncate } from 'node:fs/promises';
 import { dirname } from 'node:path';
 
 /** Words kept of a memory (64 lost most of the gain). */
@@ -75,7 +75,8 @@ export class WordStore {
     if (!this.file) return;
     const b = await readFile(this.file).catch(() => null);
     if (!b) return;
-    for (let at = 0; at + KEY_BYTES + 4 <= b.length;) {
+    let at = 0;
+    while (at + KEY_BYTES + 4 <= b.length) {
       const key = b.subarray(at, at + KEY_BYTES).toString('hex');
       const words = b.readUInt16LE(at + KEY_BYTES);
       const dims = b.readUInt16LE(at + KEY_BYTES + 2);
@@ -85,6 +86,8 @@ export class WordStore {
       this.byKey.set(key, { words, dims, bits: new Uint8Array(b.subarray(start, start + size)) });
       at = start + size;
     }
+    // The cut-off entry goes, or every entry appended after it would be read as part of it and never load again.
+    if (at < b.length) await truncate(this.file, at).catch(() => { /* read-only: encoded again when needed */ });
   }
 
   async put(entries: Array<[string, PackedWords]>): Promise<void> {

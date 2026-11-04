@@ -17,9 +17,8 @@
  * waits for it (a file write is done when `put` returns).
  */
 import { createHash } from 'node:crypto';
-import { appendFileSync, closeSync, createReadStream, existsSync, mkdirSync, openSync, readFileSync, readSync, renameSync, statSync, writeFileSync } from 'node:fs';
+import { appendFileSync, closeSync, createReadStream, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, readSync, renameSync, rmSync, statSync, truncateSync, writeFileSync, writeSync } from 'node:fs';
 import { dirname } from 'node:path';
-import { createInterface } from 'node:readline';
 
 export type MemoryKind =
   | 'decision' | 'procedure' | 'snippet' | 'template' | 'pitfall' | 'fact' | 'architecture' | 'preference' | 'reference'
@@ -130,6 +129,9 @@ export function fingerprint(...parts: Array<string | readonly string[] | null | 
 
 interface Slot<M> { at: number; len: number; meta: M }
 
+/** What a compaction holds before it writes. */
+const WRITE_BYTES = 1 << 20;
+
 /** An append-only log of records by uid: a later record for the same uid replaces the earlier one. What consolidation,
  *  sleep and capture read and write, wherever the records are kept. */
 export interface MemoryLog<T extends { uid: string }, M> {
@@ -165,20 +167,41 @@ export class JsonlLog<T extends { uid: string }, M> implements MemoryLog<T, M> {
     this.lines = 0;
     this.end = 0;
     if (!existsSync(this.path)) return;
+    // By bytes, not decoded lines: a torn multi-byte character must not shift every offset after it.
     let at = 0;
-    for await (const line of createInterface({ input: createReadStream(this.path, { encoding: 'utf8' }), crlfDelay: Infinity })) {
-      const len = Buffer.byteLength(line, 'utf8') + 1;
-      if (line) {
-        try {
-          const rec = JSON.parse(line) as T & { removed?: true };
-          if (rec.removed) this.live.delete(rec.uid);
-          else this.live.set(rec.uid, { at, len, meta: this.project(rec) });
-          this.lines++;
-        } catch { /* a torn last line */ }
+    let pending: Buffer[] = [];
+    const take = (line: Buffer, len: number): boolean => {
+      if (!line.length) return true;
+      try {
+        const rec = JSON.parse(line.toString('utf8')) as T & { removed?: true };
+        if (rec.removed) this.live.delete(rec.uid);
+        else this.live.set(rec.uid, { at, len, meta: this.project(rec) });
+        this.lines++;
+        return true;
+      } catch { return false; }
+    };
+    for await (const chunk of createReadStream(this.path) as AsyncIterable<Buffer>) {
+      let from = 0;
+      for (let nl = chunk.indexOf(10); nl >= 0; nl = chunk.indexOf(10, from)) {
+        const line = Buffer.concat([...pending, chunk.subarray(from, nl)]);
+        pending = [];
+        take(line, line.length + 1);
+        at += line.length + 1;
+        from = nl + 1;
       }
-      at += len;
+      if (from < chunk.length) pending.push(chunk.subarray(from));
     }
-    this.end = at;
+    // A crash cut the last line short of its '\n': whole but for it, it is ended; torn, it goes. Either way what is
+    // added next starts on a line of its own, at the offset the index gives it.
+    const tail = Buffer.concat(pending);
+    if (tail.length) {
+      try {
+        // Its length without the '\n' it is given: readable whether or not that write lands.
+        if (take(tail, tail.length)) appendFileSync(this.path, '\n');
+        else truncateSync(this.path, at);
+      } catch { /* read-only: nothing is added after it either */ }
+    }
+    this.end = statSync(this.path).size;
   }
 
   get(uid: string): T | null {
@@ -186,14 +209,18 @@ export class JsonlLog<T extends { uid: string }, M> implements MemoryLog<T, M> {
     if (!s) return null;
     const fd = openSync(this.path, 'r');
     try {
-      const buf = Buffer.alloc(s.len);
-      readSync(fd, buf, 0, s.len, s.at);
-      return JSON.parse(buf.toString('utf8').trimEnd()) as T;
+      return this.read(fd, s);
     } catch {
       return null;
     } finally {
       closeSync(fd);
     }
+  }
+
+  private read(fd: number, s: Slot<M>): T {
+    const buf = Buffer.alloc(s.len);
+    readSync(fd, buf, 0, s.len, s.at);
+    return JSON.parse(buf.toString('utf8').trimEnd()) as T;
   }
 
   put(recs: T[]): void {
@@ -234,23 +261,49 @@ export class JsonlLog<T extends { uid: string }, M> implements MemoryLog<T, M> {
   /** A file is written when `put` returns. */
   async flush(): Promise<void> {}
 
-  /** Rewrite the log without replaced lines once it is twice what is live. */
+  /** Rewrite the log without replaced lines once it is twice what is live. Record by record into a file beside it, made
+   *  durable and then renamed over it: a log of any size, and a crash leaves the old one whole. A record that cannot be
+   *  read is never dropped by a rewrite: it throws, and the log stays as it is. */
   compact(): void {
     if (this.lines < 2 * this.live.size + 1000) return;
-    const recs = [...this.all()];
+    const order = [...this.live.entries()].sort((a, b) => a[1].at - b[1].at);
     const tmp = `${this.path}.compact`;
-    writeFileSync(tmp, recs.map((r) => `${JSON.stringify(r)}\n`).join(''), { mode: 0o600 });
-    renameSync(tmp, this.path);
-    // Offsets again, from the file just written.
-    this.live.clear();
-    let at = 0;
-    for (const r of recs) {
-      const len = Buffer.byteLength(`${JSON.stringify(r)}\n`, 'utf8');
-      this.live.set(r.uid, { at, len, meta: this.project(r) });
-      at += len;
+    const next = new Map<string, Slot<M>>();
+    const src = openSync(this.path, 'r');
+    let out: number | null = null;
+    try {
+      out = openSync(tmp, 'w', 0o600);
+      let at = 0;
+      let parts: Buffer[] = [];
+      let size = 0;
+      const write = (): void => { writeSync(out!, Buffer.concat(parts)); parts = []; size = 0; };
+      for (const [uid, s] of order) {
+        let rec: T | null = null;
+        try { rec = this.read(src, s); } catch { /* below */ }
+        if (rec?.uid !== uid) throw new Error(`${this.path}: record ${uid} cannot be read at ${s.at}; not compacted`);
+        const b = Buffer.from(`${JSON.stringify(rec)}\n`, 'utf8');
+        next.set(uid, { at, len: b.length, meta: s.meta });
+        parts.push(b);
+        size += b.length;
+        at += b.length;
+        if (size >= WRITE_BYTES) write();
+      }
+      if (size) write();
+      fsyncSync(out);
+      closeSync(out);
+      out = null;
+      renameSync(tmp, this.path);
+      this.live.clear();
+      for (const [uid, s] of next) this.live.set(uid, s);
+      this.end = at;
+      this.lines = next.size;
+    } catch (e) {
+      if (out !== null) closeSync(out);
+      rmSync(tmp, { force: true });
+      throw e;
+    } finally {
+      closeSync(src);
     }
-    this.end = at;
-    this.lines = recs.length;
   }
 }
 

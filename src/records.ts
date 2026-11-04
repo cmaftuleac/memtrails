@@ -110,7 +110,7 @@ export function entryOf(r: MemoryRecord, now: number, turn = 0): StmEntry {
  * Turns before the first request (an assistant that opened) are the first record's own.
  */
 export function conversationEntries(c: Conversation, now: number): StmEntry[] {
-  const start = timeOf(c.at) ?? now;
+  const began = timeOf(c.at);
   const out: StmEntry[] = [];
   let request: string[] = [];
   let reply: string[] = [];
@@ -118,10 +118,13 @@ export function conversationEntries(c: Conversation, now: number): StmEntry[] {
   const flush = (): void => {
     if (!request.length && !reply.length) return;
     const n = out.length;
+    // A time only the caller gave is part of the fingerprint: one defaulted from when it is added would make the same
+    // conversation added again a changed one — read, embedded and consolidated again.
+    const given = at ?? (began === undefined ? undefined : began + n * 60_000);
     const e = entryOf({ id: `${c.id}#${n}`, source: c.source, collection: c.collection, thread: c.id, kind: 'conversation',
       title: request.join('\n').split('\n').find((l) => l.trim())?.trim() || reply.join('\n').split('\n').find((l) => l.trim())?.trim() || c.id,
-      text: request.join('\n'), at: at ?? start + n * 60_000 }, now, n);
-    out.push({ ...e, request: request.join('\n') || e.title, reply: reply.join('\n'), said: reply.join('\n') });
+      text: request.join('\n'), at: given }, now, n);
+    out.push({ ...e, ts: given ?? now + n * 60_000, request: request.join('\n') || e.title, reply: reply.join('\n'), said: reply.join('\n') });
     request = [];
     reply = [];
     at = undefined;
