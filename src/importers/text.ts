@@ -58,13 +58,24 @@ export function decodeEntities(s: string): string {
 const BLOCK = 'address|article|aside|blockquote|caption|center|dd|details|dialog|div|dl|dt|fieldset|figcaption|figure|footer|form|' +
   'h[1-6]|header|hr|main|nav|ol|p|pre|section|summary|table|tbody|thead|tfoot|tr|ul';
 
+/**
+ * `f` applied to `s` up to its last `>`, the rest kept. Every tag pattern here ends in `[^>]*>`: past the last `>` each
+ * `<` is a start that scans to the end and fails, so a run of unclosed `<a<a<a…` was quadratic; before it, each scan
+ * stops at the next `>` and matches.
+ */
+function beforeLastGt(s: string, f: (head: string) => string): string {
+  const end = s.lastIndexOf('>') + 1;
+  return end === s.length ? f(s) : f(s.slice(0, end)) + s.slice(end);
+}
+
 /** Removes every `<tag …>…</tag>` (nested ones too), for `blockquote`: the quoted earlier message in an HTML reply. */
 function dropElements(html: string, tag: string): string {
   const re = new RegExp(`<(/?)${tag}\\b[^>]*>`, 'gi');
+  const head = html.slice(0, html.lastIndexOf('>') + 1); // see beforeLastGt
   let out = '';
   let depth = 0;
   let from = 0;
-  for (let m = re.exec(html); m; m = re.exec(html)) {
+  for (let m = re.exec(head); m; m = re.exec(head)) {
     if (!m[1]) {
       if (depth === 0) out += html.slice(from, m.index);
       depth++;
@@ -76,11 +87,73 @@ function dropElements(html: string, tag: string): string {
   return depth === 0 ? out + html.slice(from) : out;
 }
 
+/**
+ * Each `<tag …>…</tag>` found by `open` (the tag's name in group 1) replaced by `f(name, element)`, scanning once:
+ * `<(script|…)\b[\s\S]*?<\/\1>` rescanned to the end for every unclosed opening tag, quadratic on `<script<script…`.
+ * An unclosed one has `element` null; `f` then gives what replaces it and everything after it, or null to leave it as
+ * written. A tag with no closing tag after it has none after a later opening tag either, so it is looked for once.
+ * The text between elements goes through `outside`.
+ */
+function replaceElements(s: string, open: RegExp, f: (name: string, element: string | null) => string | null,
+  outside: (text: string) => string = (t) => t): string {
+  const closes = new Map<string, RegExp>();
+  const unclosed = new Set<string>();
+  let out = '';
+  let from = 0;
+  open.lastIndex = 0;
+  for (let m = open.exec(s); m; m = open.exec(s)) {
+    const name = m[1].toLowerCase();
+    let end = -1;
+    if (!unclosed.has(name)) {
+      let close = closes.get(name);
+      if (!close) closes.set(name, (close = new RegExp(`</${name}\\s*>`, 'gi')));
+      close.lastIndex = m.index + m[0].length;
+      const c = close.exec(s);
+      if (c) end = c.index + c[0].length;
+      else unclosed.add(name);
+    }
+    const replaced = f(name, end < 0 ? null : s.slice(m.index, end));
+    if (replaced === null) continue; // left as written: look on after the opening tag
+    out += outside(s.slice(from, m.index)) + replaced;
+    if (end < 0) return out;
+    from = open.lastIndex = end;
+  }
+  return out + outside(s.slice(from));
+}
+
+/** `<![CDATA[…]]>` as its text; an unclosed one, and everything after it, left as written. */
+function unwrapCdata(s: string): string {
+  let out = '';
+  let from = 0;
+  for (let i = s.indexOf('<![CDATA[', from); i >= 0; i = s.indexOf('<![CDATA[', from)) {
+    const j = s.indexOf(']]>', i + 9);
+    if (j < 0) break;
+    out += s.slice(from, i) + s.slice(i + 9, j);
+    from = j + 3;
+  }
+  return out + s.slice(from);
+}
+
+const HIDDEN = /<(script|style|head|noscript|template|svg|math|iframe|object)\b/gi;
+const PRE = /<(pre)\b/gi;
+
+/** Title regexes see at most this much of a page: a title is near the top, and a hostile page is not read to its end. */
+const TITLE_SCAN = 64 * 1024;
+
 /** The `<title>` of an HTML page, else its first `<h1>`, as text; undefined when it has neither. */
 export function htmlTitle(html: string): string | undefined {
-  for (const re of [/<title\b[^>]*>([\s\S]*?)<\/title\s*>/i, /<h1\b[^>]*>([\s\S]*?)<\/h1\s*>/i]) {
-    const m = re.exec(html);
-    const t = m ? decodeEntities(m[1].replace(/<[^>]*>/g, ' ')).replace(/\s+/g, ' ').trim() : '';
+  const top = html.slice(0, TITLE_SCAN);
+  const head = top.slice(0, top.lastIndexOf('>') + 1); // see beforeLastGt
+  for (const tag of ['title', 'h1']) {
+    const open = new RegExp(`<${tag}\\b[^>]*>`, 'i').exec(head);
+    if (!open) continue;
+    const bodyStart = open.index + open[0].length;
+    const close = new RegExp(`</${tag}\\s*>`, 'gi');
+    close.lastIndex = bodyStart;
+    const end = close.exec(head);
+    if (!end) continue;
+    const inner = beforeLastGt(head.slice(bodyStart, end.index), (h) => h.replace(/<[^>]*>/g, ' '));
+    const t = decodeEntities(inner).replace(/\s+/g, ' ').trim();
     if (t) return t;
   }
   return undefined;
@@ -91,23 +164,19 @@ export function htmlTitle(html: string): string | undefined {
  * as `- `, tags removed, entities decoded, `<pre>` kept as written. `dropQuotes` also drops `<blockquote>`s.
  */
 export function htmlToText(html: string, opts: { dropQuotes?: boolean } = {}): string {
-  let s = html
-    .replace(/<!--[\s\S]*?(-->|$)/g, ' ')
-    .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1')
-    .replace(/<(script|style|head|noscript|template|svg|math|iframe|object)\b[\s\S]*?<\/\1\s*>/gi, ' ')
-    .replace(/<(script|style)\b[\s\S]*$/i, ' '); // one left open runs to the end
+  let s = unwrapCdata(html.replace(/<!--[\s\S]*?(-->|$)/g, ' '));
+  // Hidden elements dropped; a script or style left open runs to the end, any other unclosed one is left to the tag rules.
+  s = replaceElements(s, HIDDEN, (name, element) => (element !== null || name === 'script' || name === 'style' ? ' ' : null));
   if (opts.dropQuotes) s = dropElements(s, 'blockquote');
   // Whitespace in the source is one space, except inside <pre>.
-  s = s.split(/(<pre\b[\s\S]*?<\/pre\s*>)/i)
-    .map((piece, i) => (i % 2 ? piece.replace(/\r\n?/g, '\n') : piece.replace(/\s+/g, ' ')))
-    .join('');
-  s = s
+  s = replaceElements(s, PRE, (_name, element) => element?.replace(/\r\n?/g, '\n') ?? null, (t) => t.replace(/\s+/g, ' '));
+  s = beforeLastGt(s, (h) => h
     .replace(/<br\b[^>]*>/gi, '\n')
     .replace(/<li\b[^>]*>/gi, '\n- ')
     .replace(new RegExp(`</?(?:${BLOCK})\\b[^>]*>`, 'gi'), '\n')
     .replace(/<\/t[dh]\s*>/gi, '\t')
     .replace(/<\/?[a-zA-Z][^>]*>/g, '')
-    .replace(/<[!?][^>]*>/g, '');
+    .replace(/<[!?][^>]*>/g, ''));
   s = decodeEntities(s);
   return tidy(s);
 }

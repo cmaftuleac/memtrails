@@ -151,7 +151,9 @@ function parseParams(raw: string | undefined): { value: string; params: Record<s
 function quotedPrintable(lines: string[]): Buffer {
   let s = '';
   for (const [i, raw] of lines.entries()) {
-    const line = raw.replace(/[ \t\r]+$/, '');
+    let end = raw.length;
+    while (end > 0 && (raw[end - 1] === ' ' || raw[end - 1] === '\t' || raw[end - 1] === '\r')) end--; // /[ \t\r]+$/ is quadratic on a run of spaces
+    const line = raw.slice(0, end);
     if (line.endsWith('=')) s += line.slice(0, -1);
     else s += i < lines.length - 1 ? `${line}\n` : line;
   }
@@ -252,11 +254,25 @@ function ids(raw: string | undefined): string[] {
   return bracketed.length ? bracketed : v.split(/\s+/).filter((x) => x.includes('@'));
 }
 
+/** `Name <address>` → Name, `address (Name)` → Name. By hand: `^\s*(\S+@\S+)\s*\(` is quadratic on `a@a@a@…`. */
 function personOf(from: string): string {
-  const named = /^(.*?)\s*<([^<>]*)>\s*$/.exec(from);
-  if (named) return named[1].replace(/^"(.*)"$/, '$1').trim() || named[2].trim();
-  const commented = /^\s*(\S+@\S+)\s*\((.+)\)\s*$/.exec(from);
-  return commented ? commented[2].trim() : from.trim();
+  const t = from.trim();
+  const lt = t.lastIndexOf('<');
+  if (t.endsWith('>') && lt >= 0 && !t.slice(lt + 1, -1).includes('>')) {
+    return t.slice(0, lt).trim().replace(/^"(.*)"$/, '$1').trim() || t.slice(lt + 1, -1).trim();
+  }
+  const open = t.indexOf('(');
+  const address = open > 0 ? t.slice(0, open).trim() : '';
+  if (t.endsWith(')') && t.length - open > 2 && /^\S+$/.test(address) && address.indexOf('@') > 0 && !address.endsWith('@')) {
+    return t.slice(open + 1, -1).trim();
+  }
+  return t;
+}
+
+/** `(comments)` taken out of a header, up to its last `)`: past it, each `(` would scan to the end and fail. */
+function dropComments(v: string): string {
+  const end = v.lastIndexOf(')') + 1;
+  return v.slice(0, end).replace(/\([^)]*\)/g, ' ') + v.slice(end);
 }
 
 /** One message's lines (raw bytes as Latin-1 characters, no line endings) as a record, or null when it says nothing. */
@@ -270,7 +286,7 @@ function messageRecord(lines: string[], fromLine: string, source: string, opts: 
   const subject = h('subject');
   if (!text && !subject) return null;
   const from = h('from');
-  const date = h('date').replace(/\([^)]*\)/g, ' ').trim();
+  const date = dropComments(h('date')).trim();
   const at = timeOf(date) ?? timeOf(fromLine.replace(/^From \S+\s+/, '').trim());
   const own = ids(e.headers.get('message-id'))[0];
   const id = own ?? createHash('sha256').update([from, date, subject, text.slice(0, 4000)].join('\u0000')).digest('hex').slice(0, 32);

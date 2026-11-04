@@ -9,7 +9,7 @@
  * channel's name. kind `message`. Joins, leaves, topic changes and the like are left out.
  */
 import { readdir, readFile, stat } from 'node:fs/promises';
-import { basename, join, resolve } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 import type { MemoryRecord } from '../records.js';
 import { record } from './text.js';
 
@@ -111,7 +111,9 @@ export async function* fromSlackExport(dir: string, opts: SlackOptions = {}): As
 
   for (const c of conversations) {
     if (wanted && !wanted.has(c.name) && !wanted.has(c.id)) continue;
-    const folder = join(root, c.folder);
+    // The folder's name comes from the export's own lists: `../x`, `a/b` or an absolute path must not lead out of it.
+    const folder = resolve(root, c.folder);
+    if (!c.folder || dirname(folder) !== root) continue;
     if (!(await stat(folder).catch(() => undefined))?.isDirectory()) continue;
     const days = (await readdir(folder)).filter((f) => /^\d{4}-\d{2}-\d{2}\.json$/.test(f)).sort();
     for (const day of days) {

@@ -53,6 +53,18 @@ function listValue(items: string[]): string {
   return items.map((i) => scalar(i)).filter((i) => i !== null && i !== '').join(', ');
 }
 
+/**
+ * One front-matter line as key and value: TOML `key = value`, YAML `key: value` (a `:` then a space or the end). Split
+ * at the first `=` or `:` by hand: `^([^=]*?)\s*=` tried a run of spaces at every position, quadratic on a long line.
+ */
+function keyValue(line: string, toml: boolean): [string, string] | null {
+  const at = line.indexOf(toml ? '=' : ':');
+  if (at <= 0 || (toml ? /[\s=#[]/ : /[\s:#-]/).test(line[0])) return null;
+  const value = line.slice(at + 1);
+  if (!toml && value && !/^\s/.test(value)) return null;
+  return [line.slice(0, at).trimEnd(), value];
+}
+
 /** YAML (`---`) or TOML (`+++`) front matter, flat fields only: scalars, lists (joined with `, `) and block text. */
 export function frontMatter(text: string): { fields: Record<string, Scalar>; body: string } {
   const m = /^(---|\+\+\+)[ \t]*\r?\n([\s\S]*?)\r?\n(?:---|\+\+\+|\.\.\.)[ \t]*(?:\r?\n|$)/.exec(text);
@@ -61,10 +73,10 @@ export function frontMatter(text: string): { fields: Record<string, Scalar>; bod
   const fields: Record<string, Scalar> = {};
   const lines = m[2].split(/\r?\n/);
   for (let i = 0; i < lines.length; i++) {
-    const kv = toml ? /^([^\s=#[][^=]*?)\s*=\s*(.*)$/.exec(lines[i]) : /^([^\s:#-][^:]*?)\s*:(?:\s+(.*)|\s*)$/.exec(lines[i]);
+    const kv = keyValue(lines[i], toml);
     if (!kv) continue;
-    const key = kv[1].trim().replace(/^["']|["']$/g, '');
-    const value = (kv[2] ?? '').trim();
+    const key = kv[0].trim().replace(/^["']|["']$/g, '');
+    const value = kv[1].trim();
     if (value.startsWith('[') && value.endsWith(']')) {
       fields[key] = listValue(value.slice(1, -1).split(','));
     } else if (!toml && /^[|>][-+]?$/.test(value)) {
@@ -77,20 +89,50 @@ export function frontMatter(text: string): { fields: Record<string, Scalar>; bod
       while (i + 1 < lines.length && /^\s+\S/.test(lines[i + 1])) i++; // a nested map: not kept
       if (items.length) fields[key] = listValue(items);
     } else {
-      fields[key] = scalar(value.replace(/\s+#.*$/, ''));
+      const comment = value.search(/\s#/); // not /\s+#.*$/: quadratic on a long run of spaces
+      fields[key] = scalar(comment < 0 ? value : value.slice(0, comment));
     }
   }
   return { fields, body: text.slice(m[0].length) };
 }
 
+/** Title rules see at most this much of a file, a line at a time: per-line regexes over a whole hostile file were slow. */
+const TITLE_SCAN = 64 * 1024;
+
+/** An RST underline (or overline): one punctuation character, three or more times, then spaces at most. */
+function rstRule(line: string | undefined): boolean {
+  const t = line?.trimEnd() ?? ''; // not /[ \t]+$/: quadratic on a long run of spaces
+  return t.length >= 3 && '=-~^"\'`#*+'.includes(t[0]) && t === t[0].repeat(t.length);
+}
+
 function titleOf(ext: string, body: string, raw: string): string | undefined {
   if (ext === '.html' || ext === '.htm' || ext === '.xhtml') return htmlTitle(raw);
-  if (ext === '.org') return /^#\+title:[ \t]*(.+)$/im.exec(body)?.[1].trim() || /^\*+[ \t]+(.+)$/m.exec(body)?.[1].trim();
-  if (ext === '.rst') return /^(?:([=\-~^"'`#*+])\1+\r?\n)?[ \t]*(\S[^\n]*?)[ \t]*\r?\n([=\-~^"'`#*+])\3{2,}[ \t]*$/m.exec(body)?.[2];
-  if (ext === '.adoc' || ext === '.asciidoc') return /^=[ \t]+(.+)$/m.exec(body)?.[1].trim();
-  const atx = /^#[ \t]+(.+?)(?:[ \t]+#+)?[ \t]*$/m.exec(body)?.[1].trim();
+  const lines = body.slice(0, TITLE_SCAN).split(/\r\n?|\n/);
+  const first = (f: (line: string, i: number) => string | undefined): string | undefined => {
+    for (let i = 0; i < lines.length; i++) {
+      const t = f(lines[i], i);
+      if (t !== undefined) return t;
+    }
+    return undefined;
+  };
+  if (ext === '.org') {
+    return first((l) => (/^#\+title:/i.test(l) && l.length > 8 ? l.slice(8).trim() : undefined)) ||
+      first((l) => (/^\*+[ \t]/.test(l) && l.replace(/^\*+/, '').trim() ? l.replace(/^\*+/, '').trim() : undefined));
+  }
+  if (ext === '.rst') return first((l, i) => (l.trim() && rstRule(lines[i + 1]) ? l.trim() : undefined));
+  if (ext === '.adoc' || ext === '.asciidoc') return first((l) => (/^=[ \t]/.test(l) && l.slice(1).trim() ? l.slice(1).trim() : undefined));
+  // `# Title`, a closing run of `#` after a space dropped (by hand: `[ \t]+#+$` is quadratic on a run of spaces).
+  const atx = first((l) => {
+    if (!/^#[ \t]/.test(l)) return undefined;
+    const t = l.slice(1).trim();
+    let j = t.length;
+    while (j > 0 && t[j - 1] === '#') j--;
+    const title = j > 0 && j < t.length && /[ \t]/.test(t[j - 1]) ? t.slice(0, j).trimEnd() : t;
+    return title || undefined;
+  });
   if (atx) return atx;
-  return /^(\S[^\n]*?)[ \t]*\r?\n=+[ \t]*$/m.exec(body)?.[1]; // a Setext `Title\n=====`
+  // A Setext `Title\n=====`.
+  return first((l, i) => (/^\S/.test(l) && /^=+[ \t]*$/.test(lines[i + 1] ?? '') ? l.trimEnd() : undefined));
 }
 
 async function* walk(root: string, rel: string, o: { include: Set<string>; skipFolders: Set<string> }): AsyncGenerator<string> {

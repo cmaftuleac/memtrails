@@ -84,7 +84,9 @@ export async function* fromGit(repoDir: string, opts: GitOptions = {}): AsyncIte
   args.push('--', ...(opts.paths ?? []));
   const maxFiles = opts.maxFiles ?? 50;
 
-  const child = spawn(opts.git ?? 'git', args, { cwd: repoDir, stdio: ['ignore', 'pipe', 'pipe'] });
+  // `-C`, not `cwd`: on Windows a command is looked up in its working folder first, so `cwd: repoDir` ran a `git.exe`
+  // planted in the repository being imported.
+  const child = spawn(opts.git ?? 'git', ['-C', resolve(repoDir), ...args], { stdio: ['ignore', 'pipe', 'pipe'] });
   let stderr = '';
   child.stderr.setEncoding('utf8');
   child.stderr.on('data', (d: string) => {
