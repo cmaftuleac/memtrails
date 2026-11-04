@@ -180,7 +180,7 @@ fn write_json(v: &Value, out: &mut String) {
 
 /// A whole number of milliseconds as a JSON number when it is one (so a log line reads `1775088000000`, as
 /// JavaScript writes it, not `1775088000000.0`).
-pub(crate) fn ms_value(ms: f64) -> Value {
+pub fn ms_value(ms: f64) -> Value {
     if ms.fract() == 0.0 && ms.abs() <= 9_007_199_254_740_991.0 {
         Value::from(ms as i64)
     } else {

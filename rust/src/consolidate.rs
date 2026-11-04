@@ -960,7 +960,7 @@ impl Consolidator {
     }
 
     /// One ask for a few items' cues and concepts; `Err(why)` when the model did not answer.
-    async fn cue_batch(&self, items: &[MemoryItem]) -> std::result::Result<Vec<MemoryItem>, String> {
+    pub async fn cue_batch(&self, items: &[MemoryItem]) -> std::result::Result<Vec<MemoryItem>, String> {
         let prompt = items
             .iter()
             .enumerate()
