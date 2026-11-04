@@ -184,7 +184,7 @@ def broken_qdrant_binary(tmp: Path) -> str:
     path.write_text(
         f"#!{sys.executable}\n"
         + textwrap.dedent("""
-        import http.server, os, re, signal, sys
+        import http.server, os, re, signal, socketserver, sys
         args = sys.argv[1:]
         port = int(re.search(r"http_port: (\\d+)", open(args[args.index("--config-path") + 1]).read()).group(1))
         with open("spawns.log", "a") as f:
@@ -200,7 +200,7 @@ def broken_qdrant_binary(tmp: Path) -> str:
                 self.send_response(500); self.end_headers(); self.wfile.write(b'{"status":{"error":"broken"}}')
             do_GET = do_PUT = do_POST = do_DELETE = do_PATCH = answer
         signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
-        http.server.HTTPServer(("127.0.0.1", port), H).serve_forever()
+        socketserver.TCPServer(("127.0.0.1", port), H).serve_forever()  # not HTTPServer: its reverse DNS lookup hangs on some hosts
     """)
     )
     path.chmod(0o755)

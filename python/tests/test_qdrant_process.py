@@ -31,7 +31,7 @@ def fake_qdrant(root: Path, mode: str) -> str:
     path.write_text(
         f"#!{sys.executable}\n"
         + textwrap.dedent(f"""
-        import http.server, json, os, re, signal, sys
+        import http.server, json, os, re, signal, socketserver, sys
         args = sys.argv[1:]
         port = int(re.search(r"http_port: (\\d+)", open(args[args.index("--config-path") + 1]).read()).group(1))
         with open("spawns.log", "a") as f:
@@ -47,7 +47,7 @@ def fake_qdrant(root: Path, mode: str) -> str:
                     self.send_response(401); self.end_headers(); self.wfile.write(b"{{}}"); return
                 self.send_response(200); self.end_headers(); self.wfile.write(b'{{"result":{{"collections":[]}}}}')
         signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
-        http.server.HTTPServer(("127.0.0.1", port), H).serve_forever()
+        socketserver.TCPServer(("127.0.0.1", port), H).serve_forever()  # not HTTPServer: its reverse DNS lookup hangs on some hosts
     """)
     )
     path.chmod(0o755)
