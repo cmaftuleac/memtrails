@@ -1,0 +1,366 @@
+{
+ "version": "0.0.0-fixture",
+ "session": [
+  {
+   "send": "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"protocolVersion\":\"2025-06-18\",\"capabilities\":{},\"clientInfo\":{\"name\":\"key\",\"version\":\"1\"}}}",
+   "answer": {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": {
+     "protocolVersion": "2025-06-18",
+     "capabilities": {
+      "tools": {}
+     },
+     "serverInfo": {
+      "name": "memtrails",
+      "version": "0.0.0-fixture"
+     },
+     "instructions": "Long-term memory: what this person or team worked on, wrote, decided and said, and what was learned from it. Search it before answering about past work, people, decisions or dates, and open a result to read it whole. Save what is worth remembering later: a decision and why, a preference, a fact about a person or a system."
+    }
+   }
+  },
+  {
+   "send": "{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}",
+   "answer": null
+  },
+  {
+   "send": "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"initialize\",\"params\":{\"protocolVersion\":\"1999-01-01\",\"capabilities\":{},\"clientInfo\":{\"name\":\"key\",\"version\":\"1\"}}}",
+   "answer": {
+    "jsonrpc": "2.0",
+    "id": 2,
+    "result": {
+     "protocolVersion": "2025-11-25",
+     "capabilities": {
+      "tools": {}
+     },
+     "serverInfo": {
+      "name": "memtrails",
+      "version": "0.0.0-fixture"
+     },
+     "instructions": "Long-term memory: what this person or team worked on, wrote, decided and said, and what was learned from it. Search it before answering about past work, people, decisions or dates, and open a result to read it whole. Save what is worth remembering later: a decision and why, a preference, a fact about a person or a system."
+    }
+   }
+  },
+  {
+   "send": "{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"tools/list\"}",
+   "answer": {
+    "jsonrpc": "2.0",
+    "id": 3,
+    "result": {
+     "tools": [
+      {
+       "name": "memory_search",
+       "description": "Search memory: everything it was given (e-mails, messages, notes, documents, conversations, commits, …) and what was learned from them — facts, decisions, dated events, profiles of people and things. Best first; each result with its date and id. Ask in plain words, as you would ask a colleague who read it all. Name dates when the question names a time. Open a result with memory_open for all of it.",
+       "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+         "query": {
+          "type": "string",
+          "maxLength": 2000,
+          "description": "What you need to know, in plain words."
+         },
+         "collections": {
+          "description": "Only these collections (default: all).",
+          "maxItems": 50,
+          "type": "array",
+          "items": {
+           "type": "string",
+           "maxLength": 2000
+          }
+         },
+         "limit": {
+          "description": "How many of each to return — dated observations, and other memories (default 20; 100 to 200 when you gather everything on a topic, list or count things, or need their dates).",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 200
+         },
+         "order": {
+          "description": "Best first (default), or oldest first — for what happened when, and in what order.",
+          "type": "string",
+          "enum": [
+           "relevance",
+           "time"
+          ]
+         },
+         "from": {
+          "description": "Only what happened on or after this date (YYYY-MM-DD, YYYY-MM or YYYY) — when the request names a time (\"in June 2023\", \"last week\").",
+          "type": "string",
+          "pattern": "^\\d{4}(-\\d{2}(-\\d{2})?)?$"
+         },
+         "to": {
+          "description": "Only what happened on or before this date (YYYY-MM-DD, YYYY-MM or YYYY).",
+          "type": "string",
+          "pattern": "^\\d{4}(-\\d{2}(-\\d{2})?)?$"
+         }
+        },
+        "required": [
+         "query"
+        ],
+        "additionalProperties": false
+       },
+       "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": false
+       }
+      },
+      {
+       "name": "memory_open",
+       "description": "Read one memory item whole, by the id memory_search or memory_explore gave: everything it holds, when it happened, and for something learned, the records it was learned from.",
+       "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+         "id": {
+          "type": "string",
+          "maxLength": 2000,
+          "description": "The memory id, as memory_search or memory_explore gave it."
+         }
+        },
+        "required": [
+         "id"
+        ],
+        "additionalProperties": false
+       },
+       "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": false
+       }
+      },
+      {
+       "name": "memory_explore",
+       "description": "Explore memory around a topic, or around items you already found: it follows what they share — the same people, places, systems, names — and links between memories, to what a search for the words does not find. Returns what search found, what is related, and the concepts around it to explore next.",
+       "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+         "topic": {
+          "description": "What to explore, in plain words — a system, a project, a problem, a name.",
+          "type": "string",
+          "maxLength": 2000
+         },
+         "from": {
+          "description": "Memory ids to explore from, as memory_search or memory_explore gave them.",
+          "maxItems": 5,
+          "type": "array",
+          "items": {
+           "type": "string",
+           "maxLength": 2000
+          }
+         },
+         "collections": {
+          "description": "Only these collections (default: all).",
+          "maxItems": 50,
+          "type": "array",
+          "items": {
+           "type": "string",
+           "maxLength": 2000
+          }
+         },
+         "limit": {
+          "description": "How many related items to return (default 10).",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 20
+         }
+        },
+        "additionalProperties": false
+       },
+       "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": false
+       }
+      },
+      {
+       "name": "memory_save",
+       "description": "Save something to memory, to be found later by memory_search: a decision and why, a preference, a fact about a person, a project or a system, what was learned. Write it to be understood on its own, later, by someone who was not here: name who and what, and the date when it matters.",
+       "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+         "text": {
+          "type": "string",
+          "minLength": 1,
+          "description": "What to remember, written to be understood on its own."
+         },
+         "title": {
+          "description": "A short title (default: the start of the text).",
+          "type": "string",
+          "maxLength": 200
+         }
+        },
+        "required": [
+         "text"
+        ],
+        "additionalProperties": false
+       },
+       "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+       }
+      }
+     ]
+    }
+   }
+  },
+  {
+   "send": "{\"jsonrpc\":\"2.0\",\"id\":4,\"method\":\"ping\"}",
+   "answer": {
+    "jsonrpc": "2.0",
+    "id": 4,
+    "result": {}
+   }
+  },
+  {
+   "send": "{\"jsonrpc\":\"2.0\",\"id\":5,\"method\":\"tools/call\",\"params\":{\"name\":\"memory_save\",\"arguments\":{}}}",
+   "answer": {
+    "jsonrpc": "2.0",
+    "id": 5,
+    "result": {
+     "content": [
+      {
+       "type": "text",
+       "text": "Invalid arguments: text: Invalid input: expected string, received undefined"
+      }
+     ],
+     "isError": true
+    }
+   }
+  },
+  {
+   "send": "{\"jsonrpc\":\"2.0\",\"id\":6,\"method\":\"tools/call\",\"params\":{\"name\":\"memory_save\",\"arguments\":{\"text\":\"\"}}}",
+   "answer": {
+    "jsonrpc": "2.0",
+    "id": 6,
+    "result": {
+     "content": [
+      {
+       "type": "text",
+       "text": "Invalid arguments: text: Too small: expected string to have >=1 characters"
+      }
+     ],
+     "isError": true
+    }
+   }
+  },
+  {
+   "send": "{\"jsonrpc\":\"2.0\",\"id\":7,\"method\":\"tools/call\",\"params\":{\"name\":\"memory_save\",\"arguments\":{\"text\":1}}}",
+   "answer": {
+    "jsonrpc": "2.0",
+    "id": 7,
+    "result": {
+     "content": [
+      {
+       "type": "text",
+       "text": "Invalid arguments: text: Invalid input: expected string, received number"
+      }
+     ],
+     "isError": true
+    }
+   }
+  },
+  {
+   "send": "{\"jsonrpc\":\"2.0\",\"id\":8,\"method\":\"tools/call\",\"params\":{\"name\":\"memory_save\",\"arguments\":{\"text\":\"x\",\"title\":\"yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy\"}}}",
+   "answer": {
+    "jsonrpc": "2.0",
+    "id": 8,
+    "result": {
+     "content": [
+      {
+       "type": "text",
+       "text": "Invalid arguments: title: Too big: expected string to have <=200 characters"
+      }
+     ],
+     "isError": true
+    }
+   }
+  },
+  {
+   "send": "{\"jsonrpc\":\"2.0\",\"id\":9,\"method\":\"tools/call\",\"params\":{\"name\":\"nope\",\"arguments\":{}}}",
+   "answer": {
+    "jsonrpc": "2.0",
+    "id": 9,
+    "result": {
+     "content": [
+      {
+       "type": "text",
+       "text": "Unknown tool: nope"
+      }
+     ],
+     "isError": true
+    }
+   }
+  },
+  {
+   "send": "{\"jsonrpc\":\"2.0\",\"id\":10,\"method\":\"tools/call\",\"params\":{}}",
+   "answer": {
+    "jsonrpc": "2.0",
+    "id": 10,
+    "error": {
+     "code": -32602,
+     "message": "tools/call needs a tool name"
+    }
+   }
+  },
+  {
+   "send": "{\"jsonrpc\":\"2.0\",\"id\":\"eleven\",\"method\":\"resources/list\"}",
+   "answer": {
+    "jsonrpc": "2.0",
+    "id": "eleven",
+    "error": {
+     "code": -32601,
+     "message": "Method not found: resources/list"
+    }
+   }
+  },
+  {
+   "send": "{\"jsonrpc\":\"2.0\",\"id\":12,\"method\":7}",
+   "answer": {
+    "jsonrpc": "2.0",
+    "id": 12,
+    "error": {
+     "code": -32600,
+     "message": "Invalid request"
+    }
+   }
+  },
+  {
+   "send": "{\"jsonrpc\":\"2.0\",\"method\":\"notifications/cancelled\",\"params\":{\"requestId\":3}}",
+   "answer": null
+  },
+  {
+   "send": "{\"id\":13,\"method\":\"ping\"}",
+   "answer": {
+    "jsonrpc": "2.0",
+    "id": 13,
+    "error": {
+     "code": -32600,
+     "message": "Invalid request"
+    }
+   }
+  },
+  {
+   "send": "{not json",
+   "answer": {
+    "jsonrpc": "2.0",
+    "id": null,
+    "error": {
+     "code": -32700,
+     "message": "Parse error"
+    }
+   }
+  },
+  {
+   "send": "[{\"jsonrpc\":\"2.0\",\"id\":14,\"method\":\"ping\"},{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}]",
+   "answer": [
+    {
+     "jsonrpc": "2.0",
+     "id": 14,
+     "result": {}
+    }
+   ]
+  }
+ ]
+}

@@ -182,6 +182,8 @@ def _check(schema: Mapping[str, Any], v: Any, path: str, issues: list[str]) -> N
             options = "|".join(f'"{x}"' for x in schema["enum"])
             issues.append(f"{where}: Invalid option: expected one of {options}")
             return
+        if "minLength" in schema and u16len(v) < schema["minLength"]:
+            issues.append(f"{where}: Too small: expected string to have >={schema['minLength']} characters")
         if "maxLength" in schema and u16len(v) > schema["maxLength"]:
             issues.append(f"{where}: Too big: expected string to have <={schema['maxLength']} characters")
         # The whole string, as a JavaScript /^…$/ reads it: Python's $ also matches before a trailing newline (every

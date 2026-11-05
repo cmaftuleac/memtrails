@@ -8,7 +8,8 @@ versions follow [Semantic Versioning](https://semver.org/).
 - An MCP server and a command line: `npx memtrails mcp` serves a memory to Claude Desktop, Claude Code, Cursor and any
   MCP client (`memory_search`, `memory_open`, `memory_explore`, and `memory_save` unless `--read-only`), opening it at
   the first tool call and closing it when idle; `memtrails add` fills it from folders, mail, JSONL, a Slack export or
-  git; `memtrails search` asks it. `serveMcp` serves one from code.
+  git; `memtrails search` asks it. `serveMcp` serves one from code. The same in Python (`uvx memtrails mcp`,
+  `serve_mcp`), held to the same answers (`conformance/fixtures/mcp.json`).
 
 ## [0.4.3] — 2026-11-05
 

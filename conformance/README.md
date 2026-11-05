@@ -6,6 +6,8 @@ read by the others. This folder holds what keeps them honest.
 
 - `generate.ts` runs the TypeScript library on fixed inputs and writes what it gives to `fixtures/*.json`.
 - Each port's test suite reads the same fixtures and must give the same answers (floating-point values to 1e-6).
+- `generate-mcp.ts` records what the MCP server (`serveMcp`) answers to a fixed session (`fixtures/mcp.json`): a port's
+  server must answer each message the same.
 - CI regenerates the fixtures and fails when they differ from what is committed: a change in the reference is a
   change every port must follow.
 

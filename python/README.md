@@ -140,6 +140,34 @@ async def ask(req: LlmRequest) -> dict:
 Secrets (keys, tokens, credentials in URLs, private keys) are scrubbed from everything sent to a language model and from
 what consolidation keeps, exactly as the reference scrubs them. `OPENAI_API_KEY` is sent only to OpenAI's own address.
 
+## Memory for Claude, Cursor and other MCP apps
+
+One line gives an MCP client a long-term memory on your machine: `memory_search`, `memory_open`, `memory_explore`,
+and `memory_save` for what the agent should remember.
+
+```bash
+claude mcp add memory -- uvx memtrails mcp                                  # Claude Code
+```
+
+```json
+{ "mcpServers": { "memory": { "command": "uvx", "args": ["memtrails", "mcp"] } } }
+```
+
+The second is for Claude Desktop (`claude_desktop_config.json`), Cursor (`.cursor/mcp.json`) and most other clients.
+Fill the memory from the command line (`memtrails` once installed, or `python -m memtrails`), and try it:
+
+```bash
+uvx memtrails add ~/notes ~/mail/archive.mbox ./slack-export      # notes and documents, mail, a Slack export
+uvx memtrails add --git ~/code/my-repo                             # commit messages and changed files
+uvx memtrails search "why did the certificate stop renewing?"
+```
+
+The memory lives in `~/.memtrails` (`--home` or `MEMTRAILS_HOME` for another), the same files as the TypeScript
+server's: either can serve a memory the other filled. The server opens it at the first tool call and closes it after five
+minutes without one (`--idle`), so `add` can run in between; `--read-only` leaves out `memory_save`. From code:
+`await serve_mcp(lambda: open_memory(home), version=...)`, answering as the reference does
+([`conformance/fixtures/mcp.json`](https://github.com/cmaftuleac/memtrails/blob/main/conformance/fixtures/mcp.json)).
+
 ## For agents
 
 ```python
