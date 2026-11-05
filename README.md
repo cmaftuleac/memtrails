@@ -66,7 +66,8 @@ On Windows, keep a memory's path under 90 characters: Qdrant's files sit up to a
 Windows stops a path at 260 (memtrails says so when one is longer).
 
 On Linux x64, `ONNXRUNTIME_NODE_INSTALL=skip npm install memtrails` skips the CUDA libraries ONNX Runtime's installer
-downloads otherwise (about 350 MB; memtrails runs on the CPU and never uses them; see [SECURITY.md](SECURITY.md)). In
+downloads otherwise (about 350 MB; memtrails runs on the CPU and never uses them). Use it always on a Linux machine
+shared with other users: that download unpacks through a guessable temp folder ([SECURITY.md](SECURITY.md)). In
 an MCP client's configuration the same goes in `"env": { "ONNXRUNTIME_NODE_INSTALL": "skip" }`.
 
 ### Python and Rust
