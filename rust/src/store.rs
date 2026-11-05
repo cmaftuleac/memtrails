@@ -486,6 +486,30 @@ impl<T: Keyed, M: Clone + Send + 'static> Shared<T, M> {
 
     fn put(&self, recs: &[T]) -> Result<()> {
         let mut g = self.lock();
+        self.put_locked(&mut g, recs)
+    }
+
+    /// The records whose projection `keep` still accepts, changed by `change` and appended — under the lock, so no
+    /// other put lands between the check, the read and the write.
+    fn update_if(
+        &self,
+        uids: &[String],
+        keep: &(dyn Fn(&str, &M) -> bool + Send + Sync),
+        change: &(dyn Fn(T) -> T + Send + Sync),
+    ) -> Result<usize> {
+        let mut g = self.lock();
+        let slots: Vec<Slot<M>> =
+            uids.iter().filter_map(|u| g.live.get(u.as_str()).filter(|s| keep(u, &s.meta)).cloned()).collect();
+        if slots.is_empty() {
+            return Ok(0);
+        }
+        let mut file = File::open(&self.path).map_err(|e| Error::io(&self.path, e))?;
+        let recs: Vec<T> = slots.iter().filter_map(|s| Self::read_slot(&mut file, s)).map(change).collect();
+        self.put_locked(&mut g, &recs)?;
+        Ok(recs.len())
+    }
+
+    fn put_locked(&self, g: &mut Inner<M>, recs: &[T]) -> Result<()> {
         if let Some(dir) = self.path.parent() {
             fs::create_dir_all(dir).map_err(|e| Error::io(dir, e))?;
         }
@@ -665,6 +689,22 @@ impl<T: Keyed, M: Clone + Send + 'static> JsonlLog<T, M> {
         }
         let s = self.shared.clone();
         blocking(move || s.put(&recs)).await?
+    }
+
+    /// These records changed by `change` and appended, each only while its projection is one `keep` accepts — the
+    /// check, the read and the write as one step, so a put made meanwhile is neither overwritten nor changed unread.
+    /// How many were changed.
+    pub async fn update_if(
+        &self,
+        uids: Vec<String>,
+        keep: impl Fn(&str, &M) -> bool + Send + Sync + 'static,
+        change: impl Fn(T) -> T + Send + Sync + 'static,
+    ) -> Result<usize> {
+        if uids.is_empty() {
+            return Ok(0);
+        }
+        let s = self.shared.clone();
+        blocking(move || s.update_if(&uids, &keep, &change)).await?
     }
 
     /// Forget these records: gone from memory, and from the file when it is next compacted.

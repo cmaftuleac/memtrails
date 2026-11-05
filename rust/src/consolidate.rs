@@ -807,24 +807,21 @@ impl Consolidator {
         // Read: marked done in the queue. The records stay searchable — the raw record is the truth and the memories
         // learned from them are keys to it. Each as it is now, not as it was read before the model's long answer: one
         // removed meanwhile stays removed, one changed meanwhile is read again.
-        let current: Vec<String> = win
-            .iter()
-            .filter(|e| self.d.stm.meta(&e.uid).is_some_and(|m| m.fp == e.fingerprint))
-            .map(|e| e.uid.clone())
-            .collect();
-        let done: Vec<StmEntry> = self
-            .d
+        // Checked and written as one step in the store, as the reference does it without an await in between: an add
+        // landing between a check here and the write would be overwritten, or a version never read marked done.
+        let read: HashMap<String, String> = win.iter().map(|e| (e.uid.clone(), e.fingerprint.clone())).collect();
+        let uids: Vec<String> = win.iter().map(|e| e.uid.clone()).collect();
+        self.d
             .stm
-            .get_many(current)
-            .await
-            .into_iter()
-            .flatten()
-            .map(|mut e| {
-                e.done = true;
-                e
-            })
-            .collect();
-        self.d.stm.put(done).await?;
+            .update_if(
+                uids,
+                move |uid, m| read.get(uid).is_some_and(|fp| *fp == m.fp),
+                |mut e| {
+                    e.done = true;
+                    e
+                },
+            )
+            .await?;
         r.windows += 1;
         guard(report).add(&r);
         // One at a time, each window's keys are dropped after it; windows at once share the cache until the run ends.

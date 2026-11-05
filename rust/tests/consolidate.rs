@@ -631,3 +631,45 @@ async fn a_cancelled_run_leaves_no_model_call_running() {
     tokio::time::sleep(std::time::Duration::from_millis(500)).await;
     assert_eq!((started.load(Ordering::SeqCst), finished.load(Ordering::SeqCst)), (was, 0));
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_record_changed_while_its_window_is_marked_done_is_neither_lost_nor_marked_done() {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    for _ in 0..60 {
+        let s = setup().await;
+        let stm = s.base.stm.clone();
+        stm.put(vec![entry("c:1", "rotate the certificate", json!({}))]).await.unwrap();
+        let answered = Arc::new(AtomicBool::new(false));
+        let (st, go) = (stm.clone(), answered.clone());
+        // Another add of the same record, over and over, from the moment the model has answered — while the window is
+        // marked done.
+        let writer = tokio::spawn(async move {
+            while !go.load(Ordering::SeqCst) {
+                tokio::task::yield_now().await;
+            }
+            for n in 0..30 {
+                let v =
+                    entry("c:1", "rotate the certificate, and the key", json!({ "fingerprint": format!("c:1-v{n}") }));
+                st.put(vec![v]).await.unwrap();
+            }
+        });
+        let flag = answered.clone();
+        let ask = answering(move |_| {
+            flag.store(true, Ordering::SeqCst);
+            answer(json!({ "segment_summary": "x", "episodes": [], "items": [], "observations": [] }))
+        });
+        Consolidator::new(s.with(ask)).run(20).await.unwrap();
+        writer.await.unwrap();
+        // In the order written: a line marked done is the version that was read, and no other add came before it
+        // (one would have been overwritten by it).
+        let log = std::fs::read_to_string(stm.path()).unwrap();
+        let lines: Vec<Value> = log.lines().map(|l| serde_json::from_str(l).unwrap()).collect();
+        let changed = lines.iter().position(|l| l["fingerprint"] != "c:1");
+        for (i, l) in lines.iter().enumerate() {
+            if l["done"] == true {
+                assert_eq!(l["fingerprint"], "c:1", "a version that was never read was marked done");
+                assert!(changed.is_none_or(|c| i < c), "an add made meanwhile was overwritten: {log}");
+            }
+        }
+    }
+}
