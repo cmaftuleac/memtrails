@@ -89,6 +89,21 @@ describe('a running Qdrant', () => {
     expect(await until(() => spawns(p.dir).length === 2 && p.current() !== null, 5000)).toBe(true);
   }, 10_000);
 
+  it('stopped while a restart is starting it, leaves no Qdrant running after the stop', async () => {
+    const p = qdrant(fakeQdrant('ok'));
+    await p.start();
+    // The restart's start held before it spawns (where a leftover would be stopped), so the stop comes in between.
+    let entered = false;
+    const reap = (p as unknown as { reapLeftover: () => Promise<void> }).reapLeftover.bind(p);
+    Object.assign(p, { reapLeftover: async () => { entered = true; await wait(300); await reap(); } });
+    process.kill(spawns(p.dir)[0]!, 'SIGKILL');
+    expect(await until(() => entered, 5000)).toBe(true);
+    await p.stopAndWait();
+    await wait(800);
+    expect(spawns(p.dir).slice(1).filter((pid) => alive(pid))).toEqual([]);
+    expect(p.current()).toBeNull();
+  }, 10_000);
+
   it('gets none of the host\'s environment but what it needs: no secrets, no QDRANT__ overrides', async () => {
     const keep = { secret: process.env.MEMTRAILS_TEST_SECRET, host: process.env.QDRANT__SERVICE__HOST };
     process.env.MEMTRAILS_TEST_SECRET = 'hunter2';

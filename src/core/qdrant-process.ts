@@ -128,6 +128,12 @@ export class QdrantProcess {
   private stopping = false;
   private deaths: number[] = [];
   private restartTimer: ReturnType<typeof setTimeout> | null = null;
+  /** A restart's start while it runs: stopAndWait waits for it, and for what it began to be gone. */
+  private restarting: Promise<void> | null = null;
+  /** Counts stop()s: a start that sees it move while it starts gives up — before it spawns too, where `child` is null. */
+  private stops = 0;
+  /** This instance's children that have not exited: stopAndWait waits for each, a restart's own included. */
+  private readonly children = new Set<ChildProcess>();
 
   private readonly opts: { binary: string; dir: string; log: (line: string) => void; onDown?: (why: string) => void };
 
@@ -145,10 +151,12 @@ export class QdrantProcess {
    *  caller was told, and may not be there to stop it. */
   async start(): Promise<QdrantEndpoint> {
     this.stopping = false;
+    const stops = this.stops;
     if (this.endpoint && this.child && this.child.exitCode === null) return this.endpoint;
     mkdirSync(this.opts.dir, { recursive: true, mode: 0o700 });
     await this.reapLeftover();
     const port = await freePort();
+    if (this.stops !== stops) throw new Error('Qdrant was stopped while it started');
     const apiKey = randomBytes(24).toString('hex');
     const config = join(this.opts.dir, 'config.yaml');
     writeFileSync(config, qdrantConfig(this.opts.dir, port), { mode: 0o600 });
@@ -164,6 +172,10 @@ export class QdrantProcess {
       closeSync(fd);
     }
     this.child = child;
+    if (child.pid) {
+      this.children.add(child);
+      child.once('exit', () => this.children.delete(child));
+    }
     // A binary that is missing or cannot run is an 'error', never an 'exit' — unheard, it is thrown in the host.
     let failed: Error | null = null;
     child.on('error', (err) => { failed ??= err; });
@@ -274,16 +286,20 @@ export class QdrantProcess {
     this.restartTimer = setTimeout(() => {
       this.restartTimer = null;
       if (this.stopping) return;
-      this.start().catch((err) => {
+      // Held until its start ends: a stop() meanwhile makes that start give up and stop what it began.
+      const run: Promise<void> = this.start().then(() => undefined, (err: unknown) => {
+        if (this.stopping) return; // given up for a stop: nothing is down
         this.opts.onDown?.((err as Error).message);
-        if (!this.stopping) this.restartLater((err as Error).message);
-      });
+        this.restartLater((err as Error).message);
+      }).finally(() => { if (this.restarting === run) this.restarting = null; });
+      this.restarting = run;
     }, wait);
     this.restartTimer.unref?.();
   }
 
   stop(): void {
     this.stopping = true;
+    this.stops++;
     if (this.restartTimer) { clearTimeout(this.restartTimer); this.restartTimer = null; }
     const c = this.child;
     this.child = null;
@@ -291,14 +307,18 @@ export class QdrantProcess {
     if (c) c.kill('SIGTERM');
   }
 
-  /** Stop and wait for the process to be gone — before its storage is deleted. */
+  /** Stop and wait for the process to be gone — before its storage is deleted. A restart that was starting one ends
+   *  first, and the Qdrant it began is waited for too: none is left running after a close. */
   async stopAndWait(ms = 10_000): Promise<void> {
-    const c = this.child;
+    const restart = this.restarting;
     this.stop();
-    if (!c || c.exitCode !== null || c.signalCode !== null) return;
-    await new Promise<void>((resolve) => {
+    const within = (p: Promise<unknown>): Promise<void> => new Promise<void>((resolve) => {
       const t = setTimeout(resolve, ms);
-      c.once('exit', () => { clearTimeout(t); resolve(); });
+      const done = (): void => { clearTimeout(t); resolve(); };
+      p.then(done, done);
     });
+    if (restart) await within(restart);
+    await Promise.all([...this.children].filter((c) => c.exitCode === null && c.signalCode === null)
+      .map((c) => within(new Promise((exited) => c.once('exit', exited)))));
   }
 }

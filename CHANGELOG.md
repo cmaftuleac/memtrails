@@ -7,6 +7,8 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 - Fixes: a rebuild that is stopped (a close, a newer rebuild) returns only once the batches it was writing are written,
   so none of them lands in the index after it.
+- Fixes: `close()` while memory's own Qdrant is being restarted (after it died) stops that restart and waits for the
+  Qdrant it began; one could come up after the close and stay running.
 
 ## [0.4.0] — 2026-11-04
 
