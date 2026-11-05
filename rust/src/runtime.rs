@@ -9,7 +9,7 @@
 use std::fs;
 use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::sync::OnceLock;
+use std::sync::Mutex;
 
 use crate::download::{download_verified, private_cache, with_lock, DownloadOptions, LockOptions, Pin, TempFolder};
 use crate::error::{Error, Result};
@@ -186,22 +186,50 @@ pub async fn ensure_runtime(o: &DownloadOptions) -> Result<PathBuf> {
     .await
 }
 
-static LOADED: OnceLock<std::result::Result<PathBuf, String>> = OnceLock::new();
+/// The library this process runs on once one has loaded — or why the one handed to ort could not be.
+static LOADED: Mutex<Option<std::result::Result<PathBuf, String>>> = Mutex::new(None);
 
-/// Load the library into this process, once: every model after it runs on it. A second library asked for later is
-/// refused (a process holds one ONNX Runtime).
+/// Two paths to one build: the same file, or the pinned version's library under the same name (another cache's copy
+/// of the same verified release).
+fn same_runtime(a: &Path, b: &Path) -> bool {
+    if a == b || std::fs::canonicalize(a).is_ok_and(|x| std::fs::canonicalize(b).is_ok_and(|y| x == y)) {
+        return true;
+    }
+    let pinned = |p: &Path| p.file_name().and_then(|n| n.to_str()).is_some_and(|n| n.contains(ONNXRUNTIME_VERSION));
+    a.file_name() == b.file_name() && pinned(a) && pinned(b)
+}
+
+/// Load the library into this process, once: every model after it runs on it. The same build asked for from another
+/// place (a second cache) is the one already loaded; another build is refused (a process holds one ONNX Runtime).
+///
+/// A library that is not there is refused before ort sees it, and not remembered: the next call tries again (a
+/// download finished since, a path set right). One that ort itself fails to load is remembered: ort 2.0.0-rc.11
+/// marks its library loaded even when loading failed, and a second try would run on a library that is not there.
 pub(crate) fn load(lib: &Path) -> Result<()> {
-    let loaded = LOADED.get_or_init(|| match ort::init_from(lib) {
+    let mut loaded = LOADED.lock().unwrap_or_else(|e| e.into_inner());
+    match loaded.as_ref() {
+        Some(Ok(at)) if same_runtime(at, lib) => return Ok(()),
+        Some(Ok(at)) => return Err(Error::Model(format!("ONNX Runtime is already loaded from {}", at.display()))),
+        Some(Err(why)) => return Err(Error::Model(why.clone())),
+        None => {}
+    }
+    if !lib.is_file() {
+        return Err(Error::Model(format!("ONNX Runtime could not be loaded from {}: no such file", lib.display())));
+    }
+    match ort::init_from(lib) {
         Ok(builder) => {
             let _ = builder.commit();
-            Ok(lib.to_path_buf())
+            *loaded = Some(Ok(lib.to_path_buf()));
+            Ok(())
         }
-        Err(e) => Err(format!("ONNX Runtime could not be loaded from {}: {e}", lib.display())),
-    });
-    match loaded {
-        Ok(at) if at == lib => Ok(()),
-        Ok(at) => Err(Error::Model(format!("ONNX Runtime is already loaded from {}", at.display()))),
-        Err(e) => Err(Error::Model(e.clone())),
+        Err(e) => {
+            let why = format!(
+                "ONNX Runtime could not be loaded from {}: {e} (it cannot be loaded again in this process)",
+                lib.display()
+            );
+            *loaded = Some(Err(why.clone()));
+            Err(Error::Model(why))
+        }
     }
 }
 
@@ -239,5 +267,21 @@ mod tests {
         // A cache others can write to: they could swap the folder the library is in between the check and the load.
         sys::chmod(cache.path(), 0o777).unwrap();
         assert!(!ready(cache.path(), 7, "abc", inner));
+    }
+
+    #[test]
+    fn a_failed_load_is_not_remembered_and_the_same_build_elsewhere_is_the_same_runtime() {
+        let dir = tempfile::tempdir().unwrap();
+        // Names no system folder has (macOS looks a missing library's name up in its fallback folders). A library
+        // that is not there is never handed to ort, so it is not a failure the process has to keep.
+        let (x, y) = (dir.path().join("memtrails-missing-x.dylib"), dir.path().join("memtrails-missing-y.dylib"));
+        assert!(load(&x).unwrap_err().to_string().contains(&x.display().to_string()));
+        // Tried again, and from where it is asked for now — not the first failure handed back.
+        assert!(load(&y).unwrap_err().to_string().contains(&y.display().to_string()));
+        let (a, b) = (dir.path().join("a/libonnxruntime.so.1.23.2"), dir.path().join("b/libonnxruntime.so.1.23.2"));
+        assert!(same_runtime(&a, &b));
+        assert!(same_runtime(&a, &a));
+        assert!(!same_runtime(&a, &dir.path().join("b/libonnxruntime.so.1.22.0")));
+        assert!(!same_runtime(&dir.path().join("own/libonnxruntime.so"), &dir.path().join("other/libonnxruntime.so")));
     }
 }
