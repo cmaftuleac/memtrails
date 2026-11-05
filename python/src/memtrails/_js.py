@@ -74,7 +74,6 @@ def cut(s: str, n: int) -> str:
 # JavaScript's \s: ECMAScript WhiteSpace and LineTerminator.
 JS_SPACE = "\t\n\v\f\r    -     　﻿"
 JS_WS = f"[{JS_SPACE}]"
-JS_NOT_WS = f"[^{JS_SPACE}]"
 
 _WS_RUN = re.compile(f"{JS_WS}+")
 

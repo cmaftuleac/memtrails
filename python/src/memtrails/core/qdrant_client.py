@@ -282,27 +282,6 @@ class QdrantClient:
             for p in (r or {}).get("points", [])
         ]
 
-    async def best_per_item(self, vector: list[float], items: Sequence[str], part: str, timeout_ms: float = 2000) -> dict[str, float]:
-        """Each of these items' best cosine to one vector among its points of one part (key, child, cue)."""
-        if not items:
-            return {}
-        r = await self._call(
-            "POST",
-            f"{self._at}/points/query/groups",
-            {
-                "query": vector,
-                "using": "dense",
-                "params": _RESCORE,
-                "filter": {"must": [{"key": "item", "match": {"any": list(items)}}, {"key": "part", "match": {"value": part}}]},
-                "group_by": "item",
-                "group_size": 1,
-                "limit": len(items),
-                "with_payload": False,
-            },
-            timeout_ms,
-        )
-        return {str(g["id"]): (g["hits"][0]["score"] if g.get("hits") else 0) for g in (r or {}).get("groups", [])}
-
     async def nearest_many(
         self,
         vectors: Sequence[list[float]],
