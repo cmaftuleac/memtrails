@@ -12,6 +12,10 @@ versions follow [Semantic Versioning](https://semver.org/).
 - Fixes: an add no longer runs beside a rebuild (a record could be logged but never indexed, then skipped as unchanged
   when added again); `close()` waits for the adds and searches in flight, and every call after it is refused with
   "memory is closed".
+- `LlmRequest.signal` (optional): aborted when no one will read the answer any more; `openAiAsk` stops its call and its
+  retries. Asks made side by side (consolidation's windows, cues and reconcile batches, gathering's parts, sleep's
+  relate batches, profiles) stop the others when one fails. Consolidation that fails or is stopped starts no further
+  extraction and returns only once the ones being read are over; before, they ran on, paid for, after it returned.
 
 ## [0.4.0] — 2026-11-04
 

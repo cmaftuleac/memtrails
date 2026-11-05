@@ -17,7 +17,7 @@
  */
 import { createHash } from 'node:crypto';
 import { redactString } from './redact.js';
-import { defaultAsk } from '../llm.js';
+import { allOrAbort, defaultAsk } from '../llm.js';
 import { stamped, type ConsolidateDeps } from './consolidate.js';
 import type { MemoryItem, MemoryScope } from './store.js';
 import { conceptKey, cut } from './text.js';
@@ -127,12 +127,14 @@ export async function writeProfiles(d: ConsolidateDeps, max = PROFILES_PER_SLEEP
   }
   const todo = subjects.filter((s) => { const m = d.ltm.meta(s.uid); return m?.status !== 'active' || m.fp !== s.fingerprint; }).slice(0, max);
   let next = 0;
-  await Promise.all(Array.from({ length: Math.min(PROFILE_IN_FLIGHT, todo.length) }, async () => {
-    while (!r.paused && next < todo.length && !d.aborted()) {
+  // A lane that throws stops the others, their asks too (allOrAbort).
+  await allOrAbort(Array.from({ length: Math.min(PROFILE_IN_FLIGHT, todo.length) }, () => async (signal: AbortSignal) => {
+    while (!r.paused && next < todo.length && !d.aborted() && !signal.aborted) {
       const s = todo[next++]!;
       const a = await (d.ask ?? defaultAsk)({
         purpose: 'memory', system: PROFILE_SYSTEM, prompt: redactString(promptOf(s)), schema: PROFILE_SCHEMA as unknown as Record<string, unknown>,
         name: 'memory_profile', maxTokens: 3000, timeoutMs: 180_000, consequence: "so this subject's profile waits for the next night",
+        signal,
       });
       if (!('answer' in a)) { r.paused = 'unavailable' in a ? a.unavailable : 'busy'; return; }
       const answer = a.answer as { title?: unknown; facts?: unknown };

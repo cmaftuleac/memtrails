@@ -384,7 +384,11 @@ export interface ExtractOptions {
   ask?: Ask; /** false: observations are read apart (observeWindow). */ observations?: boolean;
   /** Passages of other conversations related to this part (consolidate.ts): what a description refers to is named. */
   known?: string[];
+  /** Aborted when the answer is no longer wanted: passed to each ask, and no further part is asked. */
+  signal?: AbortSignal;
 }
+
+const STOPPED = { unavailable: 'the ask was stopped, so this part of the conversation waits to be consolidated' };
 
 /** What the model reads before the part: where it comes from, the calendar of its days, and what other conversations
  *  say that it may refer to. */
@@ -398,10 +402,12 @@ function headerOf(win: ReadableRequest[], meta: { cwd: string | null; engine: st
 
 async function askExtraction(prompt: string, opts: ExtractOptions): Promise<Asked> {
   const withObservations = opts.observations !== false;
+  if (opts.signal?.aborted) return STOPPED;
   const r = await (opts.ask ?? defaultAsk)({
     purpose: 'memory', system: withObservations ? SYSTEM : SYSTEM_WITHOUT_OBSERVATIONS, prompt: redactString(prompt),
     schema: (withObservations ? SCHEMA : SCHEMA_WITHOUT_OBSERVATIONS) as unknown as Record<string, unknown>, name: 'memory_consolidation',
     maxTokens: EXTRACT_MAX_TOKENS, timeoutMs: 300_000, consequence: 'so this part of the conversation waits to be consolidated',
+    ...(opts.signal ? { signal: opts.signal } : {}),
   });
   if ('unavailable' in r || 'busy' in r) return r;
   return { answer: r.answer as Answer };
@@ -477,7 +483,7 @@ export async function extractWindow(win: ReadableRequest[], meta: { cwd: string 
 /** Observations read apart, Mem0's way: a small window of requests in one focused ask, with what came just before it
  *  as context — what a large window's one ask for everything let slip (the events a list question needs). A request
  *  longer than the window is read in parts, in order, each part with the one before as its context. */
-export async function observeWindow(win: ReadableRequest[], before: ReadableRequest[], meta: { cwd: string | null; engine: string; title: string }, opts: { ask?: Ask; chars: number; known?: string[] }): Promise<{ observations: Observation[] } | { unavailable: string } | { busy: true }> {
+export async function observeWindow(win: ReadableRequest[], before: ReadableRequest[], meta: { cwd: string | null; engine: string; title: string }, opts: { ask?: Ask; chars: number; known?: string[]; signal?: AbortSignal }): Promise<{ observations: Observation[] } | { unavailable: string } | { busy: true }> {
   const header = headerOf(win, meta, opts.known);
   const context = before.map((e) => renderForExtraction(e, 0).replace(/^## (Request|Record) 0/, '## Earlier $1')).join('\n\n').slice(-Math.floor(opts.chars / 2));
   const rendered = win.map((e, i) => renderForExtraction(e, i + 1)).join('\n\n');
@@ -487,9 +493,11 @@ export async function observeWindow(win: ReadableRequest[], before: ReadableRequ
   for (const [k, text] of parts.entries()) {
     const earlier = k === 0 ? context : parts[k - 1]!.slice(-Math.floor(opts.chars / 2));
     const prompt = `${header}\n\n${earlier ? `JUST BEFORE (context only):\n${earlier}\n\n` : ''}TO READ${parts.length > 1 ? ` (part ${k + 1} of ${parts.length})` : ''}:\n${text}`;
+    if (opts.signal?.aborted) return STOPPED;
     const r = await (opts.ask ?? defaultAsk)({
       purpose: 'memory', system: OBSERVE_SYSTEM, prompt: redactString(prompt), schema: OBSERVE_SCHEMA as unknown as Record<string, unknown>,
       name: 'memory_observations', maxTokens: 16_000, timeoutMs: 300_000, consequence: 'so this part of the conversation waits to be consolidated',
+      ...(opts.signal ? { signal: opts.signal } : {}),
     });
     if ('unavailable' in r || 'busy' in r) return r;
     out.push(...cleanObservations((r.answer as { observations?: RawObservation[] }).observations ?? [], uidOf));

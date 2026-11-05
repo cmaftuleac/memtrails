@@ -256,3 +256,64 @@ describe('a model that is not there', () => {
     expect(read.paused).toBeUndefined();
   });
 });
+
+/** An ask that takes `ms` — or less, when its signal is aborted — and counts what it started and what is still running. */
+function countingAsk(answer: (a: LlmRequest, n: number) => LlmAnswer | Promise<LlmAnswer>, ms: (n: number) => number) {
+  const c = { started: 0, running: 0, aborted: 0 };
+  const ask = async (a: LlmRequest): Promise<LlmAnswer> => {
+    const n = c.started++;
+    c.running++;
+    try {
+      await new Promise<void>((ok) => {
+        const stopped = (): void => { clearTimeout(t); c.aborted++; ok(); };
+        const t = setTimeout(() => { a.signal?.removeEventListener('abort', stopped); ok(); }, ms(n));
+        a.signal?.addEventListener('abort', stopped, { once: true });
+      });
+      return a.signal?.aborted ? { unavailable: 'stopped' } : await answer(a, n);
+    } finally { c.running--; }
+  };
+  return { c, ask };
+}
+const keptEpisode = { answer: { segment_summary: 'x', episodes: [{ request: 1, keep: true, title: 'Rotated the certificate', summary: 'The certificate was rotated.' }], items: [], observations: [] } };
+/** Six threads, a window each. */
+function sixThreads(s: ReturnType<typeof setup>): void {
+  s.stm.put(Array.from({ length: 6 }, (_, i) => entry(`t:${i}`, `request number ${i}`, { session: `sess-${i}`, ts: OLD + i })));
+}
+
+describe('a run that fails or is stopped leaves no model call running', () => {
+  it('a window that fails to reconcile starts no other extraction, and the ones being read are stopped before it throws', async () => {
+    const s = setup();
+    sixThreads(s);
+    const { c, ask } = countingAsk(() => keptEpisode, (n) => (n === 0 ? 20 : 400));
+    const failing = async (): Promise<Float32Array[]> => { throw new Error('the embedding server is down'); };
+    await expect(new Consolidator({ ...s.base, embed: failing, ask, concurrency: 2 }).run()).rejects.toThrow('the embedding server is down');
+    // The first window read, its place refilled at once (the third), then it failed: the two being read are stopped,
+    // and none starts after.
+    expect(c.running).toBe(0);
+    expect(c.aborted).toBe(2);
+    await new Promise((ok) => setTimeout(ok, 500));
+    expect(c.started).toBe(3);
+  });
+
+  it('stopped (aborted) while windows are read, returns only once their asks are over', async () => {
+    const s = setup();
+    sixThreads(s);
+    let stop = false;
+    const { c, ask } = countingAsk(() => { stop = true; return nothing; }, (n) => (n === 0 ? 20 : 400));
+    await new Consolidator({ ...s.base, aborted: () => stop, ask, concurrency: 3 }).run();
+    expect(c.running).toBe(0);
+    expect(c.aborted).toBe(2);
+    expect(c.started).toBe(3);
+  });
+
+  it('gathering: a part whose ask throws stops the others, and they are over when it throws', async () => {
+    const s = setup();
+    const obs = Array.from({ length: 50 }, (_, n) => item({ uid: `obs:${n}`, kind: 'observation', title: `Nadia bought item ${n}`, summary: `Nadia bought item ${n}`, scope: 'person' }));
+    await writeLtm(s.base, obs);
+    const { c, ask } = countingAsk(() => { throw new Error('the model client broke'); }, (n) => (n === 0 ? 20 : 2000));
+    await expect(memoryGather({ client: s.client, embed }, { query: 'what did Nadia buy' }, { ask })).rejects.toThrow('the model client broke');
+    expect(c.started).toBe(2);
+    expect(c.running).toBe(0);
+    expect(c.aborted).toBe(1);
+  });
+});

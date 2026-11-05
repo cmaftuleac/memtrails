@@ -14,7 +14,7 @@
  * the model did not answer keeps all of its candidates.
  */
 import { redactString } from './redact.js';
-import { defaultAsk, type Ask } from '../llm.js';
+import { allOrAbort, defaultAsk, type Ask } from '../llm.js';
 import { PROFILE_SHOWN } from './profiles.js';
 import { memorySearch, MAX_SEARCH, type RecallDeps, type RecalledItem, type SearchQuery } from './recall.js';
 import { cut } from './text.js';
@@ -77,12 +77,14 @@ async function pick(ask: Ask, question: string, list: RecalledItem[], notes = fa
   const parts: RecalledItem[][] = [];
   const size = notes ? NOTES_PART : PART;
   for (let i = 0; i < list.length; i += size) parts.push(list.slice(i, i + size));
-  const answers = await Promise.all(parts.map(async (part) => {
+  // The parts asked at once; one that throws stops the others (allOrAbort).
+  const answers = await allOrAbort(parts.map((part) => async (signal) => {
     const prompt = `Question: ${question}\n\nMemories:\n${part.map((h, n) => line(h, n + 1)).join('\n')}`;
     const a = await ask({
       purpose: 'memory', system: notes ? SYSTEM + NOTES_RULE : SYSTEM, prompt: redactString(prompt),
       schema: (notes ? NOTES_SCHEMA : SCHEMA) as unknown as Record<string, unknown>,
       name: 'memory_gather', maxTokens: 40 * part.length + (notes ? 1400 : 600), timeoutMs: 120_000, consequence: 'so these memories are kept unread',
+      signal,
     });
     if (!('answer' in a)) return { keep: part.map((h) => h.id), searches: [] as string[], notes: [] as string[], paused: 'unavailable' in a ? a.unavailable : 'the fast model is busy' };
     const got = a.answer as { keep?: unknown; searches?: unknown; notes?: unknown };

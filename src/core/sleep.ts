@@ -18,6 +18,7 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { Consolidator, learnedAt, RELATED, relateBatches, SAME, type ConsolidateDeps, type Decision } from './consolidate.js';
 import { docText } from './embedder.js';
+import { allOrAbort } from '../llm.js';
 import { pointId, type Filter } from './qdrant-client.js';
 import { writeProfiles } from './profiles.js';
 import type { MemoryItem, MemoryKind, UsageLog } from './store.js';
@@ -126,10 +127,11 @@ export class Sleep {
     const inFlight = Math.max(1, this.d.relateInFlight ?? RELATE_IN_FLIGHT);
     let next = 0;
     let unanswered = false;
-    await Promise.all(Array.from({ length: Math.min(inFlight, batches.length) }, async () => {
-      while (!unanswered && next < batches.length && !this.d.aborted()) {
+    // A lane that throws stops the others, their asks too (allOrAbort).
+    await allOrAbort(Array.from({ length: Math.min(inFlight, batches.length) }, () => async (signal: AbortSignal) => {
+      while (!unanswered && next < batches.length && !this.d.aborted() && !signal.aborted) {
         const b = batches[next++]!;
-        const got = await worker.relate(b);
+        const got = await worker.relate(b, signal);
         if (!(got instanceof Map)) { unanswered = true; r.paused ??= got.paused; resumeAt = Math.min(resumeAt ?? Infinity, ...b.map((p) => p.at)); return; }
         b.forEach((p, n) => { const d = got.get(`p${n + 1}`); if (d) answers.set(p, d); });
       }
@@ -149,8 +151,9 @@ export class Sleep {
       r.merged++;
     });
     let at = 0;
-    await Promise.all(Array.from({ length: Math.max(1, this.d.applyAtOnce ?? 1) }, async () => {
-      while (at < pairs.length && !this.d.aborted()) await apply(pairs[at++]!);
+    // An answer that fails to apply stops the other lanes at their next pair.
+    await allOrAbort(Array.from({ length: Math.max(1, this.d.applyAtOnce ?? 1) }, () => async (signal: AbortSignal) => {
+      while (at < pairs.length && !this.d.aborted() && !signal.aborted) await apply(pairs[at++]!);
     }));
     if (this.d.aborted()) return r;
     // 2–3. Priority, and the archive.

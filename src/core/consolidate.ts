@@ -15,7 +15,7 @@
  * Then the window's entries are marked done and leave the short-term index: what mattered of them is long-term now.
  */
 import { redactString } from './redact.js';
-import { defaultAsk } from '../llm.js';
+import { allOrAbort, defaultAsk } from '../llm.js';
 import { episodeBody } from './episodes.js';
 import { docText } from './embedder.js';
 import { cleanConcepts, cleanCues, extractWindow, observeWindow, windowsOf, type Ask, type Candidate, type Extraction, type Observation } from './extract.js';
@@ -60,7 +60,7 @@ export interface ConsolidateDeps extends WriterDeps {
   /** What a window's reading may keep, checked before anything is reconciled or written (e.g. facts only
    *  from the person's own words and results the agent confirmed, each with where it came from). An answer it cannot
    *  give leaves the window for the next run, as an extraction that was not answered does. */
-  guard?: (win: StmEntry[], x: Extraction) => Promise<Extraction | { unavailable: string } | { busy: true }>;
+  guard?: (win: StmEntry[], x: Extraction, signal?: AbortSignal) => Promise<Extraction | { unavailable: string } | { busy: true }>;
 }
 
 /** Requests of a window searched for, and the passages of other conversations kept to name what it refers to. */
@@ -289,6 +289,8 @@ export class Consolidator {
     }
     const limit = Math.max(1, this.d.concurrency ?? EXTRACT_CONCURRENCY);
     const extracting: Array<ReturnType<Consolidator['read']> | undefined> = [];
+    /** Aborted once the lanes end — failed, paused, stopped or done: what is still being read is read for no one. */
+    const stop = new AbortController();
     // A pool: the next window starts when ANY one is read, not when the oldest is — one slow answer (measured: an
     // answer that ran on for 19,000 lines) held every other place idle while the windows after it waited their turn.
     // They are still reconciled in order.
@@ -299,17 +301,18 @@ export class Consolidator {
       while (!stopped && reading < limit && next < wins.length && !this.d.aborted()) {
         const win = wins[next]!;
         const head = win[0]!;
-        const p = this.read(win, { cwd: head.cwd, engine: head.engine, title: head.title });
+        const p = this.read(win, { cwd: head.cwd, engine: head.engine, title: head.title }, stop.signal);
         reading++;
-        // One left behind by a pause or a stop is not an unhandled rejection; the awaited one still throws.
-        p.then(() => { reading--; launch(); }, () => { reading--; });
+        // One left behind by a pause or a stop is not an unhandled rejection; the awaited one still throws. One that
+        // throws starts no other: the run throws when it is reached, and no one would read their answers.
+        p.then(() => { reading--; launch(); }, () => { reading--; stopped = true; });
         extracting[next++] = p;
       }
     };
     launch();
     const together = Math.max(1, Math.min(limit, this.d.reconcileConcurrency ?? 1));
     /** Window i, once read: reconciled, observed, marked done — or 'stop' when the run pauses. */
-    const settle = async (i: number): Promise<'stop' | undefined> => {
+    const settle = async (i: number, signal: AbortSignal): Promise<'stop' | undefined> => {
       const x = await extracting[i]!.catch((err: unknown) => { stopped = true; throw err; });
       const win = wins[i]!;
       const head = win[0]!;
@@ -343,7 +346,7 @@ export class Consolidator {
         ...kept.map((k) => episodeItem(byUid.get(k.uid)!, k, now)),
         ...x.candidates.map((c) => itemOf(c, byUid.get(c.provenance.at(-1) ?? '') ?? head, now, c.provenance.flatMap((u) => byUid.get(u) ?? []))),
       ];
-      await this.reconcile(fresh, r);
+      await this.reconcile(fresh, r, signal);
       await this.observe(x.observations.map((o) => observationItem(o, byUid.get(o.provenance.at(-1) ?? '') ?? head, now)), r);
       r.dropped += x.dropped;
       r.episodes += kept.length;
@@ -363,12 +366,21 @@ export class Consolidator {
     };
     let at = 0;
     let halt = false;
-    const lane = async (): Promise<void> => {
-      while (!halt && at < wins.length && extracting[at] && !this.d.aborted()) {
-        try { if (await settle(at++) === 'stop') halt = true; } catch (err) { halt = true; throw err; }
+    const lane = async (signal: AbortSignal): Promise<void> => {
+      while (!halt && at < wins.length && extracting[at] && !this.d.aborted() && !signal.aborted) {
+        // No window is started after a failure: the run throws, and no one would read its answer.
+        try { if (await settle(at++, signal) === 'stop') halt = true; } catch (err) { halt = true; stopped = true; throw err; }
       }
     };
-    await Promise.all(Array.from({ length: together }, lane));
+    try {
+      await allOrAbort(Array.from({ length: together }, () => lane), stop.signal);
+    } finally {
+      // What is still being read once the lanes end is aborted, and over before the run goes on: no paid ask outlives
+      // it, and none starts after it (`stopped`).
+      stopped = true;
+      stop.abort();
+      await Promise.allSettled(extracting.filter((p) => p !== undefined));
+    }
     if (halt && r.paused !== undefined) return r;
     this.vecs.clear();
     if (!this.d.aborted()) {
@@ -382,23 +394,28 @@ export class Consolidator {
   }
 
   /** One window's reading, and what the guard (when there is one) lets it keep. */
-  private async read(win: StmEntry[], meta: { cwd: string | null; engine: string; title: string }): Promise<Extraction | { unavailable: string } | { busy: true }> {
-    const x = await this.extract(win, meta);
-    return this.d.guard && 'candidates' in x ? this.d.guard(win, x) : x;
+  private async read(win: StmEntry[], meta: { cwd: string | null; engine: string; title: string }, signal?: AbortSignal): Promise<Extraction | { unavailable: string } | { busy: true }> {
+    const x = await this.extract(win, meta, signal);
+    if (!this.d.guard || !('candidates' in x)) return x;
+    // Read for no one once the run stopped: the guard (it may ask a model too) is not asked.
+    if (signal?.aborted) return { unavailable: 'the run stopped' };
+    return this.d.guard(win, x, signal);
   }
 
   /** One window's extraction: the one ask — and, when observations are read apart, the window's small windows too, each
    *  with the one before it as context. Any part not answered leaves the whole window for the next run. */
-  private async extract(win: StmEntry[], meta: { cwd: string | null; engine: string; title: string }): Promise<Extraction | { unavailable: string } | { busy: true }> {
+  private async extract(win: StmEntry[], meta: { cwd: string | null; engine: string; title: string }, signal?: AbortSignal): Promise<Extraction | { unavailable: string } | { busy: true }> {
     const chars = this.d.observeChars;
     const known = this.d.resolve ? await this.knownFor(win) : undefined;
-    if (!chars) return extractWindow(win, meta, { ask: this.d.ask, known });
+    if (!chars) return extractWindow(win, meta, { ask: this.d.ask, known, ...(signal ? { signal } : {}) });
     const subs = windowsOf(win, chars);
-    const [x, ...seen] = await Promise.all([
-      extractWindow(win, meta, { ask: this.d.ask, observations: false, known }),
-      ...subs.map((sub, k) => observeWindow(sub, k ? subs[k - 1]! : [], meta, { ask: this.d.ask, chars, known })),
-    ]);
-    if (!('candidates' in x!)) return x!;
+    // The window's asks at once; one that throws stops the others (allOrAbort).
+    type Read = Awaited<ReturnType<typeof extractWindow>> | Awaited<ReturnType<typeof observeWindow>>;
+    const [x, ...seen] = await allOrAbort<Read>([
+      (s) => extractWindow(win, meta, { ask: this.d.ask, observations: false, known, signal: s }),
+      ...subs.map((sub, k) => (s: AbortSignal) => observeWindow(sub, k ? subs[k - 1]! : [], meta, { ask: this.d.ask, chars, known, signal: s })),
+    ], signal);
+    if (!('candidates' in x!)) return x as { unavailable: string } | { busy: true };
     const failed = seen.find((o) => !('observations' in o));
     if (failed) return failed as { unavailable: string } | { busy: true };
     return { ...x!, observations: seen.flatMap((o) => ('observations' in o ? o.observations : [])) };
@@ -451,7 +468,8 @@ export class Consolidator {
     let cued = 0;
     for (let i = 0; i < batches.length; i += limit) {
       if (this.d.aborted()) break;
-      const answers = await Promise.all(batches.slice(i, i + limit).map((b) => this.cueBatch(b)));
+      // One that throws stops the others (allOrAbort).
+      const answers = await allOrAbort(batches.slice(i, i + limit).map((b) => (signal: AbortSignal) => this.cueBatch(b, signal)));
       const paused = answers.find((a): a is { paused: string } => 'paused' in a);
       const got = answers.flatMap((a) => ('items' in a ? a.items : []));
       if (got.length) {
@@ -466,11 +484,12 @@ export class Consolidator {
     return { cued };
   }
 
-  private async cueBatch(items: MemoryItem[]): Promise<{ items: MemoryItem[] } | { paused: string }> {
+  private async cueBatch(items: MemoryItem[], signal?: AbortSignal): Promise<{ items: MemoryItem[] } | { paused: string }> {
     const prompt = items.map((it, n) => `[i${n + 1}] (${it.kind}) ${it.title}\n${it.summary}${it.appliesWhen ? `\nNeeded when: ${it.appliesWhen}` : ''}`).join('\n\n');
     const a = await (this.d.ask ?? defaultAsk)({
       purpose: 'memory', system: CUE_SYSTEM, prompt: redactString(prompt), schema: CUE_SCHEMA as unknown as Record<string, unknown>,
       name: 'memory_cues', maxTokens: 550 * items.length + 200, timeoutMs: 120_000, consequence: 'so these memories wait for their cues',
+      ...(signal ? { signal } : {}),
     });
     if ('unavailable' in a) return { paused: a.unavailable };
     if ('busy' in a) return { paused: 'the fast model is busy' };
@@ -485,7 +504,7 @@ export class Consolidator {
   }
 
   /** Each item against what long-term memory holds — written as it goes, so a later item sees an earlier one. */
-  private async reconcile(items: MemoryItem[], r: ConsolidationReport): Promise<void> {
+  private async reconcile(items: MemoryItem[], r: ConsolidationReport, signal?: AbortSignal): Promise<void> {
     const ask: Array<{ it: MemoryItem; known: MemoryItem }> = [];
     // Every key of the window in one embedding call (the cache serves each below and again when it is written).
     await this.embed(items.map((it) => docText(it.title, it.summary)), embedBudget(items.length));
@@ -508,7 +527,9 @@ export class Consolidator {
     }
     // The pairs are fixed before any is asked about: every batch asked at once, the answers applied in order.
     const batches = relateBatches(ask);
-    const answers = await Promise.all(batches.map((b) => this.relate(b)));
+    // One that throws stops the others (allOrAbort); a run stopped meanwhile (a lane beside this one failed) applies none.
+    const answers = await allOrAbort(batches.map((b) => (s: AbortSignal) => this.relate(b, s)), signal);
+    if (signal?.aborted) throw new Error('consolidation stopped');
     for (const [b, batch] of batches.entries()) {
       const got = answers[b];
       for (const [n, { it, known }] of batch.entries()) {
@@ -640,7 +661,7 @@ export class Consolidator {
   }
 
   /** The model's decision for each pair, by its label (`p1`, …) — or why it did not answer. */
-  async relate(batch: Array<{ it: MemoryItem; known: MemoryItem }>): Promise<Map<string, Decision> | { paused: string }> {
+  async relate(batch: Array<{ it: MemoryItem; known: MemoryItem }>, signal?: AbortSignal): Promise<Map<string, Decision> | { paused: string }> {
     // Whole texts: a merge the model writes from a shortened body loses the rest of it.
     const prompt = batch.map(({ it, known }, n) => `[p${n + 1}]\nNEW (${it.kind}): ${it.title}\n${it.summary}\n${it.body}\n\nKNOWN (${known.kind}): ${known.title}\n${known.summary}\n${known.body}`).join('\n\n');
     // Room for every merged text in full (≈ 2.5 characters a token, the two sides together), with the decisions.
@@ -648,6 +669,7 @@ export class Consolidator {
     const a = await (this.d.ask ?? defaultAsk)({
       purpose: 'memory', system: RELATE_SYSTEM, prompt: redactString(prompt), schema: RELATE_SCHEMA as unknown as Record<string, unknown>,
       name: 'memory_reconcile', maxTokens: 900 * batch.length + 200 + room, timeoutMs: 300_000, consequence: 'so these memories are kept apart for now',
+      ...(signal ? { signal } : {}),
     });
     if ('unavailable' in a) return { paused: a.unavailable };
     if (!('answer' in a)) return { paused: 'the fast model is busy' };

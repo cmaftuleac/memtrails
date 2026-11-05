@@ -21,6 +21,9 @@ export interface LlmRequest {
   timeoutMs?: number;
   /** What a failure cost, said after its reason ("so no summary was written"). */
   consequence?: string;
+  /** Aborted when no one will read the answer any more (an ask beside it failed, the run stopped): an ask that honours
+   *  it stops paying for one. */
+  signal?: AbortSignal;
 }
 
 export type LlmAnswer =
@@ -54,6 +57,36 @@ const OPENAI = 'https://api.openai.com/v1';
 
 const why = (reason: string, req: LlmRequest): string => `${reason}${req.consequence ? `, ${req.consequence}` : ''}`;
 
+/** A wait that an abort ends early. */
+const pause = (ms: number, signal?: AbortSignal): Promise<void> => new Promise((ok) => {
+  if (signal?.aborted) return ok();
+  const done = (): void => { clearTimeout(t); signal?.removeEventListener('abort', done); ok(); };
+  const t = setTimeout(done, ms);
+  signal?.addEventListener('abort', done, { once: true });
+});
+
+/**
+ * `Promise.all` for asks side by side, each handed a signal: the first that throws aborts the others — an ask that
+ * honours `signal` stops, and none is paid for an answer no one reads — and they have all settled when it is thrown.
+ * `outer` (the caller's) aborts them too.
+ */
+export async function allOrAbort<T>(jobs: Array<(signal: AbortSignal) => Promise<T>>, outer?: AbortSignal): Promise<T[]> {
+  const c = new AbortController();
+  const follow = (): void => c.abort(outer?.reason);
+  if (outer?.aborted) follow(); else outer?.addEventListener('abort', follow, { once: true });
+  // Each started in order, at once, as Promise.all over async functions would.
+  const runs = jobs.map(async (job) => job(c.signal));
+  try {
+    return await Promise.all(runs);
+  } catch (err) {
+    c.abort(err);
+    await Promise.allSettled(runs);
+    throw err;
+  } finally {
+    outer?.removeEventListener('abort', follow);
+  }
+}
+
 export function openAiAsk(o: OpenAiAskOptions = {}): Ask {
   return async (req) => {
     const model = req.model ?? o.model ?? process.env.MEMTRAILS_MODEL?.trim();
@@ -68,16 +101,20 @@ export function openAiAsk(o: OpenAiAskOptions = {}): Ask {
       text: { format: { type: 'json_schema', name: req.name ?? 'memory', strict: true, schema: req.schema } },
     });
     const tries = Math.max(1, (o.retries ?? 5) + 1);
+    const stopped = { unavailable: why('the ask was stopped', req) };
     let last = '';
     for (let attempt = 0; attempt < tries; attempt++) {
-      if (attempt) await new Promise((ok) => setTimeout(ok, Math.min(60_000, 1000 * 2 ** (attempt - 1)) * (0.5 + Math.random())));
+      if (attempt) await pause(Math.min(60_000, 1000 * 2 ** (attempt - 1)) * (0.5 + Math.random()), req.signal);
+      if (req.signal?.aborted) return stopped;
+      const timeout = AbortSignal.timeout(req.timeoutMs ?? 180_000);
       let res: Response;
       try {
         res = await (o.fetchImpl ?? fetch)(`${base}/responses`, {
-          method: 'POST', body, signal: AbortSignal.timeout(req.timeoutMs ?? 180_000),
+          method: 'POST', body, signal: req.signal ? AbortSignal.any([req.signal, timeout]) : timeout,
           headers: { authorization: `Bearer ${key}`, 'content-type': 'application/json' },
         });
       } catch (err) {
+        if (req.signal?.aborted) return stopped;
         last = (err as Error).message || (err as Error).name;
         continue;
       }
