@@ -1,0 +1,74 @@
+name: Rust release
+
+# Publishes the Rust crate to crates.io when a tag `rs-v<version>` is pushed (git tag rs-v0.4.0 && git push origin
+# rs-v0.4.0). The tag must match rust/Cargo.toml's version.
+#
+# Two jobs, so the credential that can publish is never in reach of the build: `build` compiles every dependency's
+# build script and runs the tests with read-only rights, and packs the crate; `publish`, in the `crates-io` environment,
+# only publishes. It authenticates through crates.io trusted publishing (GitHub's short-lived OIDC token, nothing
+# stored) — or, until the crate exists on crates.io and trusted publishing is configured for it, through a
+# CARGO_REGISTRY_TOKEN secret of the `crates-io` environment.
+on:
+  push:
+    tags: ['rs-v*']
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+defaults:
+  run:
+    working-directory: rust
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        with:
+          toolchain: stable
+          components: rustfmt, clippy
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 24
+      - name: The tag is the crate's version
+        run: test "rs-v$(cargo metadata --no-deps --format-version 1 | python3 -c 'import json,sys; print(json.load(sys.stdin)["packages"][0]["version"])')" = "$GITHUB_REF_NAME"
+      - run: cargo fmt --check
+      - run: cargo clippy --all-targets -- -D warnings
+      - run: cargo test --locked
+      - run: cargo package --locked
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: crate
+          path: rust/target/package/memtrails-*.crate
+          if-no-files-found: error
+
+  publish:
+    runs-on: ubuntu-latest
+    needs: build
+    environment: crates-io
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      HAS_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN != '' }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        with:
+          toolchain: stable
+      - name: A token from crates.io trusted publishing
+        id: auth
+        if: env.HAS_TOKEN != 'true'
+        uses: rust-lang/crates-io-auth-action@3268eb413133e2960fa4ae0e963ca76380c54cd9 # v1.0.6
+      # The build job verified this very source (the tag's) compiles and passes; publishing does not build it again.
+      - run: cargo publish --locked --no-verify
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token || secrets.CARGO_REGISTRY_TOKEN }}
