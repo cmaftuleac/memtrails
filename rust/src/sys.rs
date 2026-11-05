@@ -185,6 +185,15 @@ pub(crate) fn signal(pid: i64, kill: bool) {
     }
 }
 
+/// How long "access denied" on making a lock is taken for one being removed (Windows) before it is an error.
+pub(crate) const DELETE_PENDING_MS: u64 = 2000;
+
+/// Windows answers "access denied", not "exists" or "not found", for a file another process is removing at that
+/// moment: a lock being let go. A moment later it is gone. Elsewhere that answer is a real refusal.
+pub(crate) fn being_removed(e: &std::io::Error) -> bool {
+    cfg!(windows) && e.kind() == std::io::ErrorKind::PermissionDenied
+}
+
 /// Run `f` when the process exits normally (the C runtime's `atexit`, on every platform).
 pub(crate) fn at_exit(f: extern "C" fn()) {
     extern "C" {

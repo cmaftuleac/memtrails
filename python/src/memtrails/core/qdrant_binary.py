@@ -30,7 +30,7 @@ import httpx
 
 from .._fs import O_BINARY, write_all
 from .._http import using
-from .._proc import pid_alive
+from .._proc import DELETE_PENDING_S, being_removed, pid_alive
 from .paths import cache_dir
 
 T = TypeVar("T")
@@ -258,6 +258,7 @@ async def with_lock(path: str, run: Callable[[], Awaitable[T]], stale_ms: float 
     lock = f"{path}.lock"
     mine = f"{os.getpid()} {socket.gethostname()} {secrets.token_hex(8)}"
     os.makedirs(os.path.dirname(lock) or ".", exist_ok=True)
+    denied: float | None = None
     while True:
         try:
             fd = os.open(lock, os.O_WRONLY | os.O_CREAT | os.O_EXCL | O_BINARY, 0o600)
@@ -273,7 +274,13 @@ async def with_lock(path: str, run: Callable[[], Awaitable[T]], stale_ms: float 
             os.close(fd)
             break
         except FileExistsError:
-            pass
+            denied = None
+        except PermissionError as e:
+            denied = denied or time.monotonic()
+            if not being_removed(e) or time.monotonic() - denied >= DELETE_PENDING_S:
+                raise
+            await asyncio.sleep(poll_ms / 1000)
+            continue
         if _lock_stale(lock, stale_ms):
             try:
                 os.remove(lock)

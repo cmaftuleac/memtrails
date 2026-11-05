@@ -257,7 +257,9 @@ fn lock_holder(path: &Path) -> (String, Option<i64>) {
 /// before a reboot (its pid may be another's now), is taken over.
 fn lock_home(dir: &Path) -> Result<PathBuf> {
     let path = dir.join(LOCK_FILE);
-    for attempt in 0.. {
+    let mut attempt = 0;
+    let mut denied: Option<std::time::Instant> = None;
+    loop {
         let mut o = std::fs::OpenOptions::new();
         o.write(true).create_new(true);
         #[cfg(unix)]
@@ -289,6 +291,15 @@ fn lock_home(dir: &Path) -> Result<PathBuf> {
                 if std::fs::read_to_string(&path).is_ok_and(|t| t == text) {
                     let _ = std::fs::remove_file(&path);
                 }
+                attempt += 1;
+                denied = None;
+            }
+            Err(e)
+                if sys::being_removed(&e)
+                    && denied.get_or_insert_with(std::time::Instant::now).elapsed().as_millis()
+                        < u128::from(sys::DELETE_PENDING_MS) =>
+            {
+                std::thread::sleep(std::time::Duration::from_millis(10));
             }
             Err(e) => return Err(Error::io(&path, e)),
         }

@@ -276,6 +276,7 @@ where
     if let Some(dir) = lock.parent() {
         tokio::fs::create_dir_all(dir).await.map_err(|e| Error::io(dir, e))?;
     }
+    let mut denied: Option<std::time::Instant> = None;
     let held = loop {
         match private_options().open(&lock).await {
             Ok(mut fd) => {
@@ -284,7 +285,15 @@ where
                 fd.write_all(mine.as_bytes()).await.map_err(|e| Error::io(&lock, e))?;
                 break held;
             }
-            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {}
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => denied = None,
+            Err(e)
+                if sys::being_removed(&e)
+                    && denied.get_or_insert_with(std::time::Instant::now).elapsed().as_millis()
+                        < u128::from(sys::DELETE_PENDING_MS) =>
+            {
+                tokio::time::sleep(Duration::from_millis(o.poll_ms)).await;
+                continue;
+            }
             Err(e) => return Err(Error::io(&lock, e)),
         }
         let at = lock.clone();

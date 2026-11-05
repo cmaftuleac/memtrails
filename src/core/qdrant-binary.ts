@@ -188,11 +188,22 @@ function lockStale(lock: string, staleMs: number): boolean {
  * rests on the lock for correctness (every file is verified in a private temp and renamed into place); it keeps two
  * runs from fetching the same hundreds of MB, and from swapping folders under each other.
  */
+/** How long "access denied" on making a lock is taken for one being removed (Windows) before it is an error. */
+export const DELETE_PENDING_MS = 2000;
+
+/** Windows answers "access denied", not "exists" or "not found", for a file another process is removing at that moment:
+ *  a lock being let go. A moment later it is gone. Elsewhere that answer is a real refusal. */
+export function beingRemoved(err: unknown): boolean {
+  const code = (err as NodeJS.ErrnoException).code;
+  return process.platform === 'win32' && (code === 'EPERM' || code === 'EACCES');
+}
+
 export async function withLock<T>(path: string, f: () => Promise<T>, o: { signal?: AbortSignal; staleMs?: number; pollMs?: number } = {}): Promise<T> {
   const lock = `${path}.lock`;
   const staleMs = o.staleMs ?? LOCK_STALE_MS;
   const mine = `${process.pid} ${hostname()} ${randomBytes(8).toString('hex')}`;
   mkdirSync(dirname(lock), { recursive: true });
+  let denied: number | null = null;
   for (;;) {
     try {
       const fd = openSync(lock, 'wx', 0o600);
@@ -200,7 +211,12 @@ export async function withLock<T>(path: string, f: () => Promise<T>, o: { signal
       closeSync(fd);
       break;
     } catch (err) {
+      if (beingRemoved(err) && Date.now() - (denied ??= Date.now()) < DELETE_PENDING_MS) {
+        await new Promise((ok) => setTimeout(ok, o.pollMs ?? 250));
+        continue;
+      }
       if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err;
+      denied = null;
     }
     if (lockStale(lock, staleMs)) {
       rmSync(lock, { force: true });

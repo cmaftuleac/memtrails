@@ -21,7 +21,7 @@ import { remoteEmbedder, resolveEmbedRoute, type EmbedRoute } from './core/embed
 import { memoryGather, type Gathered } from './core/gather.js';
 import { loadLocalEmbedder, type LocalEmbedder } from './core/local-embedder.js';
 import { ensureModel } from './core/model.js';
-import { ensureQdrant } from './core/qdrant-binary.js';
+import { beingRemoved, DELETE_PENDING_MS, ensureQdrant } from './core/qdrant-binary.js';
 import { COLLECTION, INDEX_LAYOUT, QdrantClient } from './core/qdrant-client.js';
 import { alive, bootTime, QdrantProcess, sameBoot, type QdrantEndpoint } from './core/qdrant-process.js';
 import { memoryExplore, memoryOpen, memorySearch, type Explored, type RecallDeps, type RecalledItem, type SearchQuery } from './core/recall.js';
@@ -138,12 +138,19 @@ function lockHolder(path: string): { text: string; pid: number | null } {
  *  ran before a reboot (its pid may be another's now), is taken over. Returns its release. */
 function lockHome(dir: string): () => void {
   const path = join(dir, LOCK_FILE);
+  let denied: number | null = null;
   for (let attempt = 0; ; attempt++) {
     let fd: number;
     try {
       fd = openSync(path, 'wx', 0o600);
     } catch (err) {
+      if (beingRemoved(err) && Date.now() - (denied ??= Date.now()) < DELETE_PENDING_MS) {
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10); // a moment, then again
+        attempt--;
+        continue;
+      }
       if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err;
+      denied = null;
       const { text, pid } = lockHolder(path);
       if (pid !== null || attempt > 0) {
         throw new Error(`memory ${dir} is open${pid ? ` in process ${pid}` : ''}: close it there first (if no process has it, delete ${path})`);

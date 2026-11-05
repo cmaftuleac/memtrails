@@ -27,6 +27,7 @@ import inspect
 import os
 import sys
 import threading
+import time
 from collections.abc import AsyncIterable, AsyncIterator, Awaitable, Callable, Iterable, Mapping, Sequence
 from contextlib import asynccontextmanager
 from types import TracebackType
@@ -37,6 +38,7 @@ import httpx
 from ._fs import O_BINARY, write_all, write_file
 from ._http import new_client
 from ._js import date_parse, iso_day, now_ms, parse, stringify, u16len, u16slice
+from ._proc import DELETE_PENDING_S, being_removed
 from .core.consolidate import ConsolidateDeps, Consolidator, new_report
 from .core.embedder import Embed, EmbedRoute, remote_embedder, resolve_embed_route
 from .core.episodes import episode_body
@@ -162,10 +164,18 @@ def _lock_home(directory: str) -> Callable[[], None]:
     before a reboot (its pid may be another's now), is taken over. Returns its release."""
     path = os.path.join(directory, _LOCK_FILE)
     attempt = 0
+    denied: float | None = None
     while True:
         try:
             fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | O_BINARY, 0o600)
+        except PermissionError as e:
+            denied = denied or time.monotonic()
+            if not being_removed(e) or time.monotonic() - denied >= DELETE_PENDING_S:
+                raise
+            time.sleep(0.01)
+            continue
         except FileExistsError:
+            denied = None
             text, pid = _lock_holder(path)
             if pid is not None or attempt > 0:
                 who = f" in process {pid}" if pid else ""

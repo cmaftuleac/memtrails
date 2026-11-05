@@ -54,3 +54,13 @@ def pid_alive(pid: object) -> bool:
     if not isinstance(pid, int) or isinstance(pid, bool) or pid <= 0:
         return False
     return _exists(pid)
+
+
+#: How long "access denied" on making a lock is taken for one being removed (Windows) before it is an error.
+DELETE_PENDING_S = 2.0
+
+
+def being_removed(e: OSError) -> bool:
+    """Windows answers "access denied", not "exists" or "not found", for a file another process is removing at that
+    moment: a lock being let go. A moment later it is gone. Elsewhere that answer is a real refusal."""
+    return sys.platform == "win32" and isinstance(e, PermissionError)
