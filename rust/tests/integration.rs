@@ -34,6 +34,8 @@ async fn the_local_model_gives_the_references_vectors() {
         assert_eq!(g.len(), w.len());
         let worst = g.iter().zip(&w).map(|(a, b)| (f64::from(*a) - b).abs()).fold(0.0, f64::max);
         assert!(worst < CLOSE, "a vector differs by {worst}");
+        let cosine: f64 = g.iter().zip(&w).map(|(a, b)| f64::from(*a) * b).sum();
+        assert!(cosine > 0.999, "cosine {cosine}");
     }
     let texts: Vec<String> = serde_json::from_value(f["words"]["texts"].clone()).unwrap();
     let words = e.words(texts, WordKind::Query).await.unwrap();

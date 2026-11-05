@@ -1,7 +1,7 @@
 //! The ONNX Runtime the local model runs on: Microsoft's own release, the version the reference's `onnxruntime-node`
 //! carries (1.23.2), fetched on first use from its GitHub release, checked against the size and SHA-256 pinned below,
 //! and loaded at run time. ONNX Runtime builds differ in their 4-bit matrix kernels: with another build the vectors
-//! drift by up to ~0.007 a number (cosine ~0.999) from the reference's; with this one they are the same, so an index
+//! drift by up to ~0.007 a number (cosine ~0.999) from the reference's; with this one they are the same on the same processor family, so an index
 //! written by either library is searched alike by the other.
 //!
 //! `MEMTRAILS_ONNXRUNTIME` names a library of your own instead (nothing is fetched then).

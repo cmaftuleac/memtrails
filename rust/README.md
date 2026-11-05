@@ -139,8 +139,10 @@ Importers in `memtrails::importers` stream records: `from_mbox`, `from_eml`, `fr
   along with its JSON Schema, room and wait. What the gate keeps of fixed answers.
 - **Agent tools:** each tool's schema, its argument checks and its answers.
 - **Importers:** what each importer reads from committed inputs.
-- **Embeddings:** the local model's vectors for fixed texts, equal to the reference's to 1e-6. This one runs with
-  `--ignored`, because it needs the model.
+- **Embeddings:** the local model's vectors for fixed texts, equal to the reference's to 1e-6 on the processor family
+  the fixture was made on (macOS, arm64), because both run Microsoft's ONNX Runtime 1.23.2. On x64, ONNX Runtime's own
+  CPU kernels round differently, by up to about 0.003 a number (cosine above 0.999). This one runs with `--ignored`,
+  because it needs the model.
 
 `conformance/generate-rust.ts` writes the fixtures that are only this port's.
 
