@@ -852,3 +852,14 @@ exit 1
     assert_eq!(got[0].as_ref().unwrap().title.as_deref(), Some("Fix the build"));
     assert!(got[1].as_ref().unwrap_err().to_string().contains("something broke"));
 }
+
+#[tokio::test]
+async fn slack_an_empty_workspace_address_gives_no_links() {
+    // `opts.workspaceUrl ? … : undefined`: "" is no address, not one that makes `/archives/…` links.
+    let dir = slack_export();
+    let records =
+        all(from_slack_export(dir.path(), SlackOptions { workspace_url: Some(String::new()), ..Default::default() })
+            .await)
+        .await;
+    assert!(!records.is_empty() && records.iter().all(|r| r.url.is_none()), "{:?}", records[0].url);
+}

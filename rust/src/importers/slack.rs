@@ -273,10 +273,12 @@ impl Export {
             .or_else(|| user.map(str::to_string));
         let ms = (js_number_of(&ts) * 1000.0 + 0.5).floor();
         let thread_ts = m.get("thread_ts").filter(|v| !v.is_null()).map(js_string).unwrap_or_else(|| ts.clone());
+        // An empty address is none, as the reference's `opts.workspaceUrl ? … : undefined` reads it.
         let url = self
             .o
             .workspace_url
             .as_ref()
+            .filter(|w| !w.is_empty())
             .map(|w| format!("{}/archives/{}/p{}", w.trim_end_matches('/'), c.id, ts.replacen('.', "", 1)));
         let field = |k: &str| m.get(k).cloned();
         Some(
