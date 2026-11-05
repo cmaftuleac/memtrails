@@ -284,8 +284,13 @@ async def test_a_cancelled_run_leaves_nothing_being_asked(tmp_path: Path) -> Non
     model = Reading()
     model.asked = 1  # every answer is slow
     running = asyncio.ensure_future(Consolidator(s.deps(ask=model, concurrency=3)).run(6))
-    while model.now < 3:
-        await asyncio.sleep(0.01)
+
+    async def three_asked() -> None:
+        while model.now < 3:
+            assert not running.done(), running.exception() if not running.cancelled() else "cancelled"
+            await asyncio.sleep(0.01)
+
+    await asyncio.wait_for(three_asked(), 30)  # a run that failed early fails here, never hangs
     running.cancel()
     with pytest.raises(asyncio.CancelledError):
         await running
