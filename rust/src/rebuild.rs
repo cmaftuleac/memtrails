@@ -50,12 +50,20 @@ pub struct MemoryRebuild {
     /// One run at a time: a run of the same `begin` joins the one before it (finding nothing left), a newer one waits
     /// for the cancelled one to stop.
     running: tokio::sync::Mutex<()>,
+    /// Held while the checkpoint is written or removed, with the check that the run is still current: a cancelled
+    /// run's save landing after `begin`'s once moved the new checkpoint past records never written, or deleted it.
+    checkpoint: tokio::sync::Mutex<()>,
 }
 
 impl MemoryRebuild {
     /// A rebuild over these logs.
     pub fn new(d: RebuildDeps) -> Self {
-        MemoryRebuild { d, generation: AtomicU64::new(0), running: tokio::sync::Mutex::new(()) }
+        MemoryRebuild {
+            d,
+            generation: AtomicU64::new(0),
+            running: tokio::sync::Mutex::new(()),
+            checkpoint: tokio::sync::Mutex::new(()),
+        }
     }
 
     /// The run in flight stops at its next step, without moving or removing the checkpoint.
@@ -71,8 +79,18 @@ impl MemoryRebuild {
     /// Written BEFORE clearing an old index: a crash at any later point leaves a resumable rebuild. A run in flight is
     /// cancelled: it wrote into the index about to be cleared, and must neither move nor delete the new checkpoint.
     pub async fn begin(&self) -> Result<()> {
+        let _write = self.checkpoint.lock().await;
         self.generation.fetch_add(1, Ordering::SeqCst);
         save(&self.d.path, &Checkpoint { phase: "ltm".into(), after: None }).await
+    }
+
+    /// The checkpoint moved — only while this run is still the current one, checked and written as one step.
+    async fn save_current(&self, generation: u64, c: &Checkpoint) -> Result<()> {
+        let _write = self.checkpoint.lock().await;
+        if self.cancelled(generation) {
+            return Ok(());
+        }
+        save(&self.d.path, c).await
     }
 
     /// Run (or resume) the rebuild begun last; nothing when none is pending.
@@ -134,7 +152,7 @@ impl MemoryRebuild {
                 return Ok(());
             }
             checkpoint = Checkpoint { phase: "stm".into(), after: None };
-            save(&self.d.path, &checkpoint).await?;
+            self.save_current(generation, &checkpoint).await?;
         }
         // Every record stays searchable, consolidated or not: the raw record is the truth, a memory a key to it. Only
         // throwaway runs (synthetic) stay out.
@@ -154,8 +172,11 @@ impl MemoryRebuild {
                 generation,
             )
             .await?;
-        if done && !self.cancelled(generation) {
-            let _ = tokio::fs::remove_file(&self.d.path).await;
+        if done {
+            let _write = self.checkpoint.lock().await;
+            if !self.cancelled(generation) {
+                let _ = tokio::fs::remove_file(&self.d.path).await;
+            }
         }
         Ok(())
     }
@@ -221,9 +242,8 @@ impl MemoryRebuild {
                                 break 'reading;
                             }
                             if let Some(last) = advance(&mut queue) {
-                                if !self.cancelled(generation) {
-                                    save(&self.d.path, &Checkpoint { phase: phase.into(), after: Some(last) }).await?;
-                                }
+                                let c = Checkpoint { phase: phase.into(), after: Some(last) };
+                                self.save_current(generation, &c).await?;
                             }
                         }
                     }
@@ -244,9 +264,7 @@ impl MemoryRebuild {
             self.settle(&mut queue, id, r, &mut failure);
         }
         if let Some(last) = advance(&mut queue) {
-            if !self.cancelled(generation) {
-                save(&self.d.path, &Checkpoint { phase: phase.into(), after: Some(last) }).await?;
-            }
+            self.save_current(generation, &Checkpoint { phase: phase.into(), after: Some(last) }).await?;
         }
         if let Some(e) = failure {
             return Err(e);

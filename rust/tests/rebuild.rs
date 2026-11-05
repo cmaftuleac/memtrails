@@ -241,14 +241,20 @@ async fn a_cancelled_run_does_not_move_the_checkpoint() {
 
 #[tokio::test]
 async fn a_rebuild_begun_again_while_one_runs_stops_it_and_writes_everything() {
+    // No sleeps: the first run's first batch is held at a gate while the rebuild is begun again, then let go.
     let r = rig();
     r.deps.stm.put((0..32 * 3).map(|i| entry(&format!("r{i:03}"))).collect()).await.unwrap();
     let index = Arc::new(Mutex::new(std::collections::HashSet::new()));
-    let ix = index.clone();
+    let (held, gate) = (Arc::new(tokio::sync::Notify::new()), Arc::new(tokio::sync::Notify::new()));
+    let first_batch = Arc::new(AtomicBool::new(true));
+    let (ix, h, g, once) = (index.clone(), held.clone(), gate.clone(), first_batch.clone());
     let write: WriteBatch<StmEntry> = Arc::new(move |xs| {
-        let ix = ix.clone();
+        let (ix, h, g, once) = (ix.clone(), h.clone(), g.clone(), once.clone());
         Box::pin(async move {
-            tokio::time::sleep(Duration::from_millis(20)).await;
+            if once.swap(false, Ordering::SeqCst) {
+                h.notify_one();
+                g.notified().await;
+            }
             ix.lock().unwrap().extend(xs.into_iter().map(|x| x.uid));
             Ok(())
         })
@@ -257,14 +263,43 @@ async fn a_rebuild_begun_again_while_one_runs_stops_it_and_writes_everything() {
     job.begin().await.unwrap();
     let j = job.clone();
     let first = tokio::spawn(async move { j.run().await });
-    while index.lock().unwrap().is_empty() {
-        tokio::time::sleep(Duration::from_millis(5)).await;
-    }
+    held.notified().await;
     job.begin().await.unwrap();
-    index.lock().unwrap().clear();
-    let second = job.run().await;
+    gate.notify_one();
     first.await.unwrap().unwrap();
-    second.unwrap();
+    // The cancelled run moved nothing: the checkpoint is begin's.
+    assert_eq!(checkpoint(&r), serde_json::json!({ "phase": "ltm", "after": null }));
+    index.lock().unwrap().clear();
+    job.run().await.unwrap();
     assert_eq!(index.lock().unwrap().len(), 32 * 3);
     assert!(!r.deps.path.exists());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_cancelled_runs_checkpoint_never_lands_after_the_new_begin() {
+    // The race behind a test that failed now and then: a run saw it was current, then a begin wrote its checkpoint,
+    // then the run's save landed over it — the next run skipped the records it named. Tried many times over.
+    for _ in 0..150 {
+        let r = rig();
+        r.deps.stm.put((0..64).map(|i| entry(&format!("r{i:03}"))).collect()).await.unwrap();
+        let wrote = Arc::new(AtomicUsize::new(0));
+        let w2 = wrote.clone();
+        let write: WriteBatch<StmEntry> = Arc::new(move |_xs| {
+            let w2 = w2.clone();
+            Box::pin(async move {
+                w2.fetch_add(1, Ordering::SeqCst);
+                Ok(())
+            })
+        });
+        let job = Arc::new(MemoryRebuild::new(RebuildDeps { write_stm: write, ..r.deps.clone() }));
+        job.begin().await.unwrap();
+        let j = job.clone();
+        let first = tokio::spawn(async move { j.run().await });
+        while wrote.load(Ordering::SeqCst) == 0 {
+            tokio::task::yield_now().await;
+        }
+        job.begin().await.unwrap();
+        first.await.unwrap().unwrap();
+        assert_eq!(checkpoint(&r), serde_json::json!({ "phase": "ltm", "after": null }));
+    }
 }
