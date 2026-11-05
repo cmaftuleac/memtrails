@@ -26,3 +26,4 @@ export type { RerankRoute } from './core/reranker.js';
 export { sentenceRoom, sentenceSpans } from './core/room.js';
 export { maxSim, packWords, WordStore, WORD_LIMIT, type WordEncoder, type WordVectors, type PackedWords } from './core/words.js';
 export { cacheDir } from './core/paths.js';
+export { serveMcp, MCP_PROTOCOL_VERSIONS, type McpServerOptions } from './mcp.js';

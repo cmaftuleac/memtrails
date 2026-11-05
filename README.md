@@ -45,8 +45,8 @@ await memory.close();
   answer an independent audit found wrong. [Benchmarks](docs/BENCHMARKS.md).
 - **Explorable.** A concept graph links what records share — people, places, systems, names — so an agent can walk
   from what it found to what a search for the words does not find.
-- **Built for agents.** `memory.tools()` gives `memory_search`, `memory_open` and `memory_explore` with zod and JSON
-  schemas, ready for an MCP server or any function-calling API.
+- **Built for agents.** `npx memtrails mcp` gives Claude, Cursor or any MCP app a memory it can search and save to;
+  `memory.tools()` gives the same tools with zod and JSON schemas, for your own server or any function-calling API.
 
 ## Install
 
@@ -68,6 +68,32 @@ answers in [`conformance/`](https://github.com/cmaftuleac/memtrails/tree/main/co
 pip install memtrails          # Python 3.10–3.13, asyncio — see python/README.md
 cargo add memtrails            # Rust 1.88+, tokio — see rust/README.md
 ```
+
+## Memory for Claude, Cursor and other MCP apps
+
+One line gives an MCP client a long-term memory on your machine: `memory_search`, `memory_open`, `memory_explore`,
+and `memory_save` for what the agent should remember.
+
+```bash
+claude mcp add memory -- npx -y memtrails mcp                                  # Claude Code
+```
+
+```json
+{ "mcpServers": { "memory": { "command": "npx", "args": ["-y", "memtrails", "mcp"] } } }
+```
+
+The second is for Claude Desktop (`claude_desktop_config.json`), Cursor (`.cursor/mcp.json`) and most other clients.
+Fill the memory from the command line, and try it:
+
+```bash
+npx memtrails add ~/notes ~/mail/archive.mbox ./slack-export      # notes and documents, mail, a Slack export
+npx memtrails add --git ~/code/my-repo                             # commit messages and changed files
+npx memtrails search "why did the certificate stop renewing?"
+```
+
+The memory lives in `~/.memtrails` (`--home` or `MEMTRAILS_HOME` for another). The server opens it at the first tool
+call and closes it after five minutes without one (`--idle`), so `add` can run in between; `--read-only` leaves out
+`memory_save`. From code: `serveMcp({ open: () => openMemory({ home }), version })`.
 
 ## Adding data
 
