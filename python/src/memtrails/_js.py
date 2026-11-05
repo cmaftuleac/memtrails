@@ -333,11 +333,21 @@ def _make_day(year: float, month: float, day: float) -> float:
     return _days_from_civil(int(ym), mn + 1, 1) + day - 1
 
 
+#: No zone is further than this from UTC (UTC+14 is the furthest).
+_MAX_OFFSET_S = 18 * 3600
+
+
 def _local_offset_ms(utc_ms: float) -> int:
-    try:
-        return int(time.localtime(utc_ms / 1000).tm_gmtoff) * 1000
-    except (OverflowError, OSError, ValueError):
-        return 0
+    """The local zone's offset at this time. Where the system cannot say (before 1970 on Windows, or an offset no zone
+    has: Windows gives one 2**33 seconds off for some years past 2038), the offset it has now."""
+    for at in (utc_ms / 1000, None):
+        try:
+            off = int((time.localtime(at) if at is not None else time.localtime()).tm_gmtoff)
+        except (OverflowError, OSError, ValueError):
+            continue
+        if abs(off) <= _MAX_OFFSET_S:
+            return off * 1000
+    return 0
 
 
 def _local_to_utc(local_ms: float) -> float:
