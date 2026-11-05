@@ -33,9 +33,18 @@ pub type RecordStream = Pin<Box<dyn Stream<Item = Result<MemoryRecord>> + Send>>
 /// Records read ahead of the consumer: enough to keep the reader busy, few enough to stay small.
 const READ_AHEAD: usize = 64;
 
+/// What a panic said, as far as it said anything.
+fn panic_text(p: &(dyn std::any::Any + Send)) -> String {
+    p.downcast_ref::<&str>()
+        .map(|s| (*s).to_string())
+        .or_else(|| p.downcast_ref::<String>().cloned())
+        .unwrap_or_else(|| "a panic".into())
+}
+
 /// A blocking reader as a stream: `open` and the iterator it gives run on a blocking thread, each record sent over a
 /// bounded channel. An error from `open` is returned here, before any record; the reader stops when the stream is
-/// dropped.
+/// dropped. A reader that panics ends the stream with an error saying so — its thread's handle was dropped, and the
+/// stream once just ended, as if the source had.
 pub(crate) async fn blocking_stream<I, F>(open: F) -> Result<RecordStream>
 where
     F: FnOnce() -> Result<I> + Send + 'static,
@@ -44,20 +53,30 @@ where
     let (tx, rx) = mpsc::channel(READ_AHEAD);
     let (opened, ready) = oneshot::channel();
     tokio::task::spawn_blocking(move || {
-        let records = match open() {
-            Ok(it) => {
+        let records = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(open)) {
+            Ok(Ok(it)) => {
                 let _ = opened.send(Ok(()));
                 it
             }
-            Err(e) => {
+            Ok(Err(e)) => {
                 let _ = opened.send(Err(e));
                 return;
             }
-        };
-        for r in records {
-            if tx.blocking_send(r).is_err() {
-                break; // nobody reads any more
+            Err(p) => {
+                let _ = opened
+                    .send(Err(Error::Import(format!("the reader failed opening its source: {}", panic_text(&*p)))));
+                return;
             }
+        };
+        let read = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            for r in records {
+                if tx.blocking_send(r).is_err() {
+                    break; // nobody reads any more
+                }
+            }
+        }));
+        if let Err(p) = read {
+            let _ = tx.blocking_send(Err(Error::Import(format!("the reader failed part-way: {}", panic_text(&*p)))));
         }
     });
     ready.await.map_err(|_| Error::Import("the reader stopped before it opened its source".into()))??;
@@ -67,4 +86,28 @@ where
 /// Items in groups of `size` (the last may be shorter), as they come.
 pub fn batches<T, S: Stream<Item = T> + Send>(s: S, size: usize) -> impl Stream<Item = Vec<T>> {
     s.chunks(size.max(1))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn a_reader_that_panics_part_way_ends_its_stream_with_an_error() {
+        let s = blocking_stream(|| {
+            let mut n = 0;
+            Ok(std::iter::from_fn(move || {
+                n += 1;
+                assert!(n < 2, "a reader bug");
+                Some(Ok(MemoryRecord::new("r1", "first")))
+            }))
+        })
+        .await
+        .unwrap();
+        let got: Vec<Result<MemoryRecord>> = s.collect().await;
+        assert_eq!(got.len(), 2, "{got:?}");
+        assert_eq!(got[0].as_ref().unwrap().id, "r1");
+        let err = got[1].as_ref().unwrap_err().to_string();
+        assert!(err.contains("a reader bug"), "{err}");
+    }
 }
