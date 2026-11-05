@@ -171,13 +171,14 @@ The environment variables are the reference's: `MEMTRAILS_CACHE`, `MEMTRAILS_MOD
 
 Every method that does I/O is `async def`, and a memory is an async context manager. A memory belongs to the event loop
 that opened it: use it, and close it, from that loop. One `httpx.AsyncClient` reaches a Qdrant of yours, the embedding
-and rerank servers, the language model and the downloads (streamed, given up after 60 s without a byte); memory's own Qdrant is reached
-through a client of its own that takes no proxy from the environment. Qdrant, `tar` and `git` run as asyncio subprocesses; Qdrant is supervised and restarted by an asyncio task, bound to
-127.0.0.1 with a random key, proven to be ours before it gets the key, and given a minimal environment. The model's
-inference (one at a time, under an `asyncio.Lock`), word-by-word scoring, and the reading or rewriting of whole files run
-on threads, so the event loop never waits on them. Consolidate, sleep, rebuild, index_words and remove take turns under an
-`asyncio.Lock`, and an add waits while a rebuild runs; `close()` stops the running one at its next step and waits for
-it and for the adds and searches in flight.
+and rerank servers, the language model and the downloads (streamed, given up after 60 s without a byte); memory's own
+Qdrant is reached through a client of its own that takes no proxy from the environment. Qdrant, `tar` and `git` run as
+asyncio subprocesses; Qdrant is supervised and restarted by an asyncio task, bound to 127.0.0.1 with a random key,
+proven to be ours before it gets the key, and given a minimal environment. The model's inference (one at a time, under
+an `asyncio.Lock`), word-by-word scoring, and the reading or rewriting of whole files run on threads, so the event loop
+never waits on them. Consolidate, sleep, rebuild, index_words and remove take turns under an `asyncio.Lock`, and an add
+waits while a rebuild runs; `close()` stops the running one at its next step and waits for it and for the adds and
+searches in flight.
 
 ## Known differences
 
