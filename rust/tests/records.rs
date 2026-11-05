@@ -153,3 +153,22 @@ fn a_date_past_year_9999_is_cut_from_its_iso_text_as_javascript_cuts_it() {
         render_for_extraction(&e, 1)
     );
 }
+
+#[test]
+fn a_turn_said_by_the_system_loads_and_is_not_the_persons() {
+    // The reference reads any role but "user" as the other side.
+    let c: Conversation = serde_json::from_value(serde_json::json!({
+        "id": "c2",
+        "turns": [
+            { "role": "system", "text": "You are a helpful assistant." },
+            { "role": "user", "text": "Deploy failed." },
+            { "role": "tool", "text": "exit 1" },
+        ]
+    }))
+    .unwrap();
+    let es = conversation_entries(&c, now());
+    let pairs: Vec<(String, String)> = es.iter().map(|e| (e.request.clone(), e.reply.clone())).collect();
+    // As an assistant that opened: the first record its own, then the person's request with what answered it.
+    let want = [("You are a helpful assistant.", "You are a helpful assistant."), ("Deploy failed.", "exit 1")];
+    assert_eq!(pairs, want.map(|(a, b)| (a.to_string(), b.to_string())));
+}

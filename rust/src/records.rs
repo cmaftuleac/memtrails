@@ -114,13 +114,21 @@ impl MemoryRecord {
 }
 
 /// Who speaks in a conversation's turn.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Role {
     /// The person whose memory it is.
     User,
     /// The other side.
     Assistant,
+}
+
+/// Read as the reference reads a turn's role: `"user"` is the person, anything else (`system`, `tool`) the other side
+/// — a conversation with a system turn once failed to load at all.
+impl<'de> Deserialize<'de> for Role {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> std::result::Result<Self, D::Error> {
+        Ok(if Value::deserialize(d)? == "user" { Role::User } else { Role::Assistant })
+    }
 }
 
 /// One turn of a conversation.
