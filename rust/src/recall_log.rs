@@ -157,6 +157,29 @@ impl RecallBook {
     }
 }
 
+/// `Number(v)` for what a log line's time can be: a number, a numeric text, `true`/`false`/`null`; NaN otherwise.
+fn js_number(v: &Value) -> f64 {
+    match v {
+        Value::Number(n) => n.as_f64().unwrap_or(f64::NAN),
+        Value::String(s) => {
+            let t = crate::js::trim(s);
+            match t {
+                "" => 0.0,
+                "Infinity" | "+Infinity" => f64::INFINITY,
+                "-Infinity" => f64::NEG_INFINITY,
+                // Rust would also read `inf` and `nan`, which JavaScript does not.
+                _ if t.bytes().all(|b| b.is_ascii_digit() || matches!(b, b'.' | b'e' | b'E' | b'+' | b'-')) => {
+                    t.parse().unwrap_or(f64::NAN)
+                }
+                _ => f64::NAN,
+            }
+        }
+        Value::Bool(b) => f64::from(u8::from(*b)),
+        Value::Null => 0.0,
+        _ => f64::NAN,
+    }
+}
+
 impl Files {
     fn append(&self, line: &str) {
         if let Some(dir) = self.path.parent() {
@@ -166,13 +189,16 @@ impl Files {
     }
 
     fn trim(&self) -> usize {
-        let Ok(text) = fs::read_to_string(&self.path) else { return 0 };
+        // Decoded as the reference reads it (`readFile(path, 'utf8')`): a byte that is not UTF-8 is U+FFFD, not a
+        // reason to leave the whole log untrimmed.
+        let Ok(bytes) = fs::read(&self.path) else { return 0 };
+        let text = String::from_utf8_lossy(&bytes);
         let lines: Vec<&str> = text.split('\n').filter(|l| !l.is_empty()).collect();
         let since = (self.now)() - self.keep_ms;
         let recent: Vec<&str> = lines
             .iter()
             .copied()
-            .filter(|l| serde_json::from_str::<Value>(l).ok().and_then(|v| v["t"].as_f64()).is_some_and(|t| t >= since))
+            .filter(|l| serde_json::from_str::<Value>(l).ok().is_some_and(|v| js_number(&v["t"]) >= since))
             .collect();
         let mut bytes: usize = recent.iter().map(|l| l.len() + 1).sum();
         let mut from = 0;

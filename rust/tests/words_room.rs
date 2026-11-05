@@ -193,3 +193,19 @@ async fn the_recall_log_is_trimmed_to_its_last_days_and_newest_bytes_losing_noth
     assert!(std::fs::metadata(&path).unwrap().len() <= 400);
     assert_eq!(book.trim().await, 0);
 }
+
+#[tokio::test]
+async fn the_recall_log_is_trimmed_even_with_a_line_that_is_not_utf8() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("recall.jsonl");
+    let now = 1_800_000_000_000.0;
+    let mut raw = format!("{{\"t\":{},\"ev\":\"open\",\"item\":\"old\"}}\n", now - 400.0 * 86_400_000.0).into_bytes();
+    raw.extend_from_slice(format!("{{\"t\":{now},\"ev\":\"search\",\"query\":\"caf").as_bytes());
+    raw.extend_from_slice(b"\xe9\"}\n");
+    raw.extend_from_slice(format!("{{\"t\":\"{now}\",\"ev\":\"open\",\"item\":\"as text\"}}\n").as_bytes());
+    std::fs::write(&path, raw).unwrap();
+    let book = RecallBook::with(&path, Arc::new(move || now), 180.0 * 86_400_000.0, 1 << 20);
+    assert_eq!(book.trim().await, 1);
+    let text = String::from_utf8(std::fs::read(&path).unwrap()).unwrap();
+    assert!(!text.contains("\"old\"") && text.contains("caf\u{fffd}") && text.contains("as text"), "{text}");
+}
