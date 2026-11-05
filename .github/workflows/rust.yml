@@ -98,3 +98,8 @@ jobs:
           path: ~/.cache/memtrails
           key: memtrails-cache-rust-${{ hashFiles('rust/src/model.rs', 'rust/src/qdrant_binary.rs', 'rust/src/runtime.rs') }}
       - run: cargo test --locked --test integration -- --ignored --test-threads=1
+      - name: The examples run, and the quick start finds what it should
+        run: |
+          cargo run --locked -q --example quickstart | tee quickstart.txt
+          grep -q "^1\. Proxy certificate expired (email" quickstart.txt
+          cargo run --locked -q --example agent_tools -- --schemas | grep -q '"memory_explore"'

@@ -1,20 +1,16 @@
-/** Memory as an agent's tools: an MCP server over stdio (needs @modelcontextprotocol/sdk), or JSON Schemas for any
- *  function-calling API.
- *  npm install @modelcontextprotocol/sdk && npx tsx examples/agent-tools.ts */
-import { openMemory } from '../src/index.js';
-
-const memory = await openMemory({ home: './example-memory' });
-const tools = memory.tools();
+/** Memory as an agent's tools: an MCP server over stdio for Claude Desktop, Claude Code, Cursor and others (the same as
+ *  `memtrails mcp`), or JSON Schemas for any function-calling API.
+ *  npx tsx examples/agent-tools.ts               # serve MCP on stdin/stdout
+ *  npx tsx examples/agent-tools.ts --schemas     # print the tools for function calling */
+import { openMemory, serveMcp } from '../src/index.js';
 
 if (process.argv.includes('--schemas')) {
   // For function calling: name, description and JSON Schema; call tool.handler(args) with the model's arguments.
-  console.log(JSON.stringify(tools.map((t) => ({ name: t.name, description: t.description, parameters: t.jsonSchema })), null, 2));
+  const memory = await openMemory({ home: './example-memory' });
+  const tools = memory.tools().map((t) => ({ name: t.name, description: t.description, parameters: t.jsonSchema }));
+  console.log(JSON.stringify(tools, null, 2));
   await memory.close();
 } else {
-  const sdk = '@modelcontextprotocol/sdk';
-  const { McpServer } = await import(`${sdk}/server/mcp.js`);
-  const { StdioServerTransport } = await import(`${sdk}/server/stdio.js`);
-  const server = new McpServer({ name: 'memtrails', version: '0.1.0' });
-  for (const t of tools) server.tool(t.name, t.description, t.inputSchema, t.handler);
-  await server.connect(new StdioServerTransport());
+  // The memory opens at the first tool call and closes after five idle minutes.
+  await serveMcp({ open: () => openMemory({ home: './example-memory' }), version: '0.0.0-example' });
 }

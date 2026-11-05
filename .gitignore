@@ -8,3 +8,5 @@ coverage/
 rust/target/
 interop/rs/target/
 interop/rs/Cargo.lock
+example-memory/
+quickstart.txt

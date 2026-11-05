@@ -29,6 +29,10 @@ const hits = await memory.search({ query: 'why did the certificate stop renewing
 await memory.close();
 ```
 
+More to run in [`examples/`](https://github.com/cmaftuleac/memtrails/blob/main/examples): a quick start, importing mail, Slack, git and notes, the agent tools
+(an MCP server, or JSON Schemas for function calling), and consolidation with a language model. The same four are in
+[Python](https://github.com/cmaftuleac/memtrails/blob/main/python/examples) and [Rust](https://github.com/cmaftuleac/memtrails/blob/main/rust/examples).
+
 ## Why memtrails
 
 - **Searchable at once.** No ingestion pipeline to wait for and no model call per record. Add a mailbox and search it.

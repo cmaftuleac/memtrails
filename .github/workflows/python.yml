@@ -72,6 +72,11 @@ jobs:
       - run: python -m pytest -q tests/test_integration.py
         env:
           MEMTRAILS_INTEGRATION: '1'
+      - name: The examples run, and the quick start finds what it should
+        run: |
+          python examples/quickstart.py | tee quickstart.txt
+          grep -q "^1\. Proxy certificate expired (email" quickstart.txt
+          python examples/agent_tools.py --schemas | grep -q '"memory_explore"'
       - run: npm ci
         working-directory: .
       - run: MEMTRAILS_FIXTURE_MODEL="$HOME/.cache/memtrails/embeddinggemma-300m-5090578d" npx tsx conformance/generate-python.ts

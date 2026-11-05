@@ -26,6 +26,10 @@ async def main() -> None:
 asyncio.run(main())
 ```
 
+More to run in [`examples/`](https://github.com/cmaftuleac/memtrails/blob/main/python/examples): `quickstart.py`, `import_sources.py` (mail, Slack, git,
+notes), `agent_tools.py` (an MCP server, or JSON Schemas for function calling) and `consolidate.py` (with a language
+model).
+
 ## Install
 
 ```bash

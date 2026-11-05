@@ -63,6 +63,10 @@ hand it to any task. Blocking work never runs on the runtime's own threads. That
 word-by-word scoring over many items, hashing a download, unpacking an archive, loading and compacting the logs, and
 the word-vector cache.
 
+More to run in [`examples/`](https://github.com/cmaftuleac/memtrails/blob/main/rust/examples): `cargo run --example quickstart`, then `import_sources`
+(mail, Slack, git, notes), `agent_tools` (an MCP server, or JSON Schemas for function calling) and `consolidate` (with
+a language model).
+
 ## What it does
 
 | Method | |
