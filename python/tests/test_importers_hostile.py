@@ -89,7 +89,7 @@ HOSTILE_FILES = {
 
 @pytest.mark.parametrize("name", list(HOSTILE_FILES))
 async def test_files_in_linear_time(tmp_path: Path, name: str) -> None:
-    (tmp_path / name).write_text(HOSTILE_FILES[name])
+    (tmp_path / name).write_text(HOSTILE_FILES[name], encoding="utf-8", newline="")
     t = time.perf_counter()
     await collect(from_files(tmp_path))
     assert time.perf_counter() - t < 1.0
@@ -117,8 +117,10 @@ async def test_keeps_the_titles_the_regexes_found(tmp_path: Path) -> None:
 
 
 async def test_reads_front_matter_as_before(tmp_path: Path) -> None:
-    (tmp_path / "a.md").write_text("---\ntitle: T # a comment\nurl: http://x.org/a:b\nk:v\ncount: 3\n---\nbody")
-    (tmp_path / "b.md").write_text('+++\ntitle = "TOML"\nn = 2 # c\n+++\nbody')
+    (tmp_path / "a.md").write_text(
+        "---\ntitle: T # a comment\nurl: http://x.org/a:b\nk:v\ncount: 3\n---\nbody", encoding="utf-8", newline=""
+    )
+    (tmp_path / "b.md").write_text('+++\ntitle = "TOML"\nn = 2 # c\n+++\nbody', encoding="utf-8", newline="")
     a, b = await collect(from_files(tmp_path))
     assert a["title"] == "T"
     assert a["metadata"] == {"url": "http://x.org/a:b", "count": 3}
@@ -136,7 +138,7 @@ EMLS = {
 
 @pytest.mark.parametrize("name", list(EMLS))
 async def test_mail_in_linear_time(tmp_path: Path, name: str) -> None:
-    (tmp_path / name).write_text(EMLS[name])
+    (tmp_path / name).write_text(EMLS[name], encoding="utf-8", newline="")
     t = time.perf_counter()
     await collect(from_eml(tmp_path / name))
     assert time.perf_counter() - t < 1.0
@@ -145,7 +147,9 @@ async def test_mail_in_linear_time(tmp_path: Path, name: str) -> None:
 async def test_names_the_sender_and_reads_the_date(tmp_path: Path) -> None:
     authors = []
     for i, sender in enumerate(['"Pop, Ana" <ana@x.org>', "<ana@x.org>", "ana@x.org (Ana Pop)", "ana@x.org ()", "Ana"]):
-        (tmp_path / f"{i}.eml").write_text(f"From: {sender}\nDate: Fri, 1 Mar 2024 10:00:00 +0000 (UTC)\nSubject: s\n\nhi\n")
+        (tmp_path / f"{i}.eml").write_text(
+            f"From: {sender}\nDate: Fri, 1 Mar 2024 10:00:00 +0000 (UTC)\nSubject: s\n\nhi\n", encoding="utf-8", newline=""
+        )
         (r,) = await collect(from_eml(tmp_path / f"{i}.eml"))
         authors.append(r["author"])
         assert r["at"] == date_parse("2024-03-01T10:00:00Z")
@@ -157,7 +161,7 @@ DEEP = "[" * 100_000 + "]" * 100_000
 
 async def test_a_line_nested_too_deeply_is_skipped(tmp_path: Path) -> None:
     path = tmp_path / "records.jsonl"
-    path.write_text(f'{{"id":"deep","text":"x","metadata":{DEEP}}}\n{{"id":"after","text":"read on"}}\n')
+    path.write_text(f'{{"id":"deep","text":"x","metadata":{DEEP}}}\n{{"id":"after","text":"read on"}}\n', encoding="utf-8", newline="")
     skipped: list[str] = []
     got = await collect(from_jsonl(path, on_skip=lambda _line, why, _n: skipped.append(why)))
     assert [r["id"] for r in got] == ["after"]
@@ -167,9 +171,11 @@ async def test_a_line_nested_too_deeply_is_skipped(tmp_path: Path) -> None:
 async def test_a_slack_day_nested_too_deeply_is_skipped(tmp_path: Path) -> None:
     root = tmp_path / "export"
     (root / "general").mkdir(parents=True)
-    (root / "channels.json").write_text('[{"id": "C1", "name": "general"}]')
-    (root / "general" / "2024-01-01.json").write_text(DEEP)
-    (root / "general" / "2024-01-02.json").write_text('[{"type": "message", "user": "U1", "text": "read on", "ts": "1704200000.0001"}]')
+    (root / "channels.json").write_text('[{"id": "C1", "name": "general"}]', encoding="utf-8", newline="")
+    (root / "general" / "2024-01-01.json").write_text(DEEP, encoding="utf-8", newline="")
+    (root / "general" / "2024-01-02.json").write_text(
+        '[{"type": "message", "user": "U1", "text": "read on", "ts": "1704200000.0001"}]', encoding="utf-8", newline=""
+    )
     assert [r["text"] for r in await collect(from_slack_export(root))] == ["read on"]
 
 
@@ -177,9 +183,9 @@ async def test_a_slack_day_nested_too_deeply_is_skipped(tmp_path: Path) -> None:
 async def test_a_note_swapped_for_a_link_after_the_folder_was_listed_is_not_followed(tmp_path: Path) -> None:
     notes = tmp_path / "notes"
     notes.mkdir()
-    (notes / "a.md").write_text("# A\nfine")
+    (notes / "a.md").write_text("# A\nfine", encoding="utf-8", newline="")
     secret = tmp_path / "secret.md"
-    secret.write_text("# Secret\nthe private key")
+    secret.write_text("# Secret\nthe private key", encoding="utf-8", newline="")
 
     # `exclude` is asked just before a file is read: the note becomes a link to what is outside the folder then.
     def swap(_path: str) -> bool:

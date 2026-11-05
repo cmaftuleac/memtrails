@@ -169,7 +169,7 @@ def test_history_imported_after_a_sleep_is_merged_and_not_archived(tmp_path: Pat
     }
     run(write_ltm(s.deps(), [a, b, old]))
     s.ltm.put([a, b, old])
-    (tmp_path / "sleep.json").write_text(stringify({"last": NOW - 2 * 3600_000}))
+    (tmp_path / "sleep.json").write_text(stringify({"last": NOW - 2 * 3600_000}), encoding="utf-8", newline="")
     r = run(Sleep(s.sleep_deps()).run())
     assert r["merged"] == 1
     assert r["archived"] == 0

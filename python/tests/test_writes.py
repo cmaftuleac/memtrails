@@ -59,18 +59,18 @@ def test_short_writes_still_write_everything(tmp_path: Path, monkeypatch: pytest
 
     book = RecallBook(str(tmp_path / "recall.jsonl"))
     book.record({"ev": "open", "item": "stm:b"})
-    assert json.loads((tmp_path / "recall.jsonl").read_text())["item"] == "stm:b"
+    assert json.loads((tmp_path / "recall.jsonl").read_text(encoding="utf-8"))["item"] == "stm:b"
 
     usage = UsageBook(str(tmp_path / "usage.json"))
     usage.note(["mem:a"], "opened")
     usage.close()
-    assert json.loads((tmp_path / "usage.json").read_text())["mem:a"]["opened"] == 1
+    assert json.loads((tmp_path / "usage.json").read_text(encoding="utf-8"))["mem:a"]["opened"] == 1
 
     job = MemoryRebuild(
         RebuildDeps(path=str(tmp_path / "rebuild.json"), ltm=log, stm=log, write_ltm=noop, write_stm=noop, aborted=lambda: False)
     )
     job.begin()
-    assert json.loads((tmp_path / "rebuild.json").read_text()) == {"phase": "ltm", "after": None}
+    assert json.loads((tmp_path / "rebuild.json").read_text(encoding="utf-8")) == {"phase": "ltm", "after": None}
 
     monkeypatch.setattr(os, "write", _real_write)
     again = stm_log(str(tmp_path / "records.jsonl"))

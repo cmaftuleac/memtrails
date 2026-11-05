@@ -314,10 +314,10 @@ async def test_no_conversation_folder_outside_the_export(tmp_path: Path) -> None
     (root / "general").mkdir(parents=True)
     (tmp_path / "secret").mkdir()
     (tmp_path / "secret" / "2024-01-01.json").write_text(
-        json.dumps([{"type": "message", "user": "U1", "text": "outside", "ts": "1704100000.0001"}])
+        json.dumps([{"type": "message", "user": "U1", "text": "outside", "ts": "1704100000.0001"}]), encoding="utf-8", newline=""
     )
     (root / "general" / "2024-01-01.json").write_text(
-        json.dumps([{"type": "message", "user": "U1", "text": "inside", "ts": "1704100000.0002"}])
+        json.dumps([{"type": "message", "user": "U1", "text": "inside", "ts": "1704100000.0002"}]), encoding="utf-8", newline=""
     )
     (root / "channels.json").write_text(
         json.dumps(
@@ -329,9 +329,11 @@ async def test_no_conversation_folder_outside_the_export(tmp_path: Path) -> None
                 {"id": "C5", "name": "a/../../secret"},
                 {"id": "C6", "name": "..\\secret"},
             ]
-        )
+        ),
+        encoding="utf-8",
+        newline="",
     )
-    (root / "dms.json").write_text(json.dumps([{"id": "../secret", "members": ["U1"]}]))
+    (root / "dms.json").write_text(json.dumps([{"id": "../secret", "members": ["U1"]}]), encoding="utf-8", newline="")
     assert [r["text"] for r in await collect(from_slack_export(root))] == ["inside"]
 
 
@@ -367,8 +369,8 @@ def repo(tmp_path_factory: pytest.TempPathFactory) -> Path:
 
     git("init", "-q", "-b", "main")
     (repo / "notițe").mkdir()
-    (repo / "notițe" / "日本語.md").write_text("こんにちは\n")
-    (repo / "README.md").write_text("hello\n")
+    (repo / "notițe" / "日本語.md").write_text("こんにちは\n", encoding="utf-8", newline="")
+    (repo / "README.md").write_text("hello\n", encoding="utf-8", newline="")
     git("add", "-A")
     commit(
         "Ștefan Müller-Łukasiewicz 王小明",
@@ -376,7 +378,7 @@ def repo(tmp_path_factory: pytest.TempPathFactory) -> Path:
         "2024-03-01T10:00:00+02:00",
         "Adaugă notițele în japoneză 🗾\n\nCorpul mesajului: café, naïve, 漢字.\n",
     )
-    (repo / "README.md").write_text("hello again\n")
+    (repo / "README.md").write_text("hello again\n", encoding="utf-8", newline="")
     git("add", "-A")
     commit(
         "Ana",
@@ -471,21 +473,29 @@ def folder(tmp_path: Path) -> Path:
                 "",
                 "Bugetul pentru țară crește cu 5%.",
             ]
-        )
+        ),
+        encoding="utf-8",
+        newline="",
     )
-    (d / "notițe" / "日本" / "メモ.md").write_text("Intro line\n\n# 東京オフィスの移転\n\n来月、新しいオフィスに移ります。🚚\n")
-    (d / "readme.txt").write_text("Ελληνικά: καλημέρα κόσμε.\n")
+    (d / "notițe" / "日本" / "メモ.md").write_text(
+        "Intro line\n\n# 東京オフィスの移転\n\n来月、新しいオフィスに移ります。🚚\n", encoding="utf-8", newline=""
+    )
+    (d / "readme.txt").write_text("Ελληνικά: καλημέρα κόσμε.\n", encoding="utf-8", newline="")
     t = datetime(2023, 2, 3, 4, 5, 6, tzinfo=timezone.utc).timestamp()
     os.utime(d / "readme.txt", (t, t))
-    (d / "page.html").write_text("""<!doctype html><html><head><title>Caf&eacute; &amp; Cr&egrave;me</title>
+    (d / "page.html").write_text(
+        """<!doctype html><html><head><title>Caf&eacute; &amp; Cr&egrave;me</title>
     <style>body { color: red }</style><script>var secret = "<p>not text</p>";</script></head>
     <body><h1>Menu</h1><p>Prix&nbsp;: 3&nbsp;&euro; &mdash; <b>très</b>
-    bon</p><ul><li>Thé</li><li>&#x1F375; matcha &#8211; 抹茶</li></ul><!-- hidden --><p>Ünïcödé &lt;ok&gt;</p></body></html>""")
-    (d / ".git" / "config.md").write_text("# hidden")
-    (d / ".secret.md").write_text("# hidden")
-    (d / "node_modules" / "pkg" / "README.md").write_text("# dependency")
+    bon</p><ul><li>Thé</li><li>&#x1F375; matcha &#8211; 抹茶</li></ul><!-- hidden --><p>Ünïcödé &lt;ok&gt;</p></body></html>""",
+        encoding="utf-8",
+        newline="",
+    )
+    (d / ".git" / "config.md").write_text("# hidden", encoding="utf-8", newline="")
+    (d / ".secret.md").write_text("# hidden", encoding="utf-8", newline="")
+    (d / "node_modules" / "pkg" / "README.md").write_text("# dependency", encoding="utf-8", newline="")
     (d / "image.png").write_bytes(bytes([0x89, 0x50, 0x4E, 0x47, 0, 0, 0]))
-    (d / "big.md").write_text("# Big\n\n" + "\n\n".join(paragraph(i) for i in range(30)))
+    (d / "big.md").write_text("# Big\n\n" + "\n\n".join(paragraph(i) for i in range(30)), encoding="utf-8", newline="")
     return d
 
 

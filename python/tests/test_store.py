@@ -38,7 +38,7 @@ def test_rewrites_itself_without_replaced_lines(tmp_path: Path) -> None:
     for i in range(1200):
         lg.put([{"uid": f"u{i % 3}", "text": f"v{i} é", "n": i}])
     lg.compact()
-    assert len(path.read_text().strip().split("\n")) == 3
+    assert len(path.read_text(encoding="utf-8").strip().split("\n")) == 3
     assert lg.get("u0")["text"] == "v1197 é"
     lg.put([{"uid": "u3", "text": "after", "n": 0}])
     assert lg.get("u3")["text"] == "after"
@@ -48,20 +48,20 @@ def test_rewrites_itself_without_replaced_lines(tmp_path: Path) -> None:
 def test_writes_what_node_writes(tmp_path: Path) -> None:
     path = tmp_path / "x.jsonl"
     log(path).put([{"uid": "a", "text": 'ü \u2028 "q" \n', "n": 1.5, "m": 2.0, "z": None}])
-    assert path.read_text() == '{"uid":"a","text":"ü \u2028 \\"q\\" \\n","n":1.5,"m":2,"z":null}\n'
+    assert path.read_text(encoding="utf-8") == '{"uid":"a","text":"ü \u2028 \\"q\\" \\n","n":1.5,"m":2,"z":null}\n'
 
 
 def test_drops_a_cut_off_last_line_and_keeps_what_follows(tmp_path: Path) -> None:
     path = tmp_path / "x.jsonl"
     log(path).put([{"uid": "a", "text": "ok é", "n": 1}])
-    with open(path, "a") as f:
+    with open(path, "a", encoding="utf-8", newline="") as f:
         f.write('{"uid":"b","text":"torn')
     lg = log(path)
     lg.load()
     lg.put([{"uid": "c", "text": "after the crash", "n": 2}, {"uid": "d", "text": "and this", "n": 3}])
     assert lg.get("c")["text"] == "after the crash"
     assert lg.get("d")["text"] == "and this"
-    assert "torn" not in path.read_text()
+    assert "torn" not in path.read_text(encoding="utf-8")
     r = log(path)
     r.load()
     assert [x["uid"] for x in r.all()] == ["a", "c", "d"]
@@ -75,7 +75,11 @@ def test_drops_a_cut_off_last_line_and_keeps_what_follows(tmp_path: Path) -> Non
 
 def test_keeps_a_last_line_whole_but_for_its_newline(tmp_path: Path) -> None:
     path = tmp_path / "x.jsonl"
-    path.write_text(json.dumps({"uid": "a", "text": "one", "n": 1}) + "\n" + json.dumps({"uid": "b", "text": "two", "n": 2}))
+    path.write_text(
+        json.dumps({"uid": "a", "text": "one", "n": 1}) + "\n" + json.dumps({"uid": "b", "text": "two", "n": 2}),
+        encoding="utf-8",
+        newline="",
+    )
     lg = log(path)
     lg.load()
     lg.put([{"uid": "c", "text": "three", "n": 3}])
@@ -92,12 +96,12 @@ def test_refuses_to_compact_when_a_record_cannot_be_read(tmp_path: Path) -> None
     lg.put([{"uid": "keep", "text": "precious", "n": 0}])
     for i in range(1100):
         lg.put([{"uid": "u", "text": f"v{i}", "n": i}])
-    before = path.read_text().replace("precious", 'prec"ous')
-    path.write_text(before)
+    before = path.read_text(encoding="utf-8").replace("precious", 'prec"ous')
+    path.write_text(before, encoding="utf-8", newline="")
     assert lg.get("keep") is None
     with pytest.raises(RuntimeError, match="keep"):
         lg.compact()
-    assert path.read_text() == before
+    assert path.read_text(encoding="utf-8") == before
     assert lg.get("u")["text"] == "v1099"
 
 
@@ -109,7 +113,7 @@ def test_compacts_a_log_larger_than_one_write(tmp_path: Path) -> None:
     for rnd in range(4):
         lg.put([{"uid": f"u{i}", "text": f"{rnd}:{i}:{big}", "n": rnd} for i in range(live)])
     lg.compact()
-    assert len(path.read_text().strip().split("\n")) == live
+    assert len(path.read_text(encoding="utf-8").strip().split("\n")) == live
     assert lg.get("u799")["text"] == f"3:799:{big}"
     lg.put([{"uid": "new", "text": "after", "n": 9}])
     r = log(path)
@@ -122,7 +126,7 @@ def test_compacts_a_log_larger_than_one_write(tmp_path: Path) -> None:
 def test_skips_a_torn_last_line(tmp_path: Path) -> None:
     path = tmp_path / "x.jsonl"
     log(path).put([{"uid": "a", "text": "ok", "n": 1}])
-    with open(path, "a") as f:
+    with open(path, "a", encoding="utf-8", newline="") as f:
         f.write('{"uid":"b","te')
     r = log(path)
     r.load()

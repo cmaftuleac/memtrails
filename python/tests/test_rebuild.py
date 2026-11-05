@@ -93,7 +93,7 @@ class Rig:
         return RebuildDeps(**{**base, **over})
 
     def checkpoint(self) -> Any:
-        return json.loads(Path(self.path).read_text())
+        return json.loads(Path(self.path).read_text(encoding="utf-8"))
 
 
 def test_resumes_after_a_failed_batch_and_a_restart(tmp_path: Path) -> None:
@@ -201,7 +201,7 @@ def test_simultaneous_retries_are_one_rebuild(tmp_path: Path) -> None:
 def test_a_damaged_checkpoint_replays_the_phase(tmp_path: Path, checkpoint: str) -> None:
     r = Rig(tmp_path)
     r.ltm.put([item("mem:a")])
-    Path(r.path).write_text(checkpoint)
+    Path(r.path).write_text(checkpoint, encoding="utf-8", newline="")
 
     async def go() -> bool:
         job = MemoryRebuild(r.deps())

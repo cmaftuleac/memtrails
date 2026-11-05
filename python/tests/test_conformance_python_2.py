@@ -65,7 +65,7 @@ def test_entries() -> None:
 
 async def test_jsonl_ids_that_are_numbers(tmp_path: Path) -> None:
     path = tmp_path / "ids.jsonl"
-    path.write_text("".join(f'{{"id":{id},"text":"a record"}}\n' for id in KEY["jsonlIds"]["written"]))
+    path.write_text("".join(f'{{"id":{id},"text":"a record"}}\n' for id in KEY["jsonlIds"]["written"]), encoding="utf-8", newline="")
     assert [r["id"] async for r in from_jsonl(path)] == KEY["jsonlIds"]["read"]
 
 

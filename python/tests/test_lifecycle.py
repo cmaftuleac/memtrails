@@ -205,7 +205,9 @@ def broken_qdrant_binary(tmp: Path) -> str:
             do_GET = do_PUT = do_POST = do_DELETE = do_PATCH = answer
         signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
         socketserver.TCPServer(("127.0.0.1", port), H).serve_forever()  # not HTTPServer: its reverse DNS lookup hangs on some hosts
-    """)
+    """),
+        encoding="utf-8",
+        newline="",
     )
     path.chmod(0o755)
     return str(path)
@@ -226,7 +228,7 @@ async def test_a_failed_open_stops_its_qdrant_and_frees_the_home(tmp_path: Path,
     http = httpx.AsyncClient(mounts={E: httpx.MockTransport(servers)}, trust_env=False)
     with pytest.raises(Exception, match="500"):
         await open_memory(home, **{**opts(servers, qdrant={"binary": binary}), "http": http})
-    pid = int((home / "qdrant" / "spawns.log").read_text().split()[0])
+    pid = int((home / "qdrant" / "spawns.log").read_text(encoding="utf-8").split()[0])
     await until(lambda: not alive(pid))
     assert not (home / "memory.lock").exists()
     with pytest.raises(Exception, match="500"):
@@ -284,9 +286,9 @@ async def test_takes_over_a_dead_or_pre_reboot_lock(tmp_path: Path, servers: Ser
     home.mkdir()
     dead = int(subprocess.run([sys.executable, "-c", "import os; print(os.getpid())"], capture_output=True, text=True, check=True).stdout)
     assert not alive(dead)
-    (home / "memory.lock").write_text(stringify({"pid": dead, "boot": boot_time()}))
+    (home / "memory.lock").write_text(stringify({"pid": dead, "boot": boot_time()}), encoding="utf-8", newline="")
     await (await open_memory(home, **opts(servers))).close()
-    (home / "memory.lock").write_text(stringify({"pid": os.getpid(), "boot": boot_time() - 3_600_000}))
+    (home / "memory.lock").write_text(stringify({"pid": os.getpid(), "boot": boot_time() - 3_600_000}), encoding="utf-8", newline="")
     await (await open_memory(home, **opts(servers))).close()
 
 
@@ -295,17 +297,17 @@ async def test_keeps_the_home_private(tmp_path: Path, servers: Servers) -> None:
     home.mkdir()
     home.chmod(0o755)
     await (await open_memory(home, **opts(servers))).close()
-    assert home.stat().st_mode & 0o777 == 0o700
+    assert sys.platform == "win32" or home.stat().st_mode & 0o777 == 0o700  # owner bits are Unix's
     fresh = tmp_path / "nested" / "mem"
     await (await open_memory(fresh, **opts(servers))).close()
-    assert fresh.stat().st_mode & 0o777 == 0o700
+    assert sys.platform == "win32" or fresh.stat().st_mode & 0o777 == 0o700
 
 
 async def test_the_index_written_again_in_another_layout(tmp_path: Path, servers: Servers) -> None:
     home = tmp_path / "home"
     async with await open_memory(home, **opts(servers)) as m:
         await m.add(records(3))
-    assert json.loads((home / "index.json").read_text()) == {"layout": INDEX_LAYOUT}
+    assert json.loads((home / "index.json").read_text(encoding="utf-8")) == {"layout": INDEX_LAYOUT}
     (home / "index.json").unlink()
     servers.points["junk"] = {"id": "junk", "payload": {"item": "stm:junk", "tier": "stm"}}
     await (await open_memory(home, **opts(servers))).close()
@@ -314,7 +316,7 @@ async def test_the_index_written_again_in_another_layout(tmp_path: Path, servers
     drops = servers.drops
     await (await open_memory(home, **opts(servers))).close()
     assert servers.drops == drops
-    (home / "index.json").write_text(stringify({"layout": INDEX_LAYOUT - 1}))
+    (home / "index.json").write_text(stringify({"layout": INDEX_LAYOUT - 1}), encoding="utf-8", newline="")
     servers.points["junk"] = {"id": "junk", "payload": {"item": "stm:junk", "tier": "stm"}}
     await (await open_memory(home, **opts(servers))).close()
     assert servers.drops == drops + 1
@@ -366,7 +368,7 @@ async def test_forgets_a_record_whole(tmp_path: Path, servers: Servers) -> None:
         assert f"ep:{uid}" not in items()
     log.load()
     assert log.get(f"ep:{uid}") is None
-    assert '"removed":true' in (home / "knowledge.jsonl").read_text()
+    assert '"removed":true' in (home / "knowledge.jsonl").read_text(encoding="utf-8")
 
 
 async def test_a_rebuild_asked_for_while_one_runs_waits(tmp_path: Path, servers: Servers) -> None:
@@ -429,12 +431,14 @@ async def test_the_recall_record_is_trimmed_when_memory_opens(tmp_path: Path, se
         stringify({"t": now - 200 * 86_400_000, "ev": "open", "item": "stm:old"})
         + "\n"
         + stringify({"t": now, "ev": "open", "item": "stm:new"})
-        + "\n"
+        + "\n",
+        encoding="utf-8",
+        newline="",
     )
     async with await open_memory(home, **opts(servers)) as m:
         await m.add(records(2))
         await m.search({"query": "certificate"})
-    lines = [json.loads(x) for x in (home / "recall.jsonl").read_text().strip().split("\n")]
+    lines = [json.loads(x) for x in (home / "recall.jsonl").read_text(encoding="utf-8").strip().split("\n")]
     assert [x.get("item", x["ev"]) for x in lines] == ["stm:new", "search"]
 
 

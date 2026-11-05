@@ -68,7 +68,7 @@ def test_a_compaction_never_holds_up_a_get_or_a_put(tmp_path: Path, monkeypatch:
     paused.go.set()
     compaction.join(5)
     assert not compaction.is_alive()
-    lines = path.read_text().strip().split("\n")
+    lines = path.read_text(encoding="utf-8").strip().split("\n")
     assert len(lines) < 20
     assert lg.get("u1")["text"] == "changed meanwhile"
     assert lg.get("new")["text"] == "added meanwhile"
@@ -101,5 +101,5 @@ def test_a_trim_never_holds_up_what_is_recorded(tmp_path: Path, monkeypatch: pyt
     paused.go.set()
     trim.join(5)
     assert dropped == [1]
-    items = [json.loads(x)["item"] for x in path.read_text().strip().split("\n")]
+    items = [json.loads(x)["item"] for x in path.read_text(encoding="utf-8").strip().split("\n")]
     assert items == ["stm:recent", "stm:meanwhile"]

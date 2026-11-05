@@ -106,7 +106,7 @@ def test_one_holder_of_a_lock_at_a_time_and_a_dead_ones_lock_is_taken(tmp_path: 
 
     run(both())
     assert " ".join(order) in ("a+ a- b+ b-", "b+ b- a+ a-")
-    Path(f"{path}.lock").write_text(f"999999999 {socket.gethostname()} dead")
+    Path(f"{path}.lock").write_text(f"999999999 {socket.gethostname()} dead", encoding="utf-8", newline="")
 
     async def taken() -> str:
         return "taken"
@@ -187,9 +187,9 @@ def test_no_binary_is_ready_while_others_could_write_to_the_cache_above_it(tmp_p
     os.makedirs(qdrant_dir(), mode=0o755)
     binary = qdrant_binary_path(a)
     assert binary is not None
-    Path(binary).write_text("binary")
+    Path(binary).write_text("binary", encoding="utf-8", newline="")
     os.chmod(binary, 0o755)
-    Path(qdrant_dir(), ".verified").write_text(f"{a.size}:{a.sha256}\n")
+    Path(qdrant_dir(), ".verified").write_text(f"{a.size}:{a.sha256}\n", encoding="utf-8", newline="")
     os.chmod(Path(qdrant_dir(), ".verified"), 0o644)
     os.chmod(tmp_path / "cache", 0o700)
     assert qdrant_ready(a)
@@ -221,7 +221,7 @@ def test_the_model_folder_is_made_private_or_refused_and_not_ready_while_others_
         with open(f, "wb") as out:
             out.truncate(size)
         os.chmod(f, 0o600)
-    (d / ".verified").write_text("\n".join(f"{rel}:{size}:{sha}" for rel, size, sha in model.MODEL_FILES))
+    (d / ".verified").write_text("\n".join(f"{rel}:{size}:{sha}" for rel, size, sha in model.MODEL_FILES), encoding="utf-8", newline="")
     os.chmod(d / ".verified", 0o644)
     assert model_ready(str(d))
     os.chmod(d / "onnx", 0o777)

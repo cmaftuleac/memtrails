@@ -52,7 +52,9 @@ def fake_qdrant(root: Path, mode: str) -> str:
                 self.send_response(200); self.end_headers(); self.wfile.write(b'{{"result":{{"collections":[]}}}}')
         signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
         socketserver.TCPServer(("127.0.0.1", port), H).serve_forever()  # not HTTPServer: its reverse DNS lookup hangs on some hosts
-    """)
+    """),
+        encoding="utf-8",
+        newline="",
     )
     path.chmod(0o755)
     return str(path)
@@ -60,7 +62,7 @@ def fake_qdrant(root: Path, mode: str) -> str:
 
 def spawns(d: str) -> list[int]:
     p = os.path.join(d, "spawns.log")
-    return [int(x) for x in Path(p).read_text().split()] if os.path.exists(p) else []
+    return [int(x) for x in Path(p).read_text(encoding="utf-8").split()] if os.path.exists(p) else []
 
 
 async def until(ok: Any, s: float = 5) -> bool:
@@ -174,7 +176,7 @@ def test_none_of_the_hosts_environment(tmp_path: Path, monkeypatch: pytest.Monke
     async def go() -> None:
         p = QdrantProcess(fake_qdrant(tmp_path, "ok"), str(tmp_path / "q"))
         e = await p.start()
-        env = json.loads((Path(p.directory) / "env.json").read_text())
+        env = json.loads((Path(p.directory) / "env.json").read_text(encoding="utf-8"))
         assert "MEMTRAILS_TEST_SECRET" not in env
         assert "QDRANT__SERVICE__HOST" not in env
         assert env["QDRANT__SERVICE__API_KEY"] == e.api_key
@@ -191,12 +193,12 @@ def test_it_gets_ca_certificates_the_hosts_or_certifis(tmp_path: Path, monkeypat
     async def go() -> None:
         p = QdrantProcess(fake_qdrant(tmp_path, "ok"), str(tmp_path / "q"))
         await p.start()
-        pem = Path(json.loads((Path(p.directory) / "env.json").read_text())["SSL_CERT_FILE"]).read_text()
+        pem = Path(json.loads((Path(p.directory) / "env.json").read_text(encoding="utf-8"))["SSL_CERT_FILE"]).read_text(encoding="utf-8")
         assert pem.count("-----BEGIN CERTIFICATE-----") > 50
         await p.stop_and_wait()
         monkeypatch.setenv("SSL_CERT_FILE", "/etc/ssl/certs/the-hosts.pem")
         await p.start()
-        assert json.loads((Path(p.directory) / "env.json").read_text())["SSL_CERT_FILE"] == "/etc/ssl/certs/the-hosts.pem"
+        assert json.loads((Path(p.directory) / "env.json").read_text(encoding="utf-8"))["SSL_CERT_FILE"] == "/etc/ssl/certs/the-hosts.pem"
         await p.stop_and_wait()
 
     asyncio.run(go())
@@ -206,7 +208,7 @@ def test_its_folder_and_log_are_private(tmp_path: Path) -> None:
     async def go() -> None:
         d = tmp_path / "q"
         d.mkdir()
-        (d / "qdrant.log").write_text("old\n")
+        (d / "qdrant.log").write_text("old\n", encoding="utf-8", newline="")
         (d / "qdrant.log").chmod(0o644)
         p = QdrantProcess(fake_qdrant(tmp_path, "ok"), str(d))
         await p.start()
@@ -239,7 +241,7 @@ asyncio.run(main())
 def host(tmp_path: Path, d: str, binary: str, how: str) -> tuple[subprocess.Popen[str], int]:
     """A host process that starts a Qdrant on ``d``, says so, then exits without stopping it, or waits."""
     script = tmp_path / "host.py"
-    script.write_text(HOST.format(src=str(Path(__file__).resolve().parents[1] / "src")))
+    script.write_text(HOST.format(src=str(Path(__file__).resolve().parents[1] / "src")), encoding="utf-8", newline="")
     child = subprocess.Popen([sys.executable, str(script), binary, d, how], stdout=subprocess.PIPE, text=True)
     assert child.stdout is not None
     assert "up" in child.stdout.readline()
@@ -277,7 +279,9 @@ def test_never_stops_an_unrelated_process_with_the_pid(tmp_path: Path) -> None:
     d.mkdir()
     stranger = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(3600)"])
     try:
-        (d / "qdrant.pid").write_text(stringify({"pid": stranger.pid, "config": str(d / "config.yaml"), "boot": boot_time()}))
+        (d / "qdrant.pid").write_text(
+            stringify({"pid": stranger.pid, "config": str(d / "config.yaml"), "boot": boot_time()}), encoding="utf-8", newline=""
+        )
 
         async def go() -> None:
             p = QdrantProcess(fake_qdrant(tmp_path, "ok"), str(d))

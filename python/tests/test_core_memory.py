@@ -14,6 +14,7 @@ import asyncio
 import json
 import os
 import re
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -673,13 +674,13 @@ class TestRecall:
         found = run(memory_search(deps, {"query": "invoice pdf"}))
         run(memory_open(deps, "mem:other"))
         run(memory_open(deps, "mem:nothing-here"))
-        lines = [json.loads(x) for x in Path(path).read_text().strip().split("\n")]
+        lines = [json.loads(x) for x in Path(path).read_text(encoding="utf-8").strip().split("\n")]
         assert [x["ev"] for x in lines] == ["search", "open"]
         assert lines[0]["t"] == NOW and lines[0]["query"] == "invoice pdf" and lines[0]["shown"] == [h["id"] for h in found]
         assert lines[1] == {"t": NOW, "ev": "open", "item": "mem:other"}
-        assert os.stat(path).st_mode & 0o777 == 0o600
+        assert sys.platform == "win32" or os.stat(path).st_mode & 0o777 == 0o600  # owner bits are Unix's
         book.record({"ev": "search", "query": "x" * (RECALL_QUERY_CHARS + 100), "shown": []})
-        assert len(json.loads(Path(path).read_text().strip().split("\n")[-1])["query"]) == RECALL_QUERY_CHARS
+        assert len(json.loads(Path(path).read_text(encoding="utf-8").strip().split("\n")[-1])["query"]) == RECALL_QUERY_CHARS
 
     def test_trims_the_record(self, tmp_path: Path) -> None:
         path = str(tmp_path / "recall.jsonl")
@@ -691,12 +692,12 @@ class TestRecall:
             book.record({"ev": "search", "query": f"q{i} {'x' * 60}", "shown": [f"mem:{i}"]})
         assert book.trim() >= 2
         book.record({"ev": "open", "item": "mem:after"})
-        lines = [json.loads(x) for x in Path(path).read_text().strip().split("\n")]
+        lines = [json.loads(x) for x in Path(path).read_text(encoding="utf-8").strip().split("\n")]
         assert not any(x.get("item") == "mem:ancient" for x in lines)
         assert lines[-1]["item"] == "mem:after"
         assert lines[-2]["query"].startswith("q5 ")
         assert os.stat(path).st_size <= 600
-        assert os.stat(path).st_mode & 0o777 == 0o600
+        assert sys.platform == "win32" or os.stat(path).st_mode & 0o777 == 0o600  # owner bits are Unix's
         book.trim()
         assert os.stat(path).st_size <= 400
         assert book.trim() == 0
