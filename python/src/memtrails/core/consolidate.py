@@ -26,6 +26,7 @@ from typing import Any, TypeVar
 import numpy as np
 import regex
 
+from .._aio import gather_or_cancel
 from .._js import cut, iso_day, js_trim, now_ms, u16len
 from ..llm import Ask, LlmAnswer, LlmRequest, ask_with, default_ask
 from .embedder import Embed, Vector, doc_text
@@ -366,11 +367,6 @@ async def _after(before: asyncio.Future[None] | None, gate: asyncio.Future[None]
     await asyncio.shield(gate)
 
 
-def _retrieve_exception(t: asyncio.Future[Any]) -> None:
-    if not t.cancelled():
-        t.exception()
-
-
 class Consolidator:
     def __init__(self, d: ConsolidateDeps) -> None:
         self.d = d
@@ -387,22 +383,24 @@ class Consolidator:
         too)."""
         loop = asyncio.get_running_loop()
         release: list[Callable[[], None]] = []
-        for uid in sorted(set(uids)):
-            before = self._locks.get(uid)
-            gate: asyncio.Future[None] = loop.create_future()
-            mine = asyncio.ensure_future(_after(before, gate))
-            self._locks[uid] = mine
-            if before is not None:
-                await asyncio.shield(before)
-
-            def free(u: str = uid, g: asyncio.Future[None] = gate, m: asyncio.Future[None] = mine) -> None:
-                if not g.done():
-                    g.set_result(None)
-                if self._locks.get(u) is m:
-                    del self._locks[u]
-
-            release.append(free)
+        # Each turn is let go however this ends — cancelled while it waits for an earlier holder too, or every window
+        # after it would wait for it forever.
         try:
+            for uid in sorted(set(uids)):
+                before = self._locks.get(uid)
+                gate: asyncio.Future[None] = loop.create_future()
+                mine = asyncio.ensure_future(_after(before, gate))
+                self._locks[uid] = mine
+
+                def free(u: str = uid, g: asyncio.Future[None] = gate, m: asyncio.Future[None] = mine) -> None:
+                    if not g.done():
+                        g.set_result(None)
+                    if self._locks.get(u) is m:
+                        del self._locks[u]
+
+                release.append(free)
+                if before is not None:
+                    await asyncio.shield(before)
             return await run()
         finally:
             for r in release:
@@ -563,14 +561,20 @@ class Consolidator:
                     if await settle(i) == "stop":
                         lane_state["halt"] = True
                 except BaseException:
+                    # No window is started after a failure: the run raises, and nobody would read its answer.
                     lane_state["halt"] = True
+                    state["stopped"] = True
                     raise
 
         try:
-            await asyncio.gather(*(lane() for _ in range(together)))
+            await gather_or_cancel(*(lane() for _ in range(together)))
         finally:
+            # What is still being read is read for no one once the run ends — raised, cancelled or paused: stopped, and
+            # over before the run returns, so no paid ask outlives it.
+            state["stopped"] = True
             for t in extracting:
-                t.add_done_callback(_retrieve_exception)
+                t.cancel()
+            await asyncio.gather(*extracting, return_exceptions=True)
         if lane_state["halt"] and "paused" in r:
             return r
         self._vecs.clear()
@@ -596,7 +600,7 @@ class Consolidator:
         if not chars:
             return await extract_window(win, meta, ask=self.d.ask, known=known)
         subs = windows_of(win, chars)
-        x, *seen = await asyncio.gather(
+        x, *seen = await gather_or_cancel(
             extract_window(win, meta, ask=self.d.ask, observations=False, known=known),
             *(observe_window(sub, subs[k - 1] if k else [], meta, chars, ask=self.d.ask, known=known) for k, sub in enumerate(subs)),
         )
@@ -660,7 +664,7 @@ class Consolidator:
         for i in range(0, len(batches), limit):
             if self.d.aborted():
                 break
-            answers = await asyncio.gather(*(self._cue_batch(b) for b in batches[i : i + limit]))
+            answers = await gather_or_cancel(*(self._cue_batch(b) for b in batches[i : i + limit]))
             paused = next((a for a in answers if "paused" in a), None)
             got = [it for a in answers for it in a.get("items", [])]
             if got:
@@ -741,7 +745,7 @@ class Consolidator:
             r["added"] += 1
         # The pairs are fixed before any is asked about: every batch asked at once, the answers applied in order.
         batches = relate_batches(ask)
-        answers = await asyncio.gather(*(self.relate(b) for b in batches))
+        answers = await gather_or_cancel(*(self.relate(b) for b in batches))
         for b, batch in enumerate(batches):
             got = answers[b]
             for n, pair in enumerate(batch):

@@ -4,8 +4,11 @@ sleep, and a model that is not there. (consolidate-races.test.ts, ported.)"""
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 from typing import Any
+
+import pytest
 
 from fakes import DAY, NOW, OLD, Setup, entry, item, run
 from memtrails._js import stringify
@@ -230,3 +233,107 @@ def test_a_plain_function_works_as_the_model(tmp_path: Path) -> None:
 
     run(Consolidator(s.deps(ask=ask)).run())
     assert asked == ["memory_consolidation"]
+
+
+class Reading:
+    """A model whose first answer comes at once and every later one only after a long while: counts what is asked
+    and what is still being asked."""
+
+    def __init__(self) -> None:
+        self.asked = 0
+        self.now = 0
+
+    async def __call__(self, _: LlmRequest) -> dict[str, Any]:
+        self.asked += 1
+        if self.asked == 1:
+            return NOTHING
+        self.now += 1
+        try:
+            await asyncio.sleep(30)
+            return NOTHING
+        finally:
+            self.now -= 1
+
+
+def windows(s: Setup, n: int) -> None:
+    s.stm.put([entry(f"w{k}:0", f"window {k} says something", session=f"w{k}", ts=OLD + k) for k in range(n)])
+
+
+async def test_a_failed_window_stops_the_reading_of_the_others(tmp_path: Path) -> None:
+    s = Setup(tmp_path)
+    windows(s, 6)
+    model = Reading()
+    worker = Consolidator(s.deps(ask=model, concurrency=2))
+
+    async def broken(*_: Any) -> None:
+        raise RuntimeError("the index is gone")
+
+    worker._reconcile = broken  # type: ignore[method-assign]
+    with pytest.raises(RuntimeError, match="the index is gone"):
+        await worker.run(6)
+    # Nothing is still being asked once run() raised, and nothing is asked after it.
+    assert model.now == 0
+    asked = model.asked
+    await asyncio.sleep(0.05)
+    assert model.asked == asked
+
+
+async def test_a_cancelled_run_leaves_nothing_being_asked(tmp_path: Path) -> None:
+    s = Setup(tmp_path)
+    windows(s, 6)
+    model = Reading()
+    model.asked = 1  # every answer is slow
+    running = asyncio.ensure_future(Consolidator(s.deps(ask=model, concurrency=3)).run(6))
+    while model.now < 3:
+        await asyncio.sleep(0.01)
+    running.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await running
+    assert model.now == 0
+
+
+async def test_a_window_cancelled_while_it_waits_for_an_item_lets_go_of_it(tmp_path: Path) -> None:
+    worker = Consolidator(Setup(tmp_path).deps())
+    release = asyncio.Event()
+
+    async def hold() -> None:
+        await release.wait()
+
+    async def nothing() -> None:
+        return None
+
+    holder = asyncio.ensure_future(worker.locked(["mem:a", "mem:b"], hold))
+    await asyncio.sleep(0)
+    waiting = asyncio.ensure_future(worker.locked(["mem:a", "mem:b"], nothing))
+    await asyncio.sleep(0.01)
+    waiting.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await waiting
+    release.set()
+    await holder
+    await asyncio.wait_for(worker.locked(["mem:a", "mem:b"], nothing), 1)
+    assert not worker._locks
+
+
+async def test_an_ask_that_raises_cancels_the_asks_beside_it(tmp_path: Path) -> None:
+    s = Setup(tmp_path)
+    items = [item(f"mem:{k}", f"thing {k}", f"what thing {k} is") for k in range(30)]
+    s.ltm.put(items)
+    state = {"asked": 0, "now": 0}
+
+    async def ask(_: LlmRequest) -> dict[str, Any]:
+        state["asked"] += 1
+        if state["asked"] == 1:
+            await asyncio.sleep(0.02)
+            raise RuntimeError("the model's client broke")
+        state["now"] += 1
+        try:
+            await asyncio.sleep(30)
+            return {"answer": {"items": []}}
+        finally:
+            state["now"] -= 1
+
+    with pytest.raises(RuntimeError, match="client broke"):
+        await Consolidator(s.deps(ask=ask)).fill_cues()
+    assert state["asked"] == 3
+    assert state["now"] == 0

@@ -22,6 +22,7 @@ from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from typing import Any
 
+from .._aio import gather_or_cancel
 from .._fs import write_file
 from .._js import parse, stringify
 from .consolidate import RELATED, SAME, ConsolidateDeps, Consolidator, Decision, relate_batches
@@ -178,7 +179,7 @@ class Sleep:
                     if dec:
                         answers[id(p)] = dec
 
-        await asyncio.gather(*(ask_lane() for _ in range(min(in_flight, len(batches)))))
+        await gather_or_cancel(*(ask_lane() for _ in range(min(in_flight, len(batches)))))
 
         async def apply(p: dict[str, Any]) -> None:
             async def under_lock() -> None:
@@ -216,7 +217,7 @@ class Sleep:
             while order and not d.aborted():
                 await apply(order.pop(0))
 
-        await asyncio.gather(*(apply_lane() for _ in range(max(1, d.apply_at_once or 1))))
+        await gather_or_cancel(*(apply_lane() for _ in range(max(1, d.apply_at_once or 1))))
         if d.aborted():
             return r
         # 2–3. Priority, and the archive.

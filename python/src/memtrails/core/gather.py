@@ -20,6 +20,7 @@ from typing import Any, TypedDict
 
 import regex
 
+from .._aio import gather_or_cancel
 from .._js import cut, iso_day, js_trim
 from ..llm import Ask, LlmRequest, ask_with, default_ask
 from .profiles import PROFILE_SHOWN
@@ -137,7 +138,7 @@ async def _pick(ask: Ask, question: str, found: list[RecalledItem], notes: bool 
         )
         return {"keep": keep, "searches": searches, "notes": said, "paused": None}
 
-    answers = await asyncio.gather(*(read(p) for p in parts))
+    answers = await gather_or_cancel(*(read(p) for p in parts))
     paused = next((a["paused"] for a in answers if a["paused"] is not None), None)
     out: dict[str, Any] = {
         "keep": {k for a in answers for k in a["keep"]},

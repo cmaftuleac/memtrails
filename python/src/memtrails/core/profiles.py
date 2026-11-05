@@ -17,12 +17,12 @@ Measured on all of LoCoMo (docs/BENCHMARKS.md): the answer fully shown in the se
 
 from __future__ import annotations
 
-import asyncio
 import functools
 import hashlib
 from collections.abc import Mapping, Sequence
 from typing import Any
 
+from .._aio import gather_or_cancel
 from .._js import cut, day_month_year, flatten_ws, js_trim, locale_compare
 from ..llm import LlmRequest, ask_with, default_ask
 from .consolidate import stamped
@@ -214,5 +214,5 @@ async def write_profiles(d: Any, max_profiles: int = PROFILES_PER_SLEEP) -> dict
             d.ltm.put([it])
             r["profiled"] += 1
 
-    await asyncio.gather(*(lane() for _ in range(min(_PROFILE_IN_FLIGHT, len(todo)))))
+    await gather_or_cancel(*(lane() for _ in range(min(_PROFILE_IN_FLIGHT, len(todo)))))
     return r
