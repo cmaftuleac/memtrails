@@ -30,7 +30,7 @@ from collections.abc import Callable
 import certifi
 import httpx
 
-from .._fs import write_file
+from .._fs import O_BINARY, write_file
 from .._http import using
 from .._js import now_ms, parse, stringify
 from .._proc import pid_alive
@@ -83,7 +83,7 @@ def _open_log(directory: str) -> int:
     except OSError:
         pass  # none yet
     os.makedirs(directory, mode=0o700, exist_ok=True)
-    fd = os.open(path, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
+    fd = os.open(path, os.O_WRONLY | os.O_APPEND | os.O_CREAT | O_BINARY, 0o600)
     try:
         os.chmod(path, 0o600)
     except OSError:

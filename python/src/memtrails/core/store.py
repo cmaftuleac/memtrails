@@ -34,7 +34,7 @@ import threading
 from collections.abc import Callable, Iterator, Sequence
 from typing import Any, Generic, TypeVar
 
-from .._fs import append_all, write_all, write_file
+from .._fs import O_BINARY, append_all, write_all, write_file
 from .._js import now_ms, parse, stringify, utf8
 
 #: A record of the short-term log (see above).
@@ -223,7 +223,7 @@ class JsonlLog(Generic[M]):
         lock: a put never waits on the disk (a file a compaction swapped in meanwhile was made durable by it)."""
         try:
             # Windows makes durable only a file open for writing (fsync on a read-only one is "Bad file descriptor").
-            fd = os.open(self._path, os.O_RDWR if sys.platform == "win32" else os.O_RDONLY)
+            fd = os.open(self._path, (os.O_RDWR if sys.platform == "win32" else os.O_RDONLY) | O_BINARY)
         except FileNotFoundError:
             return
         except PermissionError:
@@ -273,7 +273,7 @@ class JsonlLog(Generic[M]):
         swapped = False
         try:
             with open(self._path, "rb") as src:
-                out = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+                out = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | O_BINARY, 0o600)
                 at = 0
                 parts: list[bytes] = []
                 size = 0

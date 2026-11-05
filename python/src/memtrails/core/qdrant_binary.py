@@ -28,7 +28,7 @@ from typing import TypeVar
 
 import httpx
 
-from .._fs import write_all
+from .._fs import O_BINARY, write_all
 from .._http import using
 from .._proc import pid_alive
 from .paths import cache_dir
@@ -260,7 +260,7 @@ async def with_lock(path: str, run: Callable[[], Awaitable[T]], stale_ms: float 
     os.makedirs(os.path.dirname(lock) or ".", exist_ok=True)
     while True:
         try:
-            fd = os.open(lock, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            fd = os.open(lock, os.O_WRONLY | os.O_CREAT | os.O_EXCL | O_BINARY, 0o600)
             try:
                 write_all(fd, mine.encode("utf-8"))
             except BaseException:
@@ -338,7 +338,7 @@ async def ensure_qdrant(
                 raise RuntimeError(f"{a.asset} did not contain {a.exe}")
             os.chmod(exe, 0o755)
             marker = os.path.join(unpacked, ".verified")
-            with open(marker, "w", encoding="utf-8") as f:
+            with open(marker, "w", encoding="utf-8", newline="\n") as f:
                 f.write(f"{a.size}:{a.sha256}\n")
             os.chmod(marker, 0o644)
             os.chmod(unpacked, 0o755)

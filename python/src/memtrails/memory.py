@@ -33,7 +33,7 @@ from typing import Any, Literal, TypedDict, TypeVar
 
 import httpx
 
-from ._fs import write_all, write_file
+from ._fs import O_BINARY, write_all, write_file
 from ._http import new_client
 from ._js import date_parse, iso_day, now_ms, parse, stringify, u16len, u16slice
 from .core.consolidate import ConsolidateDeps, Consolidator, new_report
@@ -147,7 +147,7 @@ def _lock_home(directory: str) -> Callable[[], None]:
     attempt = 0
     while True:
         try:
-            fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | O_BINARY, 0o600)
         except FileExistsError:
             text, pid = _lock_holder(path)
             if pid is not None or attempt > 0:

@@ -17,10 +17,15 @@ def write_all(fd: int, data: bytes) -> None:
         view = view[n:]
 
 
+#: Windows opens a file in text mode unless told otherwise, and then writes every b"\n" as b"\r\n": the offsets the logs
+#: index would be off by a byte a line, and the files would not be the reference's. Every os.open here is binary.
+O_BINARY: int = getattr(os, "O_BINARY", 0)
+
+
 def append_all(path: str, data: bytes) -> None:
     """``data`` appended to ``path`` (made private when it is new), whole — or OSError, and the file cut back to where
     it ended before, so what is appended next starts on a line of its own."""
-    fd = os.open(path, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
+    fd = os.open(path, os.O_WRONLY | os.O_APPEND | os.O_CREAT | O_BINARY, 0o600)
     try:
         start = os.fstat(fd).st_size
         try:
@@ -37,7 +42,7 @@ def append_all(path: str, data: bytes) -> None:
 
 def write_file(path: str, data: bytes) -> None:
     """``path`` replaced by ``data`` (private), whole, or OSError."""
-    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | O_BINARY, 0o600)
     try:
         write_all(fd, data)
     finally:
