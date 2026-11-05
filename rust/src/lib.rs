@@ -1,6 +1,4 @@
-//! memtrails — retrieval and exploration for any text: e-mail, chat, notes, documents, news, commits,
-//! conversations. A native port of the TypeScript library of the same name: the same algorithms, prompts, files and
-//! index layout, so a memory written by one opens and searches in the other.
+#![doc = include_str!("../README.md")]
 #![deny(missing_docs)]
 
 use std::future::Future;
