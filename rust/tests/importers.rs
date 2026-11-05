@@ -815,3 +815,40 @@ async fn files_a_note_from_before_1970_keeps_its_time_rounded_as_javascript_roun
     let records = all(from_files(dir.path(), FilesOptions::default()).await).await;
     assert_eq!(ms(&records[0].at), Some(-1001.0));
 }
+
+#[tokio::test]
+async fn git_a_time_that_is_not_one_is_refused_before_git_runs() {
+    // The reference's `new Date(NaN).toISOString()` throws: no history is read with a bound that means nothing.
+    let dir = tempfile::tempdir().unwrap();
+    for t in [f64::NAN, f64::INFINITY, 9e15] {
+        let o =
+            GitOptions { since: Some(GitTime::Ms(t)), git: Some("memtrails-no-such-git".into()), ..Default::default() };
+        let err = from_git(dir.path(), o).await.err().map(|e| e.to_string()).unwrap_or_default();
+        assert!(err.contains("Invalid time value"), "{t}: {err}");
+    }
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn git_the_last_commit_comes_before_the_error_of_a_git_that_fails_at_the_end() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    let git = dir.path().join("fake-git");
+    // One commit in the format asked for (its marker taken from the arguments), then a failure.
+    fs::write(
+        &git,
+        r#"#!/bin/sh
+for a in "$@"; do case "$a" in --format=*) t=${a#--format=%x1e}; t=${t%%%n*};; esac; done
+printf '\036%s\n%s\000%s\000%s\000%s\000%s\000%s\037%s\n\nnotes.txt\n' "$t" 0123456789abcdef0123456789abcdef01234567 Ana ana@example.org 2024-05-01T10:00:00+00:00 '' 'Fix the build' "$t"
+echo 'fatal: something broke' >&2
+exit 1
+"#,
+    )
+    .unwrap();
+    fs::set_permissions(&git, fs::Permissions::from_mode(0o755)).unwrap();
+    let o = GitOptions { git: Some(git.to_string_lossy().into_owned()), ..Default::default() };
+    let got: Vec<memtrails::Result<MemoryRecord>> = from_git(dir.path(), o).await.unwrap().collect().await;
+    assert_eq!(got.len(), 2, "{got:?}");
+    assert_eq!(got[0].as_ref().unwrap().title.as_deref(), Some("Fix the build"));
+    assert!(got[1].as_ref().unwrap_err().to_string().contains("something broke"));
+}

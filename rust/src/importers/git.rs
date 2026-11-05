@@ -34,10 +34,13 @@ pub enum GitTime {
 }
 
 impl GitTime {
-    fn arg(&self) -> String {
+    /// As git is given it. A time that is none (NaN, infinite, past ±8.64e15 ms) is refused, as the reference's
+    /// `toISOString()` throws on it — never a bound that means nothing.
+    fn arg(&self) -> Result<String> {
         match self {
-            GitTime::Text(s) => s.clone(),
-            GitTime::Ms(ms) => js::iso_string(*ms),
+            GitTime::Text(s) => Ok(s.clone()),
+            GitTime::Ms(ms) if ms.is_finite() && ms.abs() <= 8.64e15 => Ok(js::iso_string(*ms)),
+            GitTime::Ms(_) => Err(Error::Import("Invalid time value".into())),
         }
     }
 }
@@ -231,7 +234,8 @@ impl Log {
     async fn next(&mut self) -> Option<Result<MemoryRecord>> {
         loop {
             if self.finished {
-                return None;
+                // After the last commit: git's exit, once.
+                return self.exit().await.err().map(Err);
             }
             match self.next_complete() {
                 Some(Some(r)) => return Some(Ok(r)),
@@ -248,15 +252,18 @@ impl Log {
                     } else {
                         None
                     };
-                    if let Err(e) = self.exit().await {
-                        return Some(Err(e));
+                    // The last commit first, then git's exit on the next call — as the reference yields it before
+                    // it throws: one git that failed at the end once cost the history its last commit.
+                    if let Some(r) = last {
+                        return Some(Ok(r));
                     }
-                    return last.map(Ok);
+                    return self.exit().await.err().map(Err);
                 }
                 Ok(n) => self.buffer.extend_from_slice(&piece[..n]),
                 Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
                 Err(e) => {
                     self.finished = true;
+                    self.child = None; // this error is the stream's last
                     return Some(Err(Error::Import(format!("git log failed in {}: {e}", self.repo))));
                 }
             }
@@ -290,10 +297,10 @@ pub async fn from_git(repo_dir: impl AsRef<Path>, opts: GitOptions) -> Result<Re
         args.push(format!("--max-count={n}"));
     }
     if let Some(t) = &opts.since {
-        args.push(format!("--since={}", t.arg()));
+        args.push(format!("--since={}", t.arg()?));
     }
     if let Some(t) = &opts.until {
-        args.push(format!("--until={}", t.arg()));
+        args.push(format!("--until={}", t.arg()?));
     }
     if opts.no_merges {
         args.push("--no-merges".into());
