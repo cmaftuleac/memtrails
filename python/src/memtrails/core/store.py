@@ -33,6 +33,7 @@ import threading
 from collections.abc import Callable, Iterator, Sequence
 from typing import Any, Generic, TypeVar
 
+from .._fs import append_all, write_all, write_file
 from .._js import now_ms, parse, stringify
 
 #: A record of the short-term log (see above).
@@ -55,14 +56,6 @@ def fingerprint(*parts: str | Sequence[str] | None) -> str:
 
 #: What a compaction holds before it writes.
 _WRITE_BYTES = 1 << 20
-
-
-def _append(path: str, data: bytes) -> None:
-    fd = os.open(path, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
-    try:
-        os.write(fd, data)
-    finally:
-        os.close(fd)
 
 
 def _dir(path: str) -> None:
@@ -140,7 +133,7 @@ class JsonlLog(Generic[M]):
             try:
                 # Its length without the '\n' it is given: readable whether or not that write lands.
                 if take(tail, at, len(tail)):
-                    _append(self._path, b"\n")
+                    append_all(self._path, b"\n")
                 else:
                     os.truncate(self._path, at)
             except OSError:
@@ -172,13 +165,16 @@ class JsonlLog(Generic[M]):
         if not self._end and os.path.exists(self._path):
             self._end = os.stat(self._path).st_size
         chunks: list[bytes] = []
+        slots: list[tuple[str, tuple[int, int, M]]] = []
         at = self._end
         for rec in recs:
             b = (stringify(rec) + "\n").encode("utf-8", "surrogatepass")
-            self._live[rec["uid"]] = (at, len(b), self._project(rec))
+            slots.append((rec["uid"], (at, len(b), self._project(rec))))
             chunks.append(b)
             at += len(b)
-        _append(self._path, b"".join(chunks))
+        # Written first, then indexed: a write that fails leaves the index pointing at nothing past the file's end.
+        append_all(self._path, b"".join(chunks))
+        self._live.update(slots)
         self._end = at
         self._lines += len(recs)
 
@@ -188,7 +184,7 @@ class JsonlLog(Generic[M]):
             return
         _dir(self._path)
         b = "".join(stringify({"uid": u, "removed": True}) + "\n" for u in gone).encode("utf-8", "surrogatepass")
-        _append(self._path, b)
+        append_all(self._path, b)
         if not self._end:
             self._end = os.stat(self._path).st_size - len(b)
         self._end += len(b)
@@ -255,10 +251,10 @@ class JsonlLog(Generic[M]):
                     size += len(b)
                     at += len(b)
                     if size >= _WRITE_BYTES:
-                        os.write(out, b"".join(parts))
+                        write_all(out, b"".join(parts))
                         parts, size = [], 0
                 if size:
-                    os.write(out, b"".join(parts))
+                    write_all(out, b"".join(parts))
                 os.fsync(out)
                 os.close(out)
                 out = None
@@ -356,11 +352,7 @@ class UsageBook:
             return
         try:
             _dir(self._path)
-            fd = os.open(self._path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-            try:
-                os.write(fd, stringify(self._data).encode("utf-8"))
-            finally:
-                os.close(fd)
+            write_file(self._path, stringify(self._data).encode("utf-8"))
             self._dirty = False
         except OSError:
             pass  # read-only: kept in memory

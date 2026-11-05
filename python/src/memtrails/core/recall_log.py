@@ -22,6 +22,7 @@ import threading
 from collections.abc import Callable
 from typing import Any
 
+from .._fs import append_all, write_file
 from .._js import now_ms, parse, stringify, u16slice
 
 #: A query kept up to this: the start of a long message is what the search embedded first.
@@ -56,11 +57,7 @@ class RecallBook:
         with self._lock:
             try:
                 os.makedirs(os.path.dirname(self._path) or ".", exist_ok=True)
-                fd = os.open(self._path, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
-                try:
-                    os.write(fd, data)
-                finally:
-                    os.close(fd)
+                append_all(self._path, data)
             except OSError:
                 pass  # recall never fails for its record
             self._appended += 1
@@ -105,11 +102,7 @@ class RecallBook:
                 if len(kept) == len(lines):
                     return 0
                 nxt = f"{self._path}.trim"
-                fd = os.open(nxt, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-                try:
-                    os.write(fd, "".join(f"{x}\n" for x in kept).encode("utf-8"))
-                finally:
-                    os.close(fd)
+                write_file(nxt, "".join(f"{x}\n" for x in kept).encode("utf-8"))
                 os.replace(nxt, self._path)
                 return len(lines) - len(kept)
             except OSError:

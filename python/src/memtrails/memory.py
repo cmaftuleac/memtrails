@@ -32,6 +32,7 @@ from typing import Any, Literal, TypedDict, TypeVar
 
 import httpx
 
+from ._fs import write_all, write_file
 from ._http import new_client
 from ._js import date_parse, iso_day, now_ms, parse, stringify, u16len, u16slice
 from .core.consolidate import ConsolidateDeps, Consolidator, new_report
@@ -161,9 +162,16 @@ def _lock_home(directory: str) -> Callable[[], None]:
             attempt += 1
             continue
         try:
-            os.write(fd, stringify({"pid": os.getpid(), "boot": boot_time()}).encode("utf-8"))
-        finally:
+            write_all(fd, stringify({"pid": os.getpid(), "boot": boot_time()}).encode("utf-8"))
+        except BaseException:
+            # A lock that says no pid would turn the next opener away for ten seconds, then be taken over anyway.
             os.close(fd)
+            try:
+                os.remove(path)
+            except OSError:
+                pass  # gone
+            raise
+        os.close(fd)
         break
 
     def release() -> None:
@@ -195,11 +203,7 @@ def _index_layout(directory: str) -> float | None:
 
 def _save_index_layout(directory: str) -> None:
     path = os.path.join(directory, _LAYOUT_FILE)
-    fd = os.open(f"{path}.tmp", os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    try:
-        os.write(fd, stringify({"layout": INDEX_LAYOUT}).encode("utf-8"))
-    finally:
-        os.close(fd)
+    write_file(f"{path}.tmp", stringify({"layout": INDEX_LAYOUT}).encode("utf-8"))
     os.replace(f"{path}.tmp", path)
 
 

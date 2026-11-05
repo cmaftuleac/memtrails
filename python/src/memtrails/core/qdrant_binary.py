@@ -28,6 +28,7 @@ from typing import TypeVar
 
 import httpx
 
+from .._fs import write_all
 from .._http import using
 from .paths import cache_dir
 
@@ -247,9 +248,15 @@ async def with_lock(path: str, run: Callable[[], Awaitable[T]], stale_ms: float 
         try:
             fd = os.open(lock, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
             try:
-                os.write(fd, mine.encode("utf-8"))
-            finally:
+                write_all(fd, mine.encode("utf-8"))
+            except BaseException:
                 os.close(fd)
+                try:
+                    os.remove(lock)  # a torn lock names no one: the next run would wait it out as stale
+                except OSError:
+                    pass
+                raise
+            os.close(fd)
             break
         except FileExistsError:
             pass

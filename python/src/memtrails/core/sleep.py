@@ -22,6 +22,7 @@ from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from typing import Any
 
+from .._fs import write_file
 from .._js import parse, stringify
 from .consolidate import RELATED, SAME, ConsolidateDeps, Consolidator, Decision, relate_batches
 from .embedder import doc_text
@@ -255,11 +256,7 @@ class Sleep:
             return r
         try:
             os.makedirs(os.path.dirname(d.state_path) or ".", exist_ok=True)
-            fd = os.open(d.state_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-            try:
-                os.write(fd, stringify(state_out).encode("utf-8"))
-            finally:
-                os.close(fd)
+            write_file(d.state_path, stringify(state_out).encode("utf-8"))
         except OSError:
             pass  # the next sleep looks at a little more
         return r

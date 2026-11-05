@@ -11,6 +11,7 @@ from collections.abc import Awaitable, Callable, Iterable
 from dataclasses import dataclass
 from typing import Any
 
+from .._fs import write_file
 from .._js import parse, stringify
 from .store import LtmStore, StmStore
 
@@ -88,11 +89,7 @@ class MemoryRebuild:
     def _save(self, checkpoint: dict[str, Any]) -> None:
         os.makedirs(os.path.dirname(self.d.path) or ".", exist_ok=True)
         tmp = f"{self.d.path}.tmp"
-        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-        try:
-            os.write(fd, stringify(checkpoint).encode("utf-8"))
-        finally:
-            os.close(fd)
+        write_file(tmp, stringify(checkpoint).encode("utf-8"))
         os.replace(tmp, self.d.path)
 
     async def _phase(

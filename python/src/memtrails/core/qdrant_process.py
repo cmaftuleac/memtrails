@@ -29,6 +29,7 @@ from collections.abc import Callable
 
 import httpx
 
+from .._fs import write_file
 from .._http import using
 from .._js import now_ms, parse, stringify
 from .qdrant_client import QdrantEndpoint
@@ -233,11 +234,7 @@ class QdrantProcess:
         port = _free_port()
         api_key = secrets.token_hex(24)
         config = os.path.join(self._dir, "config.yaml")
-        fd = os.open(config, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-        try:
-            os.write(fd, qdrant_config(self._dir, port).encode("utf-8"))
-        finally:
-            os.close(fd)
+        write_file(config, qdrant_config(self._dir, port).encode("utf-8"))
         log_fd = _open_log(self._dir)
         try:
             # A binary that is missing or cannot run fails here, in the caller, never in the host later.
@@ -279,11 +276,7 @@ class QdrantProcess:
         """The pid file, the child tracked for the host's exit, and a task that hears it exit; the file goes when that
         child does."""
         path = os.path.join(self._dir, _PID_FILE)
-        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-        try:
-            os.write(fd, stringify({"pid": child.pid, "config": config, "boot": boot_time()}).encode("utf-8"))
-        finally:
-            os.close(fd)
+        write_file(path, stringify({"pid": child.pid, "config": config, "boot": boot_time()}).encode("utf-8"))
         _running.add(child.pid)
 
         async def wait() -> None:
