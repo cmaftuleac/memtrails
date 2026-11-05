@@ -13,8 +13,9 @@ use indexmap::IndexMap;
 use serde_json::{json, Value};
 
 use crate::episodes::{calendar_of, render_for_extraction};
+use crate::error::Result;
 use crate::js;
-use crate::llm::{ask_or_pause, memory_request, Ask, LlmAnswer};
+use crate::llm::{memory_request, Ask, LlmAnswer};
 use crate::prompts::{EXTRACT_SYSTEM, EXTRACT_SYSTEM_WITHOUT_OBSERVATIONS, OBSERVE_SYSTEM};
 use crate::redact::redact_string;
 use crate::store::{MemoryOrigin, StmEntry};
@@ -419,7 +420,7 @@ pub struct ExtractOptions<'a> {
     pub known: Option<Vec<String>>,
 }
 
-async fn ask_extraction(ask: &dyn Ask, prompt: &str, with_observations: bool) -> Read<Value> {
+async fn ask_extraction(ask: &dyn Ask, prompt: &str, with_observations: bool) -> Result<Read<Value>> {
     let system = if with_observations { EXTRACT_SYSTEM.as_str() } else { EXTRACT_SYSTEM_WITHOUT_OBSERVATIONS.as_str() };
     let req = memory_request(
         system,
@@ -430,11 +431,11 @@ async fn ask_extraction(ask: &dyn Ask, prompt: &str, with_observations: bool) ->
         300_000,
         CONSEQUENCE,
     );
-    match ask_or_pause(ask, req).await {
+    Ok(match ask.ask(req).await? {
         LlmAnswer::Answer { answer, .. } => Read::Read(answer),
         LlmAnswer::Unavailable(why) => Read::Unavailable(why),
         LlmAnswer::Busy => Read::Busy,
-    }
+    })
 }
 
 fn values(v: &Value) -> Vec<Value> {
@@ -445,7 +446,7 @@ fn values(v: &Value) -> Vec<Value> {
 /// running summary of the request is handed to the next part, which returns it updated. Every part's items are kept;
 /// the episode is the last part's, with every part's cues and concepts. A part not answered leaves the whole request
 /// for the next run. The request's whole text stays as the episode's body.
-async fn extract_long(e: &StmEntry, header: &str, ask: &dyn Ask, observations: bool) -> Read<Extraction> {
+async fn extract_long(e: &StmEntry, header: &str, ask: &dyn Ask, observations: bool) -> Result<Read<Extraction>> {
     let parts = parts_of(&render_for_extraction(e, 1), WINDOW_CHARS - 2000);
     let uids = vec![e.uid.clone()];
     let mut x = Extraction::default();
@@ -465,10 +466,10 @@ async fn extract_long(e: &StmEntry, header: &str, ask: &dyn Ask, observations: b
             k + 1,
             parts.len()
         );
-        let a = match ask_extraction(ask, &prompt, observations).await {
+        let a = match ask_extraction(ask, &prompt, observations).await? {
             Read::Read(a) => a,
-            Read::Unavailable(w) => return Read::Unavailable(w),
-            Read::Busy => return Read::Busy,
+            Read::Unavailable(w) => return Ok(Read::Unavailable(w)),
+            Read::Busy => return Ok(Read::Busy),
         };
         let episodes = values(&a["episodes"]);
         let mine = episodes.iter().find(|x| x["request"] == 1);
@@ -507,11 +508,11 @@ async fn extract_long(e: &StmEntry, header: &str, ask: &dyn Ask, observations: b
             origin: None,
         });
     }
-    Read::Read(x)
+    Ok(Read::Read(x))
 }
 
-/// Read one window. `Unavailable`/`Busy` come back as they are, so the worker can pause.
-pub async fn extract_window(win: &[StmEntry], meta: &WindowMeta, o: &ExtractOptions<'_>) -> Read<Extraction> {
+/// Read one window. `Unavailable`/`Busy` come back as they are, so the worker can pause; an ask that fails fails it.
+pub async fn extract_window(win: &[StmEntry], meta: &WindowMeta, o: &ExtractOptions<'_>) -> Result<Read<Extraction>> {
     let default = crate::llm::default_ask();
     let ask = o.ask.unwrap_or(default.as_ref());
     let header = header_of(win, meta, o.known.as_deref());
@@ -519,10 +520,10 @@ pub async fn extract_window(win: &[StmEntry], meta: &WindowMeta, o: &ExtractOpti
     if win.len() == 1 && js::len16(&rendered[0]) > WINDOW_CHARS {
         return extract_long(&win[0], &header, ask, o.observations).await;
     }
-    let a = match ask_extraction(ask, &format!("{header}\n\n{}", rendered.join("\n\n")), o.observations).await {
+    let a = match ask_extraction(ask, &format!("{header}\n\n{}", rendered.join("\n\n")), o.observations).await? {
         Read::Read(a) => a,
-        Read::Unavailable(w) => return Read::Unavailable(w),
-        Read::Busy => return Read::Busy,
+        Read::Unavailable(w) => return Ok(Read::Unavailable(w)),
+        Read::Busy => return Ok(Read::Busy),
     };
     let uids: Vec<String> = win.iter().map(|e| e.uid.clone()).collect();
     let mut ends: IndexMap<i64, String> = IndexMap::new();
@@ -551,13 +552,13 @@ pub async fn extract_window(win: &[StmEntry], meta: &WindowMeta, o: &ExtractOpti
             origin: None,
         });
     }
-    Read::Read(Extraction {
+    Ok(Read::Read(Extraction {
         summary: redact_string(a["segment_summary"].as_str().unwrap_or("")),
         candidates,
         episodes,
         observations: clean_observations(&values(&a["observations"]), &uids),
         dropped,
-    })
+    }))
 }
 
 /// Observations read apart: a small window of requests in one focused ask, with what came just before it as context —
@@ -570,7 +571,7 @@ pub async fn observe_window(
     ask: Option<&dyn Ask>,
     chars: usize,
     known: Option<&[String]>,
-) -> Read<Vec<Observation>> {
+) -> Result<Read<Vec<Observation>>> {
     let default = crate::llm::default_ask();
     let ask = ask.unwrap_or(default.as_ref());
     let header = header_of(win, meta, known);
@@ -608,11 +609,11 @@ pub async fn observe_window(
             300_000,
             CONSEQUENCE,
         );
-        match ask_or_pause(ask, req).await {
+        match ask.ask(req).await? {
             LlmAnswer::Answer { answer, .. } => out.extend(clean_observations(&values(&answer["observations"]), &uids)),
-            LlmAnswer::Unavailable(w) => return Read::Unavailable(w),
-            LlmAnswer::Busy => return Read::Busy,
+            LlmAnswer::Unavailable(w) => return Ok(Read::Unavailable(w)),
+            LlmAnswer::Busy => return Ok(Read::Busy),
         }
     }
-    Read::Read(out)
+    Ok(Read::Read(out))
 }

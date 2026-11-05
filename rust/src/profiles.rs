@@ -20,7 +20,7 @@ use sha2::{Digest, Sha256};
 use crate::consolidate::{new_item, ConsolidateDeps, Source};
 use crate::error::Result;
 use crate::js;
-use crate::llm::{ask_or_pause, memory_request, LlmAnswer};
+use crate::llm::{memory_request, LlmAnswer};
 use crate::prompts::PROFILE_SYSTEM;
 use crate::store::MemoryItem;
 use crate::text::{concept_key, cut};
@@ -259,7 +259,7 @@ pub async fn write_profiles(d: &ConsolidateDeps, max: usize) -> Result<ProfileRe
                 180_000,
                 "so this subject's profile waits for the next night",
             );
-            let answer = match ask_or_pause(d.ask.as_ref(), req).await {
+            let answer = match d.ask.ask(req).await? {
                 LlmAnswer::Answer { answer, .. } => answer,
                 LlmAnswer::Unavailable(why) => {
                     state.lock().unwrap_or_else(|e| e.into_inner()).1.get_or_insert(why);

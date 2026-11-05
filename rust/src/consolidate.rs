@@ -29,7 +29,7 @@ use crate::extract::{
     KeptEpisode, Observation, Read, WindowMeta, WINDOW_CHARS,
 };
 use crate::js;
-use crate::llm::{ask_or_pause, memory_request, Ask, LlmAnswer};
+use crate::llm::{memory_request, Ask, LlmAnswer};
 use crate::prompts::{CUE_SYSTEM, RELATE_SYSTEM};
 use crate::qdrant_client::QdrantClient;
 use crate::recall::{memory_search, RecallDeps, SearchQuery};
@@ -833,7 +833,7 @@ impl Consolidator {
 
     /// One window's reading, and what the guard (when there is one) lets it keep.
     async fn read(self: &Arc<Self>, win: &[StmEntry], meta: &WindowMeta) -> Result<Read<Extraction>> {
-        let x = self.extract(win, meta).await;
+        let x = self.extract(win, meta).await?;
         match (&self.d.guard, x) {
             (Some(g), Read::Read(x)) => Ok(g(win.to_vec(), x).await),
             (_, x) => Ok(x),
@@ -842,7 +842,7 @@ impl Consolidator {
 
     /// One window's extraction: the one ask — and, when observations are read apart, the window's small windows too,
     /// each with the one before it as context. Any part not answered leaves the whole window for the next run.
-    async fn extract(self: &Arc<Self>, win: &[StmEntry], meta: &WindowMeta) -> Read<Extraction> {
+    async fn extract(self: &Arc<Self>, win: &[StmEntry], meta: &WindowMeta) -> Result<Read<Extraction>> {
         let known = if self.d.resolve { Some(self.known_for(win).await) } else { None };
         let ask = self.d.ask.as_ref();
         let Some(chars) = self.d.observe_chars.filter(|c| *c > 0) else {
@@ -856,20 +856,20 @@ impl Consolidator {
             observe_window(sub, if k > 0 { &subs[k - 1] } else { &empty }, meta, Some(ask), chars, known.as_deref())
         }));
         let (x, seen) = tokio::join!(main, seen);
-        let mut x = match x {
+        let mut x = match x? {
             Read::Read(x) => x,
-            other => return other,
+            other => return Ok(other),
         };
         let mut observations = Vec::new();
         for o in seen {
-            match o {
+            match o? {
                 Read::Read(o) => observations.extend(o),
-                Read::Unavailable(w) => return Read::Unavailable(w),
-                Read::Busy => return Read::Busy,
+                Read::Unavailable(w) => return Ok(Read::Unavailable(w)),
+                Read::Busy => return Ok(Read::Busy),
             }
         }
         x.observations = observations;
-        Read::Read(x)
+        Ok(Read::Read(x))
     }
 
     /// What other conversations say that this window may refer to: a few of its requests searched for, the best
@@ -945,7 +945,11 @@ impl Consolidator {
             if (self.d.aborted)() {
                 break;
             }
-            let answers = futures::future::join_all(group.iter().map(|b| self.cue_batch(b))).await;
+            let answers: Vec<std::result::Result<Vec<MemoryItem>, String>> =
+                futures::future::join_all(group.iter().map(|b| self.cue_batch(b)))
+                    .await
+                    .into_iter()
+                    .collect::<Result<_>>()?;
             let paused = answers.iter().find_map(|a| a.as_ref().err().cloned());
             let got: Vec<MemoryItem> = answers.into_iter().filter_map(|a| a.ok()).flatten().collect();
             if !got.is_empty() {
@@ -966,8 +970,9 @@ impl Consolidator {
         Ok((cued, None))
     }
 
-    /// One ask for a few items' cues and concepts; `Err(why)` when the model did not answer.
-    pub async fn cue_batch(&self, items: &[MemoryItem]) -> std::result::Result<Vec<MemoryItem>, String> {
+    /// One ask for a few items' cues and concepts; `Ok(Err(why))` when the model did not answer, an error when the ask
+    /// failed.
+    pub async fn cue_batch(&self, items: &[MemoryItem]) -> Result<std::result::Result<Vec<MemoryItem>, String>> {
         let prompt = items
             .iter()
             .enumerate()
@@ -990,10 +995,10 @@ impl Consolidator {
             120_000,
             "so these memories wait for their cues",
         );
-        let answer = match ask_or_pause(self.d.ask.as_ref(), req).await {
+        let answer = match self.d.ask.ask(req).await? {
             LlmAnswer::Answer { answer, .. } => answer,
-            LlmAnswer::Unavailable(why) => return Err(why),
-            LlmAnswer::Busy => return Err("the fast model is busy".into()),
+            LlmAnswer::Unavailable(why) => return Ok(Err(why)),
+            LlmAnswer::Busy => return Ok(Err("the fast model is busy".into())),
         };
         let mut out = Vec::new();
         for x in answer["items"].as_array().into_iter().flatten() {
@@ -1012,7 +1017,7 @@ impl Consolidator {
                 out.push(it);
             }
         }
-        Ok(out)
+        Ok(Ok(out))
     }
 
     /// Each item against what long-term memory holds — written as it goes, so a later item sees an earlier one.
@@ -1057,7 +1062,11 @@ impl Consolidator {
         }
         // The pairs are fixed before any is asked about: every batch asked at once, the answers applied in order.
         let batches = relate_batches(ask, |p| pair_size(&p.it, &p.known));
-        let answers = futures::future::join_all(batches.iter().map(|b| self.relate(b))).await;
+        let answers: Vec<std::result::Result<HashMap<String, Decision>, String>> =
+            futures::future::join_all(batches.iter().map(|b| self.relate(b)))
+                .await
+                .into_iter()
+                .collect::<Result<_>>()?;
         for (batch, got) in batches.into_iter().zip(answers) {
             for (n, Pair { it, known }) in batch.into_iter().enumerate() {
                 let d = got.as_ref().ok().and_then(|m| m.get(&format!("p{}", n + 1)).cloned());
@@ -1302,8 +1311,9 @@ impl Consolidator {
         self.d.ltm.put(vec![old]).await
     }
 
-    /// The model's decision for each pair, by its label (`p1`, …) — or why it did not answer.
-    pub async fn relate(&self, batch: &[Pair]) -> std::result::Result<HashMap<String, Decision>, String> {
+    /// The model's decision for each pair, by its label (`p1`, …) — or why it did not answer (`Ok(Err(why))`); an error
+    /// when the ask failed.
+    pub async fn relate(&self, batch: &[Pair]) -> Result<std::result::Result<HashMap<String, Decision>, String>> {
         // Whole texts: a merge the model writes from a shortened body loses the rest of it.
         let prompt = batch
             .iter()
@@ -1335,10 +1345,10 @@ impl Consolidator {
             300_000,
             "so these memories are kept apart for now",
         );
-        let answer = match ask_or_pause(self.d.ask.as_ref(), req).await {
+        let answer = match self.d.ask.ask(req).await? {
             LlmAnswer::Answer { answer, .. } => answer,
-            LlmAnswer::Unavailable(why) => return Err(why),
-            LlmAnswer::Busy => return Err("the fast model is busy".into()),
+            LlmAnswer::Unavailable(why) => return Ok(Err(why)),
+            LlmAnswer::Busy => return Ok(Err("the fast model is busy".into())),
         };
         let mut out = HashMap::new();
         for p in answer["pairs"].as_array().into_iter().flatten() {
@@ -1359,7 +1369,7 @@ impl Consolidator {
                 },
             );
         }
-        Ok(out)
+        Ok(Ok(out))
     }
 
     /// The deps it works with.

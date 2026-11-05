@@ -53,23 +53,12 @@ pub enum LlmAnswer {
 }
 
 /// A language model: one structured ask in, an answer out. Implement it to bring any model; [`openai_ask`] speaks
-/// the OpenAI-compatible Responses API. An error is read as the model being unavailable, with the error as the reason.
+/// the OpenAI-compatible Responses API. Answer [`LlmAnswer::Unavailable`] when the model cannot be asked: the work
+/// pauses and waits for the next run. An error fails the work that asked, as a rejected ask does in the reference.
 #[async_trait::async_trait]
 pub trait Ask: Send + Sync {
     /// Ask once.
     async fn ask(&self, req: LlmRequest) -> Result<LlmAnswer>;
-}
-
-/// Ask, an error read as the model being unavailable (the work waits for the next run).
-pub(crate) async fn ask_or_pause(ask: &dyn Ask, req: LlmRequest) -> LlmAnswer {
-    let consequence = req.consequence.clone();
-    match ask.ask(req).await {
-        Ok(a) => a,
-        Err(e) => LlmAnswer::Unavailable(match consequence {
-            Some(c) if !c.is_empty() => format!("{e}, {c}"),
-            _ => e.to_string(),
-        }),
-    }
 }
 
 /// The OpenAI-compatible model ([`openai_ask`]).

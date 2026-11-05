@@ -195,9 +195,11 @@ pub async fn sleep(d: &SleepDeps) -> Result<SleepReport> {
     let asker = || async {
         while !unanswered.load(Ordering::SeqCst) && !(b.aborted)() {
             let k = next.fetch_add(1, Ordering::SeqCst);
-            let Some(batch) = batches.get(k) else { return };
+            let Some(batch) = batches.get(k) else { return Ok(()) };
             let ps: Vec<Pair> = batch.iter().map(|&i| pairs[i].pair.clone()).collect();
-            match worker.relate(&ps).await {
+            // An ask that fails stops the others and fails the sleep, as a rejected ask does in the reference.
+            let got = worker.relate(&ps).await.inspect_err(|_| unanswered.store(true, Ordering::SeqCst))?;
+            match got {
                 Ok(got) => {
                     let mut a = answers.lock().unwrap_or_else(|e| e.into_inner());
                     for (n, &i) in batch.iter().enumerate() {
@@ -213,12 +215,15 @@ pub async fn sleep(d: &SleepDeps) -> Result<SleepReport> {
                     p.0.get_or_insert(why);
                     let first = batch.iter().map(|&i| pairs[i].at).fold(f64::INFINITY, f64::min);
                     p.1 = Some(p.1.unwrap_or(f64::INFINITY).min(first));
-                    return;
+                    return Ok(());
                 }
             }
         }
+        Ok::<(), crate::Error>(())
     };
-    futures::future::join_all((0..d.relate_in_flight.max(1).min(batches.len())).map(|_| asker())).await;
+    for done in futures::future::join_all((0..d.relate_in_flight.max(1).min(batches.len())).map(|_| asker())).await {
+        done?;
+    }
     let (why, resume) = paused.into_inner().unwrap_or_else(|e| e.into_inner());
     r.paused = why;
     let resume_at = resume;

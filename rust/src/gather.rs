@@ -17,7 +17,7 @@ use serde_json::{json, Value};
 use crate::consolidate::label_no;
 use crate::error::Result;
 use crate::js;
-use crate::llm::{ask_or_pause, memory_request, Ask, LlmAnswer};
+use crate::llm::{memory_request, Ask, LlmAnswer};
 use crate::profiles::PROFILE_SHOWN;
 use crate::prompts::{GATHER_SYSTEM, NOTES_RULE};
 use crate::recall::{memory_search, RecallDeps, RecalledItem, SearchQuery, MAX_SEARCH};
@@ -77,7 +77,7 @@ struct Picked {
     paused: Option<String>,
 }
 
-async fn pick(ask: &dyn Ask, question: &str, list: &[RecalledItem], notes: bool) -> Picked {
+async fn pick(ask: &dyn Ask, question: &str, list: &[RecalledItem], notes: bool) -> Result<Picked> {
     let size = if notes { NOTES_PART } else { PART };
     let system = if notes { format!("{}{NOTES_RULE}", *GATHER_SYSTEM) } else { GATHER_SYSTEM.clone() };
     let answers = futures::future::join_all(list.chunks(size).map(|part| {
@@ -94,21 +94,21 @@ async fn pick(ask: &dyn Ask, question: &str, list: &[RecalledItem], notes: bool)
                 120_000,
                 "so these memories are kept unread",
             );
-            let got = match ask_or_pause(ask, req).await {
+            let got = match ask.ask(req).await? {
                 LlmAnswer::Answer { answer, .. } => answer,
                 LlmAnswer::Unavailable(why) => {
-                    return Picked {
+                    return Ok(Picked {
                         keep: part.iter().map(|h| h.id.clone()).collect(),
                         paused: Some(why),
                         ..Default::default()
-                    }
+                    })
                 }
                 LlmAnswer::Busy => {
-                    return Picked {
+                    return Ok(Picked {
                         keep: part.iter().map(|h| h.id.clone()).collect(),
                         paused: Some("the fast model is busy".into()),
                         ..Default::default()
-                    }
+                    })
                 }
             };
             let strings = |k: &str| -> Vec<String> {
@@ -130,13 +130,14 @@ async fn pick(ask: &dyn Ask, question: &str, list: &[RecalledItem], notes: bool)
             } else {
                 vec![]
             };
-            Picked { keep, searches, notes: said, paused: None }
+            Ok::<Picked, crate::Error>(Picked { keep, searches, notes: said, paused: None })
         }
     }))
     .await;
     let mut out = Picked::default();
     let mut searches: IndexSet<String> = IndexSet::new();
     for a in answers {
+        let a = a?;
         out.keep.extend(a.keep);
         searches.extend(a.searches.iter().map(|s| js::trim(s).to_string()));
         out.notes.extend(a.notes);
@@ -145,7 +146,7 @@ async fn pick(ask: &dyn Ask, question: &str, list: &[RecalledItem], notes: bool)
         }
     }
     out.searches = searches.into_iter().collect();
-    out
+    Ok(out)
 }
 
 /// A gathered set.
@@ -201,7 +202,7 @@ pub async fn memory_gather(d: &RecallDeps, q: &SearchQuery, o: GatherOptions<'_>
     let in_ids: IndexSet<String> = in_dates.iter().map(|h| h.id.clone()).collect();
     let first: Vec<RecalledItem> =
         in_dates.into_iter().chain(wide.into_iter().filter(|h| !in_ids.contains(&h.id))).collect();
-    let one = pick(ask, &q.query, &first, o.notes).await;
+    let one = pick(ask, &q.query, &first, o.notes).await?;
     let searches: Vec<String> = one.searches.iter().take(MORE).cloned().collect();
     let mut have: IndexSet<String> = first.iter().map(|h| h.id.clone()).collect();
     let found_more = futures::future::try_join_all(searches.iter().map(|s| {
@@ -215,7 +216,7 @@ pub async fn memory_gather(d: &RecallDeps, q: &SearchQuery, o: GatherOptions<'_>
             more.push(h);
         }
     }
-    let two = if more.is_empty() { Picked::default() } else { pick(ask, &q.query, &more, o.notes).await };
+    let two = if more.is_empty() { Picked::default() } else { pick(ask, &q.query, &more, o.notes).await? };
     let all: Vec<RecalledItem> = first.into_iter().chain(more).collect();
     let (kept, rest): (Vec<RecalledItem>, Vec<RecalledItem>) =
         all.into_iter().partition(|h| one.keep.contains(&h.id) || two.keep.contains(&h.id));

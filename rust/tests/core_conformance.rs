@@ -159,18 +159,23 @@ async fn extraction_asks_and_keeps_as_the_reference_does() {
     let m = meta(&f["meta"]);
     let a = Recorder::new(vec![f["extract"]["answer"].clone()]);
     let known = Some(vec!["(2026-03-01) The old rack was rack three.".to_string()]);
-    let x = extract_window(&win, &m, &ExtractOptions { ask: Some(a.as_ref()), observations: true, known }).await;
+    let x =
+        extract_window(&win, &m, &ExtractOptions { ask: Some(a.as_ref()), observations: true, known }).await.unwrap();
     same_asks(&a.seen(), &f["extract"]["asked"]);
     assert_eq!(extraction_json(&x), f["extract"]["result"]);
 
     let both: Vec<StmEntry> = win.iter().chain(conv.iter()).cloned().collect();
     let a = Recorder::new(vec![json!({ "segment_summary": "", "episodes": [], "items": [] })]);
     let mixed = WindowMeta { cwd: Some("/srv".into()), engine: "email".into(), title: "Mixed".into() };
-    extract_window(&both, &mixed, &ExtractOptions { ask: Some(a.as_ref()), observations: false, known: None }).await;
+    extract_window(&both, &mixed, &ExtractOptions { ask: Some(a.as_ref()), observations: false, known: None })
+        .await
+        .unwrap();
     same_asks(&a.seen(), &f["extract"]["withoutObservations"]);
 
     let a = Recorder::new(vec![json!("unavailable")]);
-    let x = extract_window(&win, &m, &ExtractOptions { ask: Some(a.as_ref()), observations: true, known: None }).await;
+    let x = extract_window(&win, &m, &ExtractOptions { ask: Some(a.as_ref()), observations: true, known: None })
+        .await
+        .unwrap();
     assert_eq!(a.seen().len() as u64, f["extract"]["unavailable"]["asked"].as_u64().unwrap());
     assert_eq!(extraction_json(&x), f["extract"]["unavailable"]["result"]);
 }
@@ -204,7 +209,8 @@ async fn a_request_too_long_for_a_window_is_read_in_parts_each_folded_into_the_l
         &meta(&f["meta"]),
         &ExtractOptions { ask: Some(a.as_ref()), observations: true, known: None },
     )
-    .await;
+    .await
+    .unwrap();
     same_asks(&a.seen(), &f["long"]["asked"]);
     let mut got = extraction_json(&x);
     // The reference builds this result with its fields in another order; they are compared as values.
@@ -233,7 +239,7 @@ async fn observations_are_read_apart_with_what_came_just_before() {
     let cat = WindowMeta { cwd: None, engine: "conversation".into(), title: "Cat".into() };
     for (key, before, chars) in [("observe", &win[..2], 300), ("one", &win[..], 7)] {
         let a = Recorder::new(vec![f["observe"]["answer"].clone()]);
-        let got = observe_window(&conv, before, &cat, Some(a.as_ref()), chars, None).await;
+        let got = observe_window(&conv, before, &cat, Some(a.as_ref()), chars, None).await.unwrap();
         let (asked, result) = if key == "observe" {
             (&f["observe"]["asked"], &f["observe"]["result"])
         } else {
@@ -285,7 +291,7 @@ async fn reconciling_asks_about_pairs_and_reads_the_labels_back() {
             known: serde_json::from_value(p["known"].clone()).unwrap(),
         })
         .collect();
-    let decided = worker.relate(&pairs).await.unwrap();
+    let decided = worker.relate(&pairs).await.unwrap().unwrap();
     same_asks(&a.seen(), &f["relate"]["asked"]);
     let got: serde_json::Map<String, Value> = decided
         .into_iter()
@@ -300,7 +306,7 @@ async fn cues_are_asked_for_what_has_none_and_kept_as_the_reference_keeps_them()
     let dir = tempfile::tempdir().unwrap();
     let a = Recorder::new(vec![f["cues"]["answer"].clone()]);
     let worker = Consolidator::new(deps(nowhere(), a.clone(), dir.path()));
-    let got = worker.cue_batch(&items(&f["cues"]["items"])).await.unwrap();
+    let got = worker.cue_batch(&items(&f["cues"]["items"])).await.unwrap().unwrap();
     same_asks(&a.seen(), &f["cues"]["asked"]);
     assert_eq!(serde_json::to_value(&got).unwrap(), f["cues"]["result"]);
 }

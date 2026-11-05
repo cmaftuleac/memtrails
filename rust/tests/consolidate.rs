@@ -199,10 +199,10 @@ async fn labels_a_model_quotes_are_read() {
         it: item("mem:new", "new", "deploy through jenkins", json!({})),
         known: item("mem:old", "old", "deploy by hand", json!({})),
     };
-    let got = Consolidator::new(s.with(ask)).relate(std::slice::from_ref(&pair)).await.unwrap();
+    let got = Consolidator::new(s.with(ask)).relate(std::slice::from_ref(&pair)).await.unwrap().unwrap();
     assert_eq!(got["p1"].relation, "related");
     let away = answering(|_| LlmAnswer::Unavailable("no model is set".into()));
-    assert_eq!(Consolidator::new(s.with(away)).relate(&[pair]).await.unwrap_err(), "no model is set");
+    assert_eq!(Consolidator::new(s.with(away)).relate(&[pair]).await.unwrap().unwrap_err(), "no model is set");
 }
 
 #[tokio::test]
@@ -672,4 +672,24 @@ async fn a_record_changed_while_its_window_is_marked_done_is_neither_lost_nor_ma
             }
         }
     }
+}
+
+#[tokio::test]
+async fn a_model_whose_ask_fails_fails_the_work_and_one_that_is_unavailable_pauses_it() {
+    // The reference's ask is a promise: a rejected one fails the consolidation; `{ unavailable }` pauses it.
+    struct Failing;
+    #[async_trait::async_trait]
+    impl Ask for Failing {
+        async fn ask(&self, _req: LlmRequest) -> memtrails::Result<LlmAnswer> {
+            Err(memtrails::Error::Other("the model's client broke".into()))
+        }
+    }
+    let s = setup().await;
+    s.base.stm.put(vec![entry("c:1", "rotate the staging certificate", json!({}))]).await.unwrap();
+    let err = Consolidator::new(s.with(Arc::new(Failing))).run(20).await.unwrap_err().to_string();
+    assert!(err.contains("the model's client broke"), "{err}");
+    assert!(!s.base.stm.get("c:1").await.unwrap().done);
+    let away = answering(|_| LlmAnswer::Unavailable("no model is set".into()));
+    let r = Consolidator::new(s.with(away)).run(20).await.unwrap();
+    assert_eq!(r.paused.as_deref(), Some("no model is set"));
 }
