@@ -5,6 +5,10 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+- Rust: the MCP server and the command line, as in TypeScript and Python — `cargo install memtrails`, then
+  `memtrails mcp`, `add`, `search`; `memtrails::mcp::serve_mcp` from code, held to the same answers
+  (`conformance/fixtures/mcp.json`).
+
 ## [0.5.0] — 2026-11-05
 
 - An MCP server and a command line: `npx memtrails mcp` serves a memory to Claude Desktop, Claude Code, Cursor and any

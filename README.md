@@ -83,7 +83,8 @@ claude mcp add memory -- npx -y memtrails mcp                                  #
 ```
 
 The second is for Claude Desktop (`claude_desktop_config.json`), Cursor (`.cursor/mcp.json`) and most other clients.
-Fill the memory from the command line, and try it:
+The same server comes with the Python and Rust versions: `uvx memtrails mcp`, or `cargo install memtrails` and then
+`memtrails mcp`. Fill the memory from the command line, and try it:
 
 ```bash
 npx memtrails add ~/notes ~/mail/archive.mbox ./slack-export      # notes and documents, mail, a Slack export

@@ -17,6 +17,7 @@ pub mod importers;
 pub mod js;
 pub mod llm;
 pub mod local_embedder;
+pub mod mcp;
 pub mod memory;
 pub mod model;
 pub mod profiles;

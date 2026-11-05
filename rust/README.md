@@ -98,6 +98,31 @@ Importers in `memtrails::importers` stream records: `from_mbox`, `from_eml`, `fr
 `memory.tools()` gives `memory_search`, `memory_open` and `memory_explore`. Each comes with its JSON Schema (draft
 2020-12, the same as the reference's) and an async handler that checks its own arguments.
 
+## Memory for Claude, Cursor and other MCP apps
+
+The crate has a `memtrails` command: an MCP server that gives a client a long-term memory on your machine
+(`memory_search`, `memory_open`, `memory_explore`, and `memory_save` for what the agent should remember), and a way to
+fill it.
+
+```bash
+cargo install memtrails
+claude mcp add memory -- memtrails mcp                             # Claude Code
+memtrails add ~/notes ~/mail/archive.mbox ./slack-export          # notes and documents, mail, a Slack export
+memtrails add --git ~/code/my-repo                                 # commit messages and changed files
+memtrails search "why did the certificate stop renewing?"
+```
+
+```json
+{ "mcpServers": { "memory": { "command": "memtrails", "args": ["mcp"] } } }
+```
+
+The second is for Claude Desktop (`claude_desktop_config.json`), Cursor (`.cursor/mcp.json`) and most other clients.
+The memory lives in `~/.memtrails` (`--home` or `MEMTRAILS_HOME` for another), the same files as the TypeScript and
+Python servers'. The server opens it at the first tool call and closes it after five minutes without one (`--idle`), so
+`add` can run in between; `--read-only` leaves out `memory_save`. From code, `memtrails::mcp::serve_mcp_stdio` (or
+`serve_mcp` over any reader and writer) serves a memory, answering as the reference does
+([`conformance/fixtures/mcp.json`](https://github.com/cmaftuleac/memtrails/blob/main/conformance/fixtures/mcp.json)).
+
 ## Configuration
 
 | `MemoryOptions` | Default | |
