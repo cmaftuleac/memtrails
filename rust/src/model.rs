@@ -6,7 +6,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use crate::download::{download_verified, with_lock, DownloadOptions, LockOptions, Pin};
+use crate::download::{download_verified, with_lock, DownloadOptions, LockOptions, Pin, TempFolder};
 use crate::error::{Error, Result};
 
 /// The model's repository on Hugging Face.
@@ -67,8 +67,9 @@ pub async fn ensure_model(o: &DownloadOptions, dir: Option<PathBuf>) -> Result<P
             let pin = Pin { size: *size, sha256: (*sha).to_string() };
             let (file, tmp) =
                 download_verified(&format!("{}/{rel}", base.trim_end_matches('/')), &parent, &pin, o).await?;
+            let tmp = TempFolder::new(tmp); // removed however this ends, a cancelled run too
             let placed = tokio::fs::rename(&file, &path).await.map_err(|e| Error::io(&path, e));
-            let _ = tokio::fs::remove_dir_all(&tmp).await;
+            tmp.remove().await;
             placed?;
         }
         tokio::fs::write(&marker, stamp()).await.map_err(|e| Error::io(&marker, e))?;

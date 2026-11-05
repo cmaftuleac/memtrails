@@ -11,7 +11,7 @@ use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
-use crate::download::{download_verified, with_lock, DownloadOptions, LockOptions, Pin};
+use crate::download::{download_verified, with_lock, DownloadOptions, LockOptions, Pin, TempFolder};
 use crate::error::{Error, Result};
 use crate::qdrant_binary::platform;
 use crate::store::blocking;
@@ -168,9 +168,10 @@ pub async fn ensure_runtime(o: &DownloadOptions) -> Result<PathBuf> {
         let pin = Pin { size, sha256: sha.to_string() };
         let (file, tmp) =
             download_verified(&format!("{}/{archive}", base.trim_end_matches('/')), &cache, &pin, o).await?;
-        let (d, t, s) = (dir.clone(), tmp.clone(), sha.to_string());
+        let tmp = TempFolder::new(tmp); // removed however this ends, a cancelled run too
+        let (d, t, s) = (dir.clone(), tmp.path().to_path_buf(), sha.to_string());
         let placed = blocking(move || place(&file, &t, &d, inner, size, &s)).await;
-        let _ = tokio::fs::remove_dir_all(&tmp).await;
+        tmp.remove().await;
         placed??;
         let (c, s) = (cache.clone(), sha.to_string());
         if !blocking(move || ready(&c, size, &s, inner)).await? {

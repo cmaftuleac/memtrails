@@ -173,3 +173,35 @@ async fn a_model_folder_without_its_marker_is_not_ready() {
     let dir = tempfile::tempdir().unwrap();
     assert!(!model_ready(dir.path()).await);
 }
+
+#[tokio::test]
+async fn a_cancelled_holder_leaves_no_lock_and_nothing_touching_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("x");
+    let lock = dir.path().join("x.lock");
+    let o = LockOptions { stale_ms: 40, poll_ms: 5 };
+    let held = with_lock(&path, o, || async {
+        tokio::time::sleep(std::time::Duration::from_secs(3600)).await;
+        Ok(())
+    });
+    assert!(tokio::time::timeout(std::time::Duration::from_millis(60), held).await.is_err());
+    assert!(!lock.exists(), "the lock was left behind");
+    // Nothing keeps a lock alive for a holder that is gone: one made now by another is never touched.
+    fs::write(&lock, "1 elsewhere other").unwrap();
+    let old = std::time::SystemTime::now() - std::time::Duration::from_secs(600);
+    fs::File::options().write(true).open(&lock).unwrap().set_modified(old).unwrap();
+    tokio::time::sleep(std::time::Duration::from_millis(60)).await;
+    assert_eq!(fs::metadata(&lock).unwrap().modified().unwrap(), old);
+}
+
+#[tokio::test]
+async fn a_cancelled_download_leaves_no_temp_folder() {
+    let s = serve(|_| Response { status: 200, chunks: vec![(0, vec![1u8; 10]), (60_000, vec![2u8; 10])] }).await;
+    let dir = tempfile::tempdir().unwrap();
+    let pin = Pin { size: 20, sha256: "0".repeat(64) };
+    let (url, o) = (format!("{}/f.bin", s.url), DownloadOptions::default());
+    let fetch = download_verified(&url, dir.path(), &pin, &o);
+    assert!(tokio::time::timeout(std::time::Duration::from_millis(200), fetch).await.is_err());
+    let left: Vec<_> = fs::read_dir(dir.path()).unwrap().map(|e| e.unwrap().file_name()).collect();
+    assert!(left.is_empty(), "{left:?}");
+}

@@ -9,7 +9,7 @@
 use std::fs;
 use std::path::{Component, Path, PathBuf};
 
-use crate::download::{download_verified, with_lock, DownloadOptions, LockOptions, Pin};
+use crate::download::{download_verified, with_lock, DownloadOptions, LockOptions, Pin, TempFolder};
 use crate::error::{Error, Result};
 use crate::store::blocking;
 use crate::sys;
@@ -216,7 +216,8 @@ pub async fn ensure_qdrant(o: &DownloadOptions, asset: Option<QdrantAsset>) -> R
         let pin = Pin { size: a.size, sha256: a.sha256.clone() };
         let (file, tmp) =
             download_verified(&format!("{}/{}", base.trim_end_matches('/'), a.asset), &cache, &pin, o).await?;
-        let (a2, dir2, tmp2) = (a.clone(), dir.clone(), tmp.clone());
+        let tmp = TempFolder::new(tmp); // removed however this ends, a cancelled run too
+        let (a2, dir2, tmp2) = (a.clone(), dir.clone(), tmp.path().to_path_buf());
         // Unpacking and moving folders: file work, on a blocking thread.
         let placed = blocking(move || -> Result<()> {
             let (a, dir, tmp) = (a2, dir2, tmp2);
@@ -243,7 +244,7 @@ pub async fn ensure_qdrant(o: &DownloadOptions, asset: Option<QdrantAsset>) -> R
             fs::rename(&unpacked, &dir).map_err(|e| Error::io(&dir, e))
         })
         .await;
-        let _ = tokio::fs::remove_dir_all(&tmp).await;
+        tmp.remove().await;
         placed??;
         if !qdrant_ready(&cache, &a).await {
             return Err(Error::Download(format!(

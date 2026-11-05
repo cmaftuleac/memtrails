@@ -7,8 +7,6 @@ use std::future::Future;
 use std::io::Read;
 
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 use tokio::io::AsyncWriteExt;
 
@@ -100,14 +98,52 @@ pub async fn download_verified(url: &str, dir: &Path, pin: &Pin, o: &DownloadOpt
     tokio::fs::create_dir_all(dir).await.map_err(|e| Error::io(dir, e))?;
     let tmp = dir.join(format!(".download-{}", random_hex(6)));
     let made = tmp.clone();
+    let folder = TempFolder::new(tmp.clone());
     blocking(move || sys::make_dir(&made, 0o700)).await?.map_err(|e| Error::io(&tmp, e))?;
     let file = tmp.join("file");
     let result = fetch_into(url, &file, pin, o.stall_ms.unwrap_or(DOWNLOAD_STALL_MS)).await;
     match result {
-        Ok(()) => Ok((file, tmp)),
+        Ok(()) => Ok((file, folder.keep())),
         Err(e) => {
-            let _ = tokio::fs::remove_dir_all(&tmp).await;
+            folder.remove().await;
             Err(e)
+        }
+    }
+}
+
+/// A temp folder removed when it is dropped — the work that made it done, failed or cancelled (a dropped future), so
+/// a run given up half-way leaves no `.download-*` behind. `remove` does it off the runtime's threads on the way
+/// out; `keep` hands the folder on.
+pub(crate) struct TempFolder(Option<PathBuf>);
+
+impl TempFolder {
+    /// Removed when dropped, from now on.
+    pub(crate) fn new(path: PathBuf) -> Self {
+        TempFolder(Some(path))
+    }
+
+    /// Where it is.
+    pub(crate) fn path(&self) -> &Path {
+        self.0.as_deref().unwrap_or(Path::new(""))
+    }
+
+    /// The folder, no longer removed on drop.
+    pub(crate) fn keep(mut self) -> PathBuf {
+        self.0.take().unwrap_or_default()
+    }
+
+    /// Removed now (an error is ignored: it is a temp).
+    pub(crate) async fn remove(mut self) {
+        if let Some(p) = self.0.take() {
+            let _ = tokio::fs::remove_dir_all(&p).await;
+        }
+    }
+}
+
+impl Drop for TempFolder {
+    fn drop(&mut self) {
+        if let Some(p) = self.0.take() {
+            let _ = fs::remove_dir_all(p);
         }
     }
 }
@@ -224,11 +260,13 @@ where
     if let Some(dir) = lock.parent() {
         tokio::fs::create_dir_all(dir).await.map_err(|e| Error::io(dir, e))?;
     }
-    loop {
+    let held = loop {
         match private_options().open(&lock).await {
             Ok(mut fd) => {
+                // Held from the moment it is made: a run cancelled while writing it still takes it away.
+                let held = HeldLock { lock: lock.clone(), mine: mine.clone(), beat: None };
                 fd.write_all(mine.as_bytes()).await.map_err(|e| Error::io(&lock, e))?;
-                break;
+                break held;
             }
             Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {}
             Err(e) => return Err(Error::io(&lock, e)),
@@ -239,35 +277,45 @@ where
             continue;
         }
         tokio::time::sleep(Duration::from_millis(o.poll_ms)).await;
-    }
-    let done = Arc::new(AtomicBool::new(false));
-    let beat = {
-        let done = done.clone();
-        let lock = lock.clone();
-        let every = Duration::from_millis((o.stale_ms / 4).max(10));
-        tokio::spawn(async move {
-            loop {
-                tokio::time::sleep(every).await;
-                if done.load(Ordering::SeqCst) {
-                    break;
-                }
-                // Taken over: nothing to keep alive.
-                let at = lock.clone();
-                let _ = blocking(move || {
-                    if let Ok(f) = OpenOptions::new().write(true).open(&at) {
-                        let _ = f.set_modified(SystemTime::now());
-                    }
-                })
-                .await;
-            }
-        })
     };
+    let mut held = held;
+    let every = Duration::from_millis((o.stale_ms / 4).max(10));
+    let at = lock.clone();
+    held.beat = Some(tokio::spawn(async move {
+        loop {
+            tokio::time::sleep(every).await;
+            // Taken over: nothing to keep alive.
+            let at = at.clone();
+            let _ = blocking(move || {
+                if let Ok(f) = OpenOptions::new().write(true).open(&at) {
+                    let _ = f.set_modified(SystemTime::now());
+                }
+            })
+            .await;
+        }
+    }));
     let result = f().await;
-    done.store(true, Ordering::SeqCst);
-    beat.abort();
-    // Not one taken over meanwhile.
-    if tokio::fs::read_to_string(&lock).await.is_ok_and(|t| t == mine) {
-        let _ = tokio::fs::remove_file(&lock).await;
-    }
+    drop(held);
     result
+}
+
+/// A lock `with_lock` holds. Dropped — the work done, failed or cancelled (a dropped future) — it stops the heartbeat
+/// and takes the lock away when it is still this holder's: a cancelled run once left a heartbeat touching the lock
+/// for the life of the process, so no other run could ever take it over.
+struct HeldLock {
+    lock: PathBuf,
+    mine: String,
+    beat: Option<tokio::task::JoinHandle<()>>,
+}
+
+impl Drop for HeldLock {
+    fn drop(&mut self) {
+        if let Some(b) = self.beat.take() {
+            b.abort();
+        }
+        // Ours, whole or cut short while it was written — not one taken over meanwhile.
+        if fs::read_to_string(&self.lock).is_ok_and(|t| self.mine.starts_with(&t)) {
+            let _ = fs::remove_file(&self.lock);
+        }
+    }
 }
