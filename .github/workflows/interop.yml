@@ -1,0 +1,48 @@
+name: Interop
+
+# A memory folder written by one language is opened and searched by another with the same results: TypeScript, Python
+# and Rust each write a home from interop/corpus.json, each reads every home, and each adds a record to every home.
+# Everything runs on one machine, since ONNX Runtime's 4-bit kernels round differently between CPU architectures.
+on:
+  push:
+    branches: [main]
+    paths: ['src/**', 'python/**', 'rust/**', 'interop/**', 'conformance/**', '.github/workflows/interop.yml']
+  pull_request:
+    paths: ['src/**', 'python/**', 'rust/**', 'interop/**', 'conformance/**', '.github/workflows/interop.yml']
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  interop:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 24
+          cache: npm
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: '3.12'
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          workspaces: interop/rs
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ~/.cache/memtrails
+          key: memtrails-cache-interop-${{ hashFiles('src/core/model.ts', 'src/core/qdrant-binary.ts', 'python/src/memtrails/core/model.py', 'python/src/memtrails/core/qdrant_binary.py', 'rust/src/model.rs', 'rust/src/qdrant_binary.rs', 'rust/src/runtime.rs') }}
+      - run: npm ci
+      - run: python -m pip install --upgrade pip
+      - run: python -m pip install -e python
+      - run: node interop/run.mjs
+        env:
+          INTEROP_PYTHON: python
