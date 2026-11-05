@@ -328,14 +328,10 @@ fn clean(text: &str, html: bool, opts: &MboxOptions) -> String {
     js::trim(&MANY_BLANKS.replace_all(&joined, "\n\n")).to_string()
 }
 
+/// Each name once, first place kept — through a set: a list searched for each name was quadratic in a message with
+/// thousands of parts.
 fn dedupe(v: Vec<String>) -> Vec<String> {
-    let mut out: Vec<String> = Vec::new();
-    for x in v {
-        if !out.contains(&x) {
-            out.push(x);
-        }
-    }
-    out
+    v.into_iter().collect::<indexmap::IndexSet<String>>().into_iter().collect()
 }
 
 fn content_of(e: &Entity, opts: &MboxOptions, depth: usize) -> Content {
@@ -671,4 +667,19 @@ pub async fn from_eml(path: impl AsRef<Path>, opts: MboxOptions) -> Result<Recor
         Ok(r.into_iter().map(Ok))
     })
     .await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn many_attachment_names_are_deduplicated_in_linear_time() {
+        let names: Vec<String> = (0..60_000).map(|i| format!("file-{}.pdf", i % 40_000)).collect();
+        let t = std::time::Instant::now();
+        let out = dedupe(names);
+        assert!(t.elapsed().as_secs_f64() < 2.0, "{:?}", t.elapsed());
+        assert_eq!(out.len(), 40_000);
+        assert_eq!((out[0].as_str(), out[39_999].as_str()), ("file-0.pdf", "file-39999.pdf"));
+    }
 }
