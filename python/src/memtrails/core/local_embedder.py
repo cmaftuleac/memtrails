@@ -13,7 +13,7 @@ from __future__ import annotations
 import asyncio
 import os
 from collections.abc import Callable, Sequence
-from typing import Any, Literal, Protocol
+from typing import Any, Literal, Protocol, TypeVar
 
 import numpy as np
 import numpy.typing as npt
@@ -22,6 +22,8 @@ from .embedder import Vector, doc_text, query_text
 from .words import WORD_LIMIT, WordVectors
 
 _BOS_EOS = 2
+
+T = TypeVar("T")
 
 
 class Tokens(Protocol):
@@ -143,15 +145,32 @@ class LocalEmbedder:
 
         return self._batches([self._ids(t, WORD_LIMIT + _BOS_EOS) for t in prompted], read)
 
+    async def _alone(self, run: Callable[[], T]) -> T:
+        """``run`` on a thread, one at a time. A thread cannot be stopped: a caller cancelled while it runs is let go at
+        once, and the turn stays taken until the thread ends — the next inference, and close(), wait for it."""
+        await self._one.acquire()
+        try:
+            job = asyncio.ensure_future(asyncio.to_thread(run))
+        except BaseException:
+            self._one.release()
+            raise
+
+        def done(t: asyncio.Future[T]) -> None:
+            self._one.release()
+            if not t.cancelled():
+                t.exception()  # a caller that was let go is not told; nor is it an unhandled error
+
+        job.add_done_callback(done)
+        return await asyncio.shield(job)
+
     async def embed(self, texts: Sequence[str], timeout_ms: float | None = None) -> list[Vector]:
         if not texts:
             return []
-        async with self._one:
-            return await asyncio.to_thread(self._embed, list(texts))
+        listed = list(texts)
+        return await self._alone(lambda: self._embed(listed))
 
     async def words(self, texts: list[str], kind: Literal["query", "document"]) -> list[WordVectors]:
-        async with self._one:
-            return await asyncio.to_thread(self._words, texts, kind)
+        return await self._alone(lambda: self._words(texts, kind))
 
     async def close(self) -> None:
         """Once the inference running (if any) is done."""

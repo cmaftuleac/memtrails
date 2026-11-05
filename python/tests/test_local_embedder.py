@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import asyncio
+import threading
 from typing import Any
 
 import numpy as np
+import pytest
 
 from fakes import run
 from memtrails.core.local_embedder import LocalEmbedder
@@ -75,3 +78,50 @@ def test_the_last_word_of_a_cut_text_is_a_word() -> None:
     d = run(e.words([" ".join(["word"] * 200)], "document"))[0]
     assert d.words == 129
     run(e.close())
+
+
+class Blocking(Session):
+    """A session whose runs wait for ``go``, counting how many run at once."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.go = threading.Event()
+        self.started = threading.Event()
+        self.now = 0
+        self.most = 0
+        self.finished = 0
+        self._count = threading.Lock()
+
+    def run(self, names: Any, feeds: dict[str, Any]) -> list[np.ndarray]:
+        with self._count:
+            self.now += 1
+            self.most = max(self.most, self.now)
+        self.started.set()
+        self.go.wait(5)
+        try:
+            return super().run(names, feeds)
+        finally:
+            with self._count:
+                self.now -= 1
+                self.finished += 1
+
+
+async def test_a_cancelled_caller_keeps_the_turn_until_its_inference_ends() -> None:
+    s = Blocking()
+    e = LocalEmbedder("/nowhere", session=s, tokenizer=tokenizer)
+    first = asyncio.ensure_future(e.embed(["one two"]))
+    await asyncio.to_thread(s.started.wait, 5)
+    first.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await first
+    # The thread still runs: a second inference waits its turn instead of running beside it, and so does close().
+    second = asyncio.ensure_future(e.words(["three"], "query"))
+    closing = asyncio.ensure_future(e.close())
+    await asyncio.sleep(0.05)
+    assert s.now == 1
+    assert not closing.done()
+    s.go.set()
+    assert len(await second) == 1
+    await closing
+    assert s.most == 1
+    assert s.finished == 2

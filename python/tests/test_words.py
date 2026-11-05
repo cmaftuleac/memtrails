@@ -163,3 +163,22 @@ def test_the_room_shows_each_memory_once_oldest_first() -> None:
         "(old) Ana once mentioned the Italian place near the office.",
         "(new) Ana likes the Italian place. … Ana goes there on Fridays.",
     ]
+
+
+async def test_a_late_encoder_still_stores_what_it_encoded(tmp_path: Path) -> None:
+    asked: list[list[str]] = []
+
+    async def slow(texts: list[str], _kind: str) -> list[WordVectors]:
+        asked.append(texts)
+        await asyncio.sleep(0.05)
+        return [vectors(t) for t in texts]
+
+    store = WordStore(str(tmp_path / "w.bin"))
+    rerank = word_reranker(slow, store)
+    assert await rerank("certificate expired", ["the certificate expired"], 10) is None
+    await asyncio.sleep(0.2)
+    # Kept by the search that was too late for it: the next one encodes only its question.
+    assert store.get("the certificate expired") is not None
+    asked.clear()
+    assert await rerank("certificate", ["the certificate expired"], 1000) is not None
+    assert asked == [["certificate"]]

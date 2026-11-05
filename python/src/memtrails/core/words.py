@@ -153,6 +153,13 @@ Rerank = Callable[[str, list[str], float], Awaitable["list[float] | None"]]
 def word_reranker(encode: WordEncoder, store: WordStore) -> Rerank:
     """A reranker for memory_search (RecallDeps.rerank) that needs no server: what is not stored yet is encoded here,
     once. None — the search keeps its own order — when the encoder fails or takes longer than it was given."""
+    #: Encodings that outlived their search: held here so they run to the end and store what they encoded.
+    running: set[asyncio.Task[list[float]]] = set()
+
+    def settled(t: asyncio.Task[list[float]]) -> None:
+        running.discard(t)
+        if not t.cancelled():
+            t.exception()  # a late one's failure has no one to tell
 
     async def rerank(query: str, documents: list[str], timeout_ms: float) -> list[float] | None:
         async def work() -> list[float]:
@@ -164,9 +171,17 @@ def word_reranker(encode: WordEncoder, store: WordStore) -> Rerank:
             packed = [store.get(t) or PackedWords(0, q.dims, b"") for t in documents]
             return await asyncio.to_thread(lambda: [max_sim(q, p) for p in packed])
 
+        # Raced against the time given, never cancelled by it: one that is late goes on and stores what it encoded, so
+        # the next search finds it there instead of starting over and being late again.
+        task = asyncio.ensure_future(work())
+        running.add(task)
+        task.add_done_callback(settled)
+        done, _ = await asyncio.wait({task}, timeout=timeout_ms / 1000)
+        if not done:
+            return None
         try:
-            return await asyncio.wait_for(work(), timeout_ms / 1000)
-        except Exception:  # noqa: BLE001 - a failed or late encoder leaves the search its own order
+            return task.result()
+        except Exception:  # noqa: BLE001 - a failed encoder leaves the search its own order
             return None
 
     return rerank
