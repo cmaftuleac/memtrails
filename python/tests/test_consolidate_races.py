@@ -337,3 +337,31 @@ async def test_an_ask_that_raises_cancels_the_asks_beside_it(tmp_path: Path) -> 
         await Consolidator(s.deps(ask=ask)).fill_cues()
     assert state["asked"] == 3
     assert state["now"] == 0
+
+
+async def test_a_sleep_state_without_a_time_is_no_sleep_yet_and_written_after_the_log(tmp_path: Path) -> None:
+    s = Setup(tmp_path)
+    it = item("mem:a", "deploy the api", "push main")
+    await write_ltm(s.deps(), [it])
+    s.ltm.put([it])
+    order: list[str] = []
+    real_flush = s.ltm.flush
+
+    def flush() -> None:
+        order.append("log")
+        real_flush()
+
+    s.ltm.flush = flush  # type: ignore[method-assign]
+
+    async def read_state() -> dict[str, Any]:
+        return {"last": None}
+
+    async def write_state(_: dict[str, Any]) -> None:
+        order.append("state")
+
+    async def away(_: LlmRequest) -> dict[str, Any]:
+        return {"unavailable": "test: away"}
+
+    r = await Sleep(s.sleep_deps(ask=away, read_state=read_state, write_state=write_state)).run()
+    assert r["looked"] == 1
+    assert order == ["log", "state"]

@@ -83,7 +83,9 @@ class Sleep:
 
     async def _last_sleep(self) -> float:
         if self.d.read_state:
-            return ((await self.d.read_state()) or {}).get("last", 0)
+            # A state written without a time ({"last": null}) is no sleep yet, as the reference's ?? 0 reads it.
+            last = ((await self.d.read_state()) or {}).get("last")
+            return last if isinstance(last, (int, float)) and not isinstance(last, bool) else 0
         try:
             with open(self.d.state_path, encoding="utf-8") as f:
                 return parse(f.read()).get("last", 0) or 0
@@ -252,6 +254,8 @@ class Sleep:
         await asyncio.to_thread(d.ltm.compact)
         # A night that stopped early (the pair cap, the fast model away) starts the next one where it stopped.
         state_out = {"last": resume_at if resume_at is not None else now, **r}
+        # What the night wrote is on disk before the state that says it was done (sleep.ts flushes the store first).
+        await asyncio.to_thread(d.ltm.flush)
         if d.write_state:
             await d.write_state(state_out)
             return r

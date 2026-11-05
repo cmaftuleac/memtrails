@@ -216,6 +216,19 @@ class JsonlLog(Generic[M]):
         with self._lock:
             self._remove(uids)
 
+    def flush(self) -> None:
+        """Every record put so far made durable: a put is in the file when it returns, and after this it survives a
+        crash too — so what is written after it (the sleep's state) never says more than the log holds. Without the
+        lock: a put never waits on the disk (a file a compaction swapped in meanwhile was made durable by it)."""
+        try:
+            fd = os.open(self._path, os.O_RDONLY)
+        except FileNotFoundError:
+            return
+        try:
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+
     def compact(self) -> None:
         """Rewrites the log without replaced lines once it is twice what is live (see _compact). One running already
         does it: this returns."""

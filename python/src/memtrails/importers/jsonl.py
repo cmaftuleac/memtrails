@@ -50,6 +50,11 @@ async def from_jsonl(
         except ValueError as err:
             skip(line, f"not JSON: {err}", n)
             continue
+        except RecursionError:
+            # Nested deeper than Python's parser goes (JavaScript's has no such limit): the line is skipped, said why,
+            # and the file read on.
+            skip(line, "not JSON: nested too deeply", n)
+            continue
         if map is not None:
             try:
                 r = map(obj, n)

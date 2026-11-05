@@ -11,7 +11,7 @@ from typing import Any
 import pytest
 
 from memtrails._js import date_parse
-from memtrails.importers import from_eml, from_files
+from memtrails.importers import from_eml, from_files, from_jsonl, from_slack_export
 from memtrails.importers.text import html_title, html_to_text
 
 N = 200_000
@@ -149,3 +149,24 @@ async def test_names_the_sender_and_reads_the_date(tmp_path: Path) -> None:
         authors.append(r["author"])
         assert r["at"] == date_parse("2024-03-01T10:00:00Z")
     assert authors == ["Pop, Ana", "ana@x.org", "Ana Pop", "ana@x.org ()", "Ana"]
+
+
+DEEP = "[" * 100_000 + "]" * 100_000
+
+
+async def test_a_line_nested_too_deeply_is_skipped(tmp_path: Path) -> None:
+    path = tmp_path / "records.jsonl"
+    path.write_text(f'{{"id":"deep","text":"x","metadata":{DEEP}}}\n{{"id":"after","text":"read on"}}\n')
+    skipped: list[str] = []
+    got = await collect(from_jsonl(path, on_skip=lambda _line, why, _n: skipped.append(why)))
+    assert [r["id"] for r in got] == ["after"]
+    assert skipped == ["not JSON: nested too deeply"]
+
+
+async def test_a_slack_day_nested_too_deeply_is_skipped(tmp_path: Path) -> None:
+    root = tmp_path / "export"
+    (root / "general").mkdir(parents=True)
+    (root / "channels.json").write_text('[{"id": "C1", "name": "general"}]')
+    (root / "general" / "2024-01-01.json").write_text(DEEP)
+    (root / "general" / "2024-01-02.json").write_text('[{"type": "message", "user": "U1", "text": "read on", "ts": "1704200000.0001"}]')
+    assert [r["text"] for r in await collect(from_slack_export(root))] == ["read on"]

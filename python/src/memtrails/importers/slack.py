@@ -66,6 +66,10 @@ def _read_json_sync(path: str) -> Any:
         return parse(text.removeprefix("﻿"))
     except ValueError as err:
         raise RuntimeError(f"cannot read {path}: {err}") from err
+    except RecursionError:
+        # Nested deeper than Python's parser goes (JavaScript's has no such limit): the file is skipped and the export
+        # read on, never a RecursionError out of the import.
+        return None
 
 
 async def _read_json(path: str) -> Any:
