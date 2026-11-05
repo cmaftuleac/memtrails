@@ -11,7 +11,7 @@ use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
-use crate::download::{download_verified, with_lock, DownloadOptions, LockOptions, Pin, TempFolder};
+use crate::download::{download_verified, private_cache, with_lock, DownloadOptions, LockOptions, Pin, TempFolder};
 use crate::error::{Error, Result};
 use crate::qdrant_binary::platform;
 use crate::store::blocking;
@@ -72,14 +72,15 @@ fn file_name(inner: &str) -> &str {
     inner.rsplit('/').next().unwrap_or(inner)
 }
 
-/// The library is in place, its archive was verified when it was taken out, and no one else could have changed it.
+/// The library is in place, its archive was verified when it was taken out, and no one else could have changed it —
+/// nor the cache above it.
 fn ready(cache: &Path, size: u64, sha: &str, inner: &str) -> bool {
     let dir = runtime_dir(cache);
     let lib = dir.join(file_name(inner));
     let marker = dir.join(".verified");
     fs::read_to_string(&marker).is_ok_and(|t| t.trim() == format!("{size}:{sha}"))
         && fs::metadata(&lib).is_ok_and(|m| m.len() > 0)
-        && [&dir, &lib, &marker].iter().all(|p| sys::owned_safely(p))
+        && [cache, &dir, &lib, &marker].iter().all(|p| sys::owned_safely(p))
 }
 
 /// Only the library out of the archive, under its own name (nothing else of it is written).
@@ -154,8 +155,7 @@ pub async fn ensure_runtime(o: &DownloadOptions) -> Result<PathBuf> {
     if blocking(move || ready(&c, size, &s, inner)).await? {
         return Ok(lib);
     }
-    let made = cache.clone();
-    blocking(move || sys::make_dir(&made, 0o700)).await?.map_err(|e| Error::io(&cache, e))?;
+    private_cache(&cache).await?;
     with_lock(&dir, LockOptions::default(), || async {
         let (c, s) = (cache.clone(), sha.to_string());
         if blocking(move || ready(&c, size, &s, inner)).await? {
@@ -234,6 +234,10 @@ mod tests {
         // SAFETY: as above.
         unsafe { libc::umask(was) };
         placed.unwrap();
+        sys::chmod(cache.path(), 0o700).unwrap();
         assert!(ready(cache.path(), 7, "abc", inner));
+        // A cache others can write to: they could swap the folder the library is in between the check and the load.
+        sys::chmod(cache.path(), 0o777).unwrap();
+        assert!(!ready(cache.path(), 7, "abc", inner));
     }
 }

@@ -84,6 +84,22 @@ impl DownloadOptions {
     }
 }
 
+/// The cache made (0700) or made private, and this user's alone — or refused. What is verified in it is loaded or run
+/// later: a folder others could write to lets them swap a library between its check and its load, or a download
+/// between its hash and its unpacking.
+pub(crate) async fn private_cache(cache: &Path) -> Result<()> {
+    let c = cache.to_path_buf();
+    let safe = blocking(move || sys::make_dir(&c, 0o700).map(|()| sys::owned_safely(&c))).await?;
+    match safe {
+        Ok(true) => Ok(()),
+        Ok(false) => Err(Error::Download(format!(
+            "{} is not this user's alone (its owner, its permissions, or it is a link): set MEMTRAILS_CACHE to a folder of your own",
+            cache.display()
+        ))),
+        Err(e) => Err(Error::io(cache, e)),
+    }
+}
+
 fn random_hex(bytes: usize) -> String {
     let mut b = vec![0u8; bytes];
     rand::thread_rng().fill_bytes(&mut b);

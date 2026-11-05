@@ -205,3 +205,26 @@ async fn a_cancelled_download_leaves_no_temp_folder() {
     let left: Vec<_> = fs::read_dir(dir.path()).unwrap().map(|e| e.unwrap().file_name()).collect();
     assert!(left.is_empty(), "{left:?}");
 }
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_cache_others_could_change_is_made_private_or_refused() {
+    use std::os::unix::fs::PermissionsExt;
+    let s = serve(|_| Response::new(404, "nope")).await;
+    let root = tempfile::tempdir().unwrap();
+    // There already, open to everyone: made private before anything is fetched into it.
+    let cache = root.path().join("open");
+    fs::create_dir(&cache).unwrap();
+    fs::set_permissions(&cache, fs::Permissions::from_mode(0o777)).unwrap();
+    let o = DownloadOptions { cache: Some(cache.clone()), base_url: Some(s.url.clone()), ..Default::default() };
+    assert!(ensure_qdrant(&o, None).await.unwrap_err().to_string().contains("HTTP 404"));
+    assert_eq!(fs::metadata(&cache).unwrap().permissions().mode() & 0o777, 0o700);
+    // A link to a folder: whoever can change the link can swap what it leads to — refused, nothing fetched.
+    let link = root.path().join("link");
+    std::os::unix::fs::symlink(&cache, &link).unwrap();
+    let before = s.requests().len();
+    let o = DownloadOptions { cache: Some(link), base_url: Some(s.url.clone()), ..Default::default() };
+    let err = ensure_qdrant(&o, None).await.unwrap_err().to_string();
+    assert!(err.contains("not this user's alone"), "{err}");
+    assert_eq!(s.requests().len(), before);
+}

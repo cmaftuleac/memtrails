@@ -157,12 +157,14 @@ pub(crate) fn owned_safely(path: &Path) -> bool {
     }
 }
 
-/// A folder made with these permissions (0700 for what is private), and set so when it was there already.
+/// A folder made with these permissions (0700 for what is private), and set so when it was there already (the
+/// builder's mode applies only to a folder it makes).
 pub(crate) fn make_dir(path: &Path, mode: u32) -> std::io::Result<()> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::DirBuilderExt;
-        std::fs::DirBuilder::new().recursive(true).mode(mode).create(path)
+        std::fs::DirBuilder::new().recursive(true).mode(mode).create(path)?;
+        chmod(path, mode)
     }
     #[cfg(not(unix))]
     {

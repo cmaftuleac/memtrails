@@ -9,7 +9,7 @@
 use std::fs;
 use std::path::{Component, Path, PathBuf};
 
-use crate::download::{download_verified, with_lock, DownloadOptions, LockOptions, Pin, TempFolder};
+use crate::download::{download_verified, private_cache, with_lock, DownloadOptions, LockOptions, Pin, TempFolder};
 use crate::error::{Error, Result};
 use crate::store::blocking;
 use crate::sys;
@@ -117,7 +117,7 @@ fn ready_now(cache: &Path, a: &QdrantAsset) -> bool {
     let marker = dir.join(".verified");
     fs::read_to_string(&marker).is_ok_and(|t| t.trim() == format!("{}:{}", a.size, a.sha256))
         && fs::metadata(&bin).is_ok_and(|m| m.len() > 0)
-        && [&dir, &bin, &marker].iter().all(|p| sys::owned_safely(p))
+        && [cache, &dir, &bin, &marker].iter().all(|p| sys::owned_safely(p))
 }
 
 /// An entry's path inside the folder it is unpacked into, or `None` when it would lead out of it (absolute, `..`).
@@ -205,8 +205,7 @@ pub async fn ensure_qdrant(o: &DownloadOptions, asset: Option<QdrantAsset>) -> R
     if qdrant_ready(&cache, &a).await {
         return Ok(bin);
     }
-    let made = cache.clone();
-    blocking(move || sys::make_dir(&made, 0o700)).await?.map_err(|e| Error::io(&cache, e))?;
+    private_cache(&cache).await?;
     with_lock(&dir, LockOptions::default(), || async {
         if qdrant_ready(&cache, &a).await {
             return Ok(bin.clone()); // another run finished it while this one waited
