@@ -17,6 +17,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
+use futures::FutureExt;
 use indexmap::{IndexMap, IndexSet};
 use serde_json::{json, Value};
 use tokio::sync::Semaphore;
@@ -637,21 +638,33 @@ impl Consolidator {
         // A pool: the next window starts when ANY one is read, not when the oldest is — one slow answer held every
         // other place idle while the windows after it waited their turn. They are still reconciled in order.
         let permits = Arc::new(Semaphore::new(limit));
-        let mut reading: Vec<tokio::task::JoinHandle<Option<Result<Read<Extraction>>>>> = Vec::new();
+        // The readings run in a set that aborts them when it is dropped: a run that fails, or is cancelled (its future
+        // dropped, by close() or a caller's timeout), leaves no paid model call running behind it. Each window's
+        // answer comes back on its own channel, so the windows are still reconciled in order.
+        let mut pool = tokio::task::JoinSet::new();
+        let mut reading = Vec::with_capacity(wins.len());
         for win in &wins {
             let (me, win, permits, stopped) = (self.clone(), win.clone(), permits.clone(), stopped.clone());
-            reading.push(tokio::spawn(async move {
-                let _permit = permits.acquire_owned().await.ok()?;
+            let (tx, rx) = tokio::sync::oneshot::channel::<Result<Read<Extraction>>>();
+            reading.push(Mutex::new(Some(rx)));
+            pool.spawn(async move {
+                let Ok(_permit) = permits.acquire_owned().await else { return };
                 if stopped.load(Ordering::SeqCst) || (me.d.aborted)() {
-                    return None;
+                    return; // not read: its channel closes unanswered
                 }
                 let head = &win[0];
                 let meta = WindowMeta { cwd: head.cwd.clone(), engine: head.engine.clone(), title: head.title.clone() };
-                Some(me.read(&win, &meta).await)
-            }));
+                let read = std::panic::AssertUnwindSafe(me.read(&win, &meta))
+                    .catch_unwind()
+                    .await
+                    .unwrap_or_else(|_| Err(Error::Other("a window's reading failed: it panicked".into())));
+                // A failure starts no other window, as the reference's pool launches none after a rejected read.
+                if read.is_err() {
+                    stopped.store(true, Ordering::SeqCst);
+                }
+                let _ = tx.send(read);
+            });
         }
-        let reading: Vec<Mutex<Option<tokio::task::JoinHandle<_>>>> =
-            reading.into_iter().map(|h| Mutex::new(Some(h))).collect();
         let together = self.d.reconcile_concurrency.clamp(1, limit);
         let at = AtomicUsize::new(0);
         let halt = AtomicBool::new(false);
@@ -661,14 +674,10 @@ impl Consolidator {
                 if i >= wins.len() {
                     break;
                 }
-                let Some(handle) = guard(&reading[i]).take() else { break };
-                let read = match handle.await {
-                    Ok(Some(r)) => r,
-                    Ok(None) => {
-                        halt.store(true, Ordering::SeqCst);
-                        break;
-                    }
-                    Err(e) => Err(Error::Other(format!("a window's reading failed: {e}"))),
+                let Some(answer) = guard(&reading[i]).take() else { break };
+                let Ok(read) = answer.await else {
+                    halt.store(true, Ordering::SeqCst);
+                    break;
                 };
                 let x = match read {
                     Ok(x) => x,
@@ -694,8 +703,9 @@ impl Consolidator {
         };
         let lanes: Vec<_> = (0..together).map(|_| lane()).collect();
         let done = futures::future::join_all(lanes).await;
-        // Windows not reached are not read.
+        // Windows not reached are not read, and readings no lane waits for any more are stopped.
         stopped.store(true, Ordering::SeqCst);
+        pool.abort_all();
         for d in done {
             d?;
         }

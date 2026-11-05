@@ -602,3 +602,32 @@ async fn profiles_are_written_for_a_subject_enough_items_share_and_only_again_wh
     let profile = s.base.ltm.all().await.into_iter().find(|x| x.kind == "profile").unwrap();
     assert_eq!((profile.summary.as_str(), profile.concept_list()), ("2026: adopted", &["Miso".to_string()][..]));
 }
+
+#[tokio::test]
+async fn a_cancelled_run_leaves_no_model_call_running() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let s = setup().await;
+    let entries: Vec<StmEntry> = (0..8)
+        .map(|i| entry(&format!("c:{i}"), "rotate the certificate", json!({ "session": format!("s{i}") })))
+        .collect();
+    s.base.stm.put(entries).await.unwrap();
+    let (started, finished) = (Arc::new(AtomicUsize::new(0)), Arc::new(AtomicUsize::new(0)));
+    let (st, fin) = (started.clone(), finished.clone());
+    let ask: Arc<dyn Ask> = Arc::new(FnAsk(Arc::new(move |_| {
+        let (st, fin) = (st.clone(), fin.clone());
+        Box::pin(async move {
+            st.fetch_add(1, Ordering::SeqCst);
+            tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+            fin.fetch_add(1, Ordering::SeqCst);
+            answer(json!({ "segment_summary": "x", "episodes": [], "items": [], "observations": [] }))
+        })
+    })));
+    let mut d = s.with(ask);
+    d.concurrency = 4;
+    let c = Consolidator::new(d);
+    assert!(tokio::time::timeout(std::time::Duration::from_millis(50), c.run(20)).await.is_err());
+    let was = started.load(Ordering::SeqCst);
+    assert!(was > 0);
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    assert_eq!((started.load(Ordering::SeqCst), finished.load(Ordering::SeqCst)), (was, 0));
+}
