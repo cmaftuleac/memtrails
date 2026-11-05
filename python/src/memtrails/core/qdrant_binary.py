@@ -297,8 +297,9 @@ async def with_lock(path: str, run: Callable[[], Awaitable[T]], stale_ms: float 
         heart.cancel()
         try:
             with open(lock, encoding="utf-8") as f:
-                if f.read() == mine:
-                    os.remove(lock)  # not one taken over meanwhile
+                still = f.read() == mine
+            if still:
+                os.remove(lock)  # not one taken over meanwhile; once closed, which Windows needs
         except OSError:
             pass
 

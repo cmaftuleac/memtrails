@@ -285,8 +285,9 @@ class QdrantProcess:
             _running.discard(child.pid)
             try:
                 with open(path, encoding="utf-8") as f:
-                    if parse(f.read()).get("pid") == child.pid:
-                        os.remove(path)
+                    ours = parse(f.read()).get("pid") == child.pid
+                if ours:
+                    os.remove(path)  # once closed: Windows does not remove a file that is open
             except (OSError, ValueError, AttributeError):
                 pass  # none
             self._watchers.pop(child.pid, None)

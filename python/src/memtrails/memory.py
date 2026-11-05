@@ -155,9 +155,11 @@ def _lock_home(directory: str) -> Callable[[], None]:
                 raise RuntimeError(f"memory {directory} is open{who}: close it there first (if no process has it, delete {path})") from None
             # Stale: taken over — unless another opener took it over since it was read.
             try:
+                # Read and closed before the remove: Windows does not remove a file that is open.
                 with open(path, encoding="utf-8") as f:
-                    if f.read() == text:
-                        os.remove(path)
+                    still = f.read() == text
+                if still:
+                    os.remove(path)
             except OSError:
                 pass  # gone already
             attempt += 1
@@ -182,8 +184,9 @@ def _lock_home(directory: str) -> Callable[[], None]:
             del _holding[path]
         try:
             with open(path, encoding="utf-8") as f:
-                if parse(f.read()).get("pid") == os.getpid():
-                    os.remove(path)
+                ours = parse(f.read()).get("pid") == os.getpid()
+            if ours:
+                os.remove(path)  # once closed: Windows does not remove a file that is open
         except (OSError, ValueError, AttributeError):
             pass  # gone
 
