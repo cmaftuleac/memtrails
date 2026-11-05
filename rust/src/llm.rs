@@ -155,10 +155,14 @@ impl std::fmt::Debug for OpenAiAskOptions {
 
 const OPENAI: &str = "https://api.openai.com/v1";
 
-/// The shared HTTP client (rustls, connection reuse).
+/// The shared HTTP client (rustls, connection reuse). It goes to each address directly, never through a proxy the
+/// environment names (`HTTP_PROXY`, `ALL_PROXY`…), as the reference's fetch does: through one, the local Qdrant's key
+/// went to whoever serves the proxy, and a Qdrant on loopback could not be reached at all.
 pub(crate) fn http() -> &'static reqwest::Client {
-    static CLIENT: LazyLock<reqwest::Client> =
-        LazyLock::new(|| reqwest::Client::builder().build().unwrap_or_else(|_| reqwest::Client::new()));
+    static CLIENT: LazyLock<reqwest::Client> = LazyLock::new(|| {
+        // The builder fails only when TLS cannot start, and then `Client::new` fails the same way.
+        reqwest::Client::builder().no_proxy().build().unwrap_or_else(|_| reqwest::Client::new())
+    });
     &CLIENT
 }
 
