@@ -35,8 +35,10 @@ ONNXRUNTIME_NODE_INSTALL=skip npm install memtrails
 ```
 
 memtrails works the same with or without it; its CI installs this way. onnxruntime-node stays at 1.23.2 because the
-Python and Rust versions run the same ONNX Runtime, so that all three give the same vectors. 1.31.1 still downloads the
-CUDA libraries, with adm-zip 0.6 (which has the fixes). Moving all three to a newer ONNX Runtime together is planned.
+Python and Rust versions run the same ONNX Runtime, so that all three give the same vectors, and because 1.23.2 is the
+last release that runs on every platform memtrails supports: every later ONNX Runtime (1.24 to 1.31) ships no build
+for Intel Macs, in its npm package, its Python wheels and its own releases alike, and no Python 3.10 wheels. A later
+one (1.31.1 still downloads the CUDA libraries, with adm-zip 0.6, which has the fixes) would mean dropping those.
 
 ## Supported versions
 
