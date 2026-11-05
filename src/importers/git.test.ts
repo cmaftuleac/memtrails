@@ -50,7 +50,8 @@ describe('fromGit', () => {
     expect(second.text).toContain('\u001e0123456789abcdef');
     expect(second.text.endsWith('Files: README.md')).toBe(true);
     expect(second.author).toBe('Ana');
-    expect(second.at).toBe('2024-03-02T11:30:00Z');
+    // As git writes it: `Z` from git 2.39 on, `+00:00` before — the same time either way.
+    expect(Date.parse(String(second.at))).toBe(Date.parse('2024-03-02T11:30:00Z'));
 
     expect(first.id).toMatch(/^[0-9a-f]{40}$/);
     expect(first.metadata).toMatchObject({ sha: first.id, email: 'stefan@example.org' });

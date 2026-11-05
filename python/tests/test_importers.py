@@ -405,7 +405,8 @@ async def test_reads_every_commit(repo: Path) -> None:
     assert "\u001e0123456789abcdef" in second["text"]
     assert second["text"].endswith("Files: README.md")
     assert second["author"] == "Ana"
-    assert second["at"] == "2024-03-02T11:30:00Z"
+    # As git writes it: `Z` from git 2.39 on, `+00:00` before; the same time either way.
+    assert datetime.fromisoformat(second["at"].replace("Z", "+00:00")) == datetime(2024, 3, 2, 11, 30, tzinfo=timezone.utc)
     assert len(first["id"]) == 40
     assert first["metadata"]["sha"] == first["id"] and first["metadata"]["email"] == "stefan@example.org"
     assert first["author"] == "Ștefan Müller-Łukasiewicz 王小明"
