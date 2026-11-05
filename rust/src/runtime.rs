@@ -170,7 +170,13 @@ pub async fn ensure_runtime(o: &DownloadOptions) -> Result<PathBuf> {
             download_verified(&format!("{}/{archive}", base.trim_end_matches('/')), &cache, &pin, o).await?;
         let tmp = TempFolder::new(tmp); // removed however this ends, a cancelled run too
         let (d, t, s) = (dir.clone(), tmp.path().to_path_buf(), sha.to_string());
-        let placed = blocking(move || place(&file, &t, &d, inner, size, &s)).await;
+        let placed = blocking(move || {
+            // Under the asset's own name: its extension says how it is packed (a .zip on Windows, a .tgz elsewhere).
+            let named = t.join(archive);
+            fs::rename(&file, &named).map_err(|e| Error::io(&named, e))?;
+            place(&named, &t, &d, inner, size, &s)
+        })
+        .await;
         tmp.remove().await;
         placed??;
         let (c, s) = (cache.clone(), sha.to_string());
