@@ -30,6 +30,7 @@ import httpx
 
 from .._fs import write_all
 from .._http import using
+from .._proc import pid_alive
 from .paths import cache_dir
 
 T = TypeVar("T")
@@ -233,15 +234,7 @@ LOCK_STALE_MS = 120_000
 
 
 def _alive(pid: int) -> bool:
-    try:
-        os.kill(pid, 0)
-        return True
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        return True
-    except OSError:
-        return False
+    return pid_alive(pid)
 
 
 def _lock_stale(lock: str, stale_ms: float) -> bool:

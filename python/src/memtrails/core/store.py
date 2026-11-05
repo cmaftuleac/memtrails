@@ -29,6 +29,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import os
+import sys
 import threading
 from collections.abc import Callable, Iterator, Sequence
 from typing import Any, Generic, TypeVar
@@ -221,9 +222,14 @@ class JsonlLog(Generic[M]):
         crash too — so what is written after it (the sleep's state) never says more than the log holds. Without the
         lock: a put never waits on the disk (a file a compaction swapped in meanwhile was made durable by it)."""
         try:
-            fd = os.open(self._path, os.O_RDONLY)
+            # Windows makes durable only a file open for writing (fsync on a read-only one is "Bad file descriptor").
+            fd = os.open(self._path, os.O_RDWR if sys.platform == "win32" else os.O_RDONLY)
         except FileNotFoundError:
             return
+        except PermissionError:
+            if sys.platform == "win32":
+                return  # read-only: nothing was written to it either
+            raise
         try:
             os.fsync(fd)
         finally:

@@ -33,6 +33,7 @@ import httpx
 from .._fs import write_file
 from .._http import using
 from .._js import now_ms, parse, stringify
+from .._proc import pid_alive
 from .qdrant_client import QdrantEndpoint
 
 
@@ -125,15 +126,7 @@ def same_boot(boot: object) -> bool:
 
 def alive(pid: object) -> bool:
     """A process with this pid exists — one of another user's too."""
-    if not isinstance(pid, int) or isinstance(pid, bool) or pid <= 0:
-        return False
-    try:
-        os.kill(pid, 0)
-        return True
-    except PermissionError:
-        return True
-    except OSError:
-        return False
+    return pid_alive(pid)
 
 
 async def _command_of(pid: int) -> str | None:
@@ -320,7 +313,8 @@ class QdrantProcess:
         if rec.get("config") == config and same_boot(rec.get("boot")) and pid != mine and command and config in command:
             assert isinstance(pid, int)
             self._log(f"[memory] stopping the Qdrant left running on {self._dir} (pid {pid})")
-            for sig, ms in ((signal.SIGTERM, 10_000), (signal.SIGKILL, 2000)):
+            # Windows has no SIGKILL: SIGTERM ends the process there.
+            for sig, ms in ((signal.SIGTERM, 10_000), (getattr(signal, "SIGKILL", signal.SIGTERM), 2000)):
                 try:
                     os.kill(pid, sig)
                 except OSError:
@@ -452,6 +446,8 @@ def _exit_text(code: int | None) -> str:
 
 def _not_zombie(pid: int) -> bool:
     """A child of this process that exited and was not waited for still answers to its pid: it is gone all the same."""
+    if sys.platform == "win32":
+        return True  # no zombies: an ended process's exit code says so
     try:
         done, _ = os.waitpid(pid, os.WNOHANG)
         return done == 0
