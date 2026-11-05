@@ -271,7 +271,7 @@ export class JsonlLog<T extends { uid: string }, M> implements MemoryLog<T, M> {
     const order = [...this.live.entries()].sort((a, b) => a[1].at - b[1].at);
     const tmp = `${this.path}.compact`;
     const next = new Map<string, Slot<M>>();
-    const src = openSync(this.path, 'r');
+    let src: number | null = openSync(this.path, 'r');
     let out: number | null = null;
     try {
       out = openSync(tmp, 'w', 0o600);
@@ -281,7 +281,7 @@ export class JsonlLog<T extends { uid: string }, M> implements MemoryLog<T, M> {
       const write = (): void => { writeSync(out!, Buffer.concat(parts)); parts = []; size = 0; };
       for (const [uid, s] of order) {
         let rec: T | null = null;
-        try { rec = this.read(src, s); } catch { /* below */ }
+        try { rec = this.read(src!, s); } catch { /* below */ }
         if (rec?.uid !== uid) throw new Error(`${this.path}: record ${uid} cannot be read at ${s.at}; not compacted`);
         const b = Buffer.from(`${JSON.stringify(rec)}\n`, 'utf8');
         next.set(uid, { at, len: b.length, meta: s.meta });
@@ -294,6 +294,9 @@ export class JsonlLog<T extends { uid: string }, M> implements MemoryLog<T, M> {
       fsyncSync(out);
       closeSync(out);
       out = null;
+      // Closed before the rename: Windows does not replace a file that is open.
+      closeSync(src);
+      src = null;
       renameSync(tmp, this.path);
       this.live.clear();
       for (const [uid, s] of next) this.live.set(uid, s);
@@ -304,7 +307,7 @@ export class JsonlLog<T extends { uid: string }, M> implements MemoryLog<T, M> {
       rmSync(tmp, { force: true });
       throw e;
     } finally {
-      closeSync(src);
+      if (src !== null) closeSync(src);
     }
   }
 }
