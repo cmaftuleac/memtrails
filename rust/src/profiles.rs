@@ -261,12 +261,13 @@ pub async fn write_profiles(d: &ConsolidateDeps, max: usize) -> Result<ProfileRe
             );
             let answer = match d.ask.ask(req).await? {
                 LlmAnswer::Answer { answer, .. } => answer,
+                // Each says why, the last one to answer standing — as the reference's `r.paused = …` does.
                 LlmAnswer::Unavailable(why) => {
-                    state.lock().unwrap_or_else(|e| e.into_inner()).1.get_or_insert(why);
+                    state.lock().unwrap_or_else(|e| e.into_inner()).1 = Some(why);
                     return Ok(());
                 }
                 LlmAnswer::Busy => {
-                    state.lock().unwrap_or_else(|e| e.into_inner()).1.get_or_insert("busy".into());
+                    state.lock().unwrap_or_else(|e| e.into_inner()).1 = Some("busy".into());
                     return Ok(());
                 }
             };

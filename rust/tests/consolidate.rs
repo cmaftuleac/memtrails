@@ -693,3 +693,37 @@ async fn a_model_whose_ask_fails_fails_the_work_and_one_that_is_unavailable_paus
     let r = Consolidator::new(s.with(away)).run(20).await.unwrap();
     assert_eq!(r.paused.as_deref(), Some("no model is set"));
 }
+
+#[tokio::test]
+async fn profiles_paused_by_two_answers_say_the_last_one_as_the_reference_does() {
+    let s = setup().await;
+    let mut items: Vec<MemoryItem> = Vec::new();
+    for who in ["Miso", "Rex"] {
+        items.extend((0..5).map(|i| {
+            item(
+                &format!("obs:{who}{i}"),
+                &format!("{who} note {i}"),
+                &format!("{who} did thing {i}."),
+                json!({ "kind": "observation", "scope": "person", "concepts": [who] }),
+            )
+        }));
+    }
+    items.extend(
+        (0..30).map(|i| item(&format!("mem:f{i}"), "filler", "filler", json!({ "concepts": [format!("topic {i}")] }))),
+    );
+    s.put_items(items).await;
+    // Both asked at once: one says why at once, the other a little later — and it is the later one the reference
+    // keeps (`r.paused = …` by each).
+    let ask: Arc<dyn Ask> = Arc::new(FnAsk(Arc::new(|r: LlmRequest| {
+        Box::pin(async move {
+            if r.prompt.contains("Miso") {
+                LlmAnswer::Unavailable("first".into())
+            } else {
+                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                LlmAnswer::Unavailable("second".into())
+            }
+        })
+    })));
+    let r = memtrails::profiles::write_profiles(&s.with(ask), 400).await.unwrap();
+    assert_eq!(r.paused.as_deref(), Some("second"));
+}
