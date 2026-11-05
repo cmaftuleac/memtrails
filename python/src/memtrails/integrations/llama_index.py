@@ -1,4 +1,4 @@
-"""A memory as a LlamaIndex retriever (``pip install memtrails[llama-index]``; llamaindex.ts, ported):
+"""A memory as a LlamaIndex retriever (``pip install memtrails[llama-index]``):
 
     from memtrails.integrations.llama_index import MemtrailsRetriever
 

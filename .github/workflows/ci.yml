@@ -63,6 +63,8 @@ jobs:
           path: ~/.cache/memtrails
           key: memtrails-cache-${{ hashFiles('src/core/model.ts', 'src/core/qdrant-binary.ts') }}
       - run: npm ci
+      - name: ONNX Runtime is installed (npm drops an optional package whose install fails, without a word)
+        run: node -e "import('onnxruntime-node').catch((e) => { console.error('onnxruntime-node did not install:', e.message); process.exit(1); })"
       - run: npm run test:integration
       - name: The examples run, and the quick start finds what it should
         run: |

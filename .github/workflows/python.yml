@@ -79,6 +79,9 @@ jobs:
           python examples/agent_tools.py --schemas | grep -q '"memory_explore"'
       - run: npm ci
         working-directory: .
+      - name: ONNX Runtime is installed (npm drops an optional package whose install fails, without a word)
+        working-directory: .
+        run: node -e "import('onnxruntime-node').catch((e) => { console.error('onnxruntime-node did not install:', e.message); process.exit(1); })"
       - run: MEMTRAILS_FIXTURE_MODEL="$HOME/.cache/memtrails/embeddinggemma-300m-5090578d" npx tsx conformance/generate-python.ts
         working-directory: .
       - run: python -m pytest -q tests/test_conformance_python.py

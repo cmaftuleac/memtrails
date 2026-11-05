@@ -1,6 +1,6 @@
 /**
- * A found item as a framework's document (a LangChain `Document`, a LlamaIndex `TextNode`): its id, the text a model
- * reads, and flat metadata a vector store or a prompt can carry. `memory.open(id)` gives the whole item.
+ * A found item as a framework's document (a LangChain `Document`; in Python also a LlamaIndex `TextNode`): its id,
+ * the text a model reads, and flat metadata a vector store or a prompt can carry. `memory.open(id)` gives the whole item.
  */
 import type { RecalledItem } from '../core/recall.js';
 

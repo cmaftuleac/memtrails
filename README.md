@@ -102,21 +102,19 @@ call and closes it after five minutes without one (`--idle`), so `add` can run i
 
 ## LangChain and LlamaIndex
 
-A memory is a retriever in either framework (install the framework beside memtrails):
+A memory is a LangChain retriever (install `@langchain/core` beside memtrails):
 
 ```ts
-import { MemtrailsRetriever } from 'memtrails/langchain';     // @langchain/core
+import { MemtrailsRetriever } from 'memtrails/langchain';
 const docs = await new MemtrailsRetriever({ memory, search: { limit: 8 } }).invoke('why did renewal stop?');
-
-import { MemtrailsRetriever } from 'memtrails/llamaindex';    // @llamaindex/core
-const nodes = await new MemtrailsRetriever({ memory }).retrieve('why did renewal stop?');
 ```
 
 Each document is a found item: its summary (and the passage that matched) as the text, its id, and flat metadata
 (`id`, `kind`, `title`, `date`, `ts`, `score`, and when it has them `eventAt`/`startAt`/`endAt`, `recordId`, `source`,
 `author`, `url`); `memory.open(id)` gives all of it. `search` takes every search option but the query (`collections`,
-`kinds`, `limit`, `from`, `to`; `limit` counts dated observations and other memories each). The same in Python:
-`memtrails.integrations.langchain` and `memtrails.integrations.llama_index`.
+`kinds`, `limit`, `from`, `to`; `limit` counts dated observations and other memories each). In Python, LangChain and
+LlamaIndex both: `memtrails.integrations.langchain` and `memtrails.integrations.llama_index`. (LlamaIndex's TypeScript
+packages are no longer maintained, so there is no TypeScript LlamaIndex adapter.)
 
 ## Adding data
 

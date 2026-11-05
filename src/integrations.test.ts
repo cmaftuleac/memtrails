@@ -1,14 +1,12 @@
 /**
- * The framework retrievers (langchain.ts, llamaindex.ts) over a stand-in memory: the query and the search options reach
- * the search, each item comes back as the framework's document with its id, text and flat metadata, and the retriever
- * runs inside the framework (a LangChain chain, LlamaIndex's retrieve).
+ * The LangChain retriever (langchain.ts) over a stand-in memory: the query and the search options reach the search,
+ * each item comes back as a Document with its id, text and flat metadata, and the retriever runs in a chain.
  */
 import { RunnableLambda } from '@langchain/core/runnables';
 import { describe, expect, it } from 'vitest';
 import type { RecalledItem, SearchQuery } from './core/recall.js';
 import { retrievedDocument } from './integrations/document.js';
 import { MemtrailsRetriever as LangChainRetriever } from './langchain.js';
-import { MemtrailsRetriever as LlamaIndexRetriever } from './llamaindex.js';
 
 const EMAIL: RecalledItem = {
   id: 'stm:aa', title: 'Proxy certificate expired', summary: 'Proxy certificate expired Ana: Renewal stopped because the cron job was removed.',
@@ -57,23 +55,5 @@ describe('the LangChain retriever', () => {
     const s = stand();
     const chain = new LangChainRetriever({ memory: s.memory }).pipe(RunnableLambda.from((docs: Array<{ metadata: Record<string, unknown> }>) => docs.map((d) => d.metadata.date).join(',')));
     expect(await chain.invoke('renewal')).toBe('2026-04-02,2026-04-05');
-  });
-});
-
-describe('the LlamaIndex retriever', () => {
-  it('searches with the query and its options, and gives nodes with the search\'s scores', async () => {
-    const s = stand();
-    const r = new LlamaIndexRetriever({ memory: s.memory, search: { kinds: ['email'] } });
-    const nodes = await r.retrieve('why did renewal stop?');
-    expect(s.asked).toEqual([{ kinds: ['email'], query: 'why did renewal stop?' }]);
-    expect(nodes.map((n) => [n.node.id_, n.score])).toEqual([['stm:aa', 0.91], ['k:bb', 0.5]]);
-    expect(nodes[0]!.node.metadata).toEqual(retrievedDocument(EMAIL).metadata);
-    expect((nodes[1]!.node as unknown as { text: string }).text).toBe(retrievedDocument(OBSERVATION).text);
-  });
-
-  it('reads the words of a query given as message parts', async () => {
-    const s = stand();
-    await new LlamaIndexRetriever({ memory: s.memory }).retrieve({ query: [{ type: 'text', text: 'renewal' }, { type: 'text', text: 'cron' }] });
-    expect(s.asked[0]!.query).toBe('renewal cron');
   });
 });

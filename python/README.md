@@ -2,7 +2,7 @@
 
 **Retrieval and exploration for any text — e-mail, chat, notes, memos, documents, news, commit messages, conversations.**
 
-A native Python port of [memtrails](https://github.com/cmaftuleac/memtrails) (npm `memtrails` 0.5.2): the same algorithms,
+A native Python port of [memtrails](https://github.com/cmaftuleac/memtrails) (npm `memtrails` 0.5.3): the same algorithms,
 constants, prompts, JSON Schemas and files, written in Python and natively async. Everything you add is searchable the
 moment it is added, on your own machine, with no server and no language model: a local embedding model, a keyword
 channel, and a word-by-word reordering that needs no reranker. Give it a language model too, and it consolidates what it
@@ -193,7 +193,7 @@ nodes = await MemtrailsRetriever(memory).aretrieve("why did renewal stop?")
 
 Each document is a found item: its summary (and the passage that matched) as the text, its id, and flat metadata
 (`id`, `kind`, `title`, `date`, `ts`, `score`, and when it has them `eventAt`/`startAt`/`endAt`, `recordId`, `source`,
-`author`, `url`), the same as the TypeScript adapters give
+`author`, `url`), the same as the TypeScript LangChain adapter gives
 ([`conformance/fixtures/retriever.json`](https://github.com/cmaftuleac/memtrails/blob/main/conformance/fixtures/retriever.json)).
 `search` takes every search option but the query. The sync calls (`invoke`, `retrieve`) say to use the async ones: the
 memory belongs to the event loop it was opened on.
