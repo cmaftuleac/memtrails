@@ -777,3 +777,41 @@ async fn eml_reads_one_message_with_crlf_line_endings() {
     assert_eq!(r.source.as_deref(), Some("note"));
     assert!(r.text.starts_with("Bună ziua,\n\nAtașez"));
 }
+
+#[cfg(unix)]
+#[tokio::test]
+async fn files_a_note_swapped_for_a_link_after_it_was_listed_is_not_followed() {
+    let dir = tempfile::tempdir().unwrap();
+    let notes = dir.path().join("notes");
+    fs::create_dir(&notes).unwrap();
+    fs::write(notes.join("a.md"), "# A\nfine").unwrap();
+    let secret = dir.path().join("secret.md");
+    fs::write(&secret, "# Secret\nthe private key").unwrap();
+    // `exclude` is asked just before a file is read: the note becomes a link to what is outside the folder then.
+    let (at, to) = (notes.join("a.md"), secret.clone());
+    let skipped = Arc::new(Mutex::new(Vec::<String>::new()));
+    let seen = skipped.clone();
+    let o = FilesOptions {
+        exclude: Some(Arc::new(move |_p: &str| {
+            let _ = fs::remove_file(&at);
+            std::os::unix::fs::symlink(&to, &at).unwrap();
+            false
+        })),
+        on_skip: Some(Arc::new(move |p: &str, why: &str| seen.lock().unwrap().push(format!("{p}: {why}")))),
+        ..Default::default()
+    };
+    let records = all(from_files(&notes, o).await).await;
+    assert!(records.iter().all(|r| !r.text.contains("private key")), "{records:?}");
+    assert_eq!(skipped.lock().unwrap().len(), 1, "{:?}", skipped.lock().unwrap());
+}
+
+#[tokio::test]
+async fn files_a_note_from_before_1970_keeps_its_time_rounded_as_javascript_rounds() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("old.md");
+    fs::write(&path, "# Old\nfrom long ago").unwrap();
+    let t = std::time::UNIX_EPOCH - std::time::Duration::from_micros(1_000_600); // -1000.6 ms
+    fs::File::options().write(true).open(&path).unwrap().set_modified(t).unwrap();
+    let records = all(from_files(dir.path(), FilesOptions::default()).await).await;
+    assert_eq!(ms(&records[0].at), Some(-1001.0));
+}

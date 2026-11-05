@@ -294,6 +294,44 @@ fn decode_file(bytes: &[u8]) -> Option<String> {
     Some(decode_bytes(bytes, None))
 }
 
+/// A file opened for reading, never through a link in its last part (`O_NOFOLLOW`), and without waiting on a pipe
+/// swapped in for it (`O_NONBLOCK`, which a regular file ignores).
+fn open_no_follow(path: &Path) -> std::io::Result<fs::File> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        fs::OpenOptions::new().read(true).custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK).open(path)
+    }
+    #[cfg(not(unix))]
+    {
+        if fs::symlink_metadata(path)?.file_type().is_symlink() {
+            return Err(std::io::Error::other("a link"));
+        }
+        fs::File::open(path)
+    }
+}
+
+/// The error opening a link without following it gives.
+fn is_link(e: &std::io::Error) -> bool {
+    #[cfg(unix)]
+    {
+        e.raw_os_error() == Some(libc::ELOOP)
+    }
+    #[cfg(not(unix))]
+    {
+        e.kind() == std::io::ErrorKind::Other
+    }
+}
+
+/// A modification time in ms as Node gives `mtimeMs` (seconds × 1000 + nanoseconds / 10⁶), before 1970 too.
+fn mtime_ms(t: std::time::SystemTime) -> f64 {
+    let ms = |d: std::time::Duration| d.as_secs() as f64 * 1000.0 + f64::from(d.subsec_nanos()) / 1e6;
+    match t.duration_since(std::time::UNIX_EPOCH) {
+        Ok(d) => ms(d),
+        Err(before) => -ms(before.duration()),
+    }
+}
+
 struct Walk {
     root: PathBuf,
     include: HashSet<String>,
@@ -344,12 +382,27 @@ impl Walk {
             return Ok(());
         }
         let abs = self.root.join(path);
-        let info = fs::metadata(&abs).map_err(|e| Error::io(&abs, e))?;
+        // Opened without following a link, and measured and read from what was opened: a note swapped for a link
+        // after the folder was listed (to a key outside it, say) is not read through it.
+        let mut file = match open_no_follow(&abs) {
+            Ok(f) => f,
+            Err(e) if is_link(&e) => {
+                self.left_out(path, "not a file: it became a link after the folder was read");
+                return Ok(());
+            }
+            Err(e) => return Err(Error::io(&abs, e)),
+        };
+        let info = file.metadata().map_err(|e| Error::io(&abs, e))?;
+        if !info.is_file() {
+            self.left_out(path, "not a file: it changed after the folder was read");
+            return Ok(());
+        }
         if info.len() > self.max_bytes {
             self.left_out(path, &format!("larger than {} bytes", self.max_bytes));
             return Ok(());
         }
-        let bytes = fs::read(&abs).map_err(|e| Error::io(&abs, e))?;
+        let mut bytes = Vec::with_capacity(info.len() as usize);
+        std::io::Read::read_to_end(&mut file, &mut bytes).map_err(|e| Error::io(&abs, e))?;
         let Some(raw) = decode_file(&bytes) else {
             self.left_out(path, "not text");
             return Ok(());
@@ -374,11 +427,7 @@ impl Walk {
             Some(v @ (Value::String(_) | Value::Number(_))) => time_of(Some(&At::Text(super::text::js_string(v)))),
             _ => None,
         };
-        let mtime = info
-            .modified()
-            .ok()
-            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-            .map_or(0.0, |d| d.as_secs_f64() * 1000.0);
+        let mtime = info.modified().map_or(0.0, mtime_ms);
         let at = dated.unwrap_or(mtime);
         let author = match fields.get("author") {
             Some(Value::String(s)) => Some(s.clone()),
