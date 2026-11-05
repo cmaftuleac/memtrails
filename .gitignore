@@ -6,3 +6,5 @@ coverage/
 .env
 .env.*
 rust/target/
+interop/rs/target/
+interop/rs/Cargo.lock

@@ -1,0 +1,63 @@
+{
+  "records": [
+    { "id": "<k1@ops.example>", "source": "mail", "kind": "email", "collection": "ops", "thread": "backup", "author": "Mara Ionescu",
+      "title": "Nightly backup failed", "at": "2026-01-12T07:40:00Z",
+      "text": "The nightly backup of the billing database failed at 03:10. The disk on the storage box is 98% full, so the dump could not be written." },
+    { "id": "<k2@ops.example>", "source": "mail", "kind": "email", "collection": "ops", "thread": "backup", "author": "Tudor Rusu",
+      "title": "Re: Nightly backup failed", "at": "2026-01-12T10:05:00Z",
+      "text": "I removed the old snapshots from December and moved the logs to cold storage. The backup ran again by hand and finished in 41 minutes." },
+    { "id": "7e3a91c", "source": "repo", "kind": "commit", "collection": "ops", "author": "Tudor Rusu",
+      "title": "Rotate backup snapshots after 14 days", "at": "2026-01-13T09:00:00Z",
+      "text": "Files: ops/backup/rotate.sh, ops/backup/cron.d/nightly" },
+    { "id": "OPS-412", "source": "tracker", "kind": "ticket", "collection": "ops", "author": "Mara Ionescu",
+      "title": "Alert when the storage box passes 85%", "at": "2026-01-14T08:30:00Z",
+      "text": "We only learned the disk was full when the backup failed. Add an alert at 85% and a second one at 95%, sent to the on-call phone." },
+    { "id": "n-wifi", "source": "notes", "kind": "note", "collection": "home",
+      "title": "Wi-Fi acasă", "at": "2026-02-02T18:00:00Z",
+      "text": "Parola rețelei de oaspeți este scrisă pe spatele routerului, iar cea principală în caietul verde din bucătărie." },
+    { "id": "n-boiler", "source": "notes", "kind": "note", "collection": "home",
+      "title": "Heizung Wartung", "at": "2026-02-20T16:00:00Z",
+      "text": "Der Techniker kommt am 3. März zwischen 8 und 10 Uhr, um die Gasheizung zu warten. Der Schlüssel liegt beim Nachbarn." },
+    { "id": "m-101", "source": "chat", "kind": "message", "collection": "team", "thread": "offsite", "author": "Lucía Martín",
+      "title": "Offsite en Valencia", "at": "2026-03-04T11:15:00Z",
+      "text": "Hemos reservado la sala del hotel junto al puerto para el offsite del 21 al 23 de mayo. Faltan los vuelos de Bucarest." },
+    { "id": "m-102", "source": "chat", "kind": "message", "collection": "team", "thread": "offsite", "author": "Mara Ionescu",
+      "title": "Re: Offsite en Valencia", "at": "2026-03-04T11:42:00Z",
+      "text": "I booked the flights from Bucharest for the 20th of May, arriving in Valencia at 14:25. Six people, one checked bag each." },
+    { "id": "m-103", "source": "chat", "kind": "message", "collection": "team", "thread": "offsite", "author": "Claire Dubois",
+      "title": "Re: Offsite en Valencia", "at": "2026-03-05T08:20:00Z",
+      "text": "Je ne pourrai arriver que le 21 au soir : mon train de Lyon part à 9 h. Gardez-moi une place au dîner." },
+    { "id": "memo-q2", "source": "drive", "kind": "memo", "collection": "team", "author": "Lucía Martín",
+      "title": "Q2 priorities", "at": "2026-04-01T09:00:00Z",
+      "text": "Three priorities for the second quarter: move the billing service to the new cluster, cut the support backlog under 50 tickets, and hire a second on-call engineer." },
+    { "id": "a-ja-1", "source": "feed", "kind": "article", "collection": "reading",
+      "title": "東京の新しい図書館", "at": "2026-04-18T03:00:00Z",
+      "text": "東京に新しい公立図書館が開館しました。夜十時まで開いていて、地下には静かな勉強部屋があります。" },
+    { "id": "a-ru-1", "source": "feed", "kind": "article", "collection": "reading",
+      "title": "Весенний марафон", "at": "2026-04-26T06:00:00Z",
+      "text": "В воскресенье в городе прошёл весенний марафон: двенадцать тысяч бегунов, победитель пробежал дистанцию за 2 часа 9 минут." },
+    { "id": "a-zh-1", "source": "feed", "kind": "article", "collection": "reading",
+      "title": "城市自行车道", "at": "2026-05-09T02:00:00Z",
+      "text": "市政府宣布明年将修建四十公里新的自行车道，连接火车站和大学。" },
+    { "id": "OPS-430", "source": "tracker", "kind": "ticket", "collection": "ops", "author": "Tudor Rusu",
+      "title": "Billing service migration checklist", "at": "2026-05-15T13:00:00Z",
+      "text": "Before moving billing to the new cluster: freeze deploys, copy the database with a fresh backup, switch DNS, keep the old nodes for a week." },
+    { "id": "n-dentist", "source": "notes", "kind": "note", "collection": "home",
+      "title": "Dentist", "at": "2026-06-02T07:00:00Z",
+      "text": "Dentist appointment moved to Thursday 11 June at 16:30. Bring the X-ray from last year." }
+  ],
+  "conversations": [
+    { "id": "conv-garden", "source": "assistant", "collection": "home", "at": "2026-05-30T19:00:00Z",
+      "turns": [
+        { "role": "user", "text": "When should I plant the tomato seedlings on the balcony?", "at": "2026-05-30T19:00:00Z" },
+        { "role": "assistant", "text": "Once the nights stay above 10 °C, usually mid-May here; at the end of May it is safe to plant them now.", "at": "2026-05-30T19:00:20Z" },
+        { "role": "user", "text": "And how often should I water them in June?", "at": "2026-05-30T19:02:00Z" },
+        { "role": "assistant", "text": "Every morning in hot weeks, every second day otherwise; water the soil, not the leaves.", "at": "2026-05-30T19:02:15Z" }
+      ] }
+  ],
+  "extra": {
+    "id": "OPS-455", "source": "tracker", "kind": "ticket", "collection": "ops", "author": "Mara Ionescu",
+    "title": "Storage alert fired on Sunday", "at": "2026-06-07T05:50:00Z",
+    "text": "The new 85% alert on the storage box fired on Sunday morning; Tudor cleared the old exports before the nightly backup ran."
+  }
+}

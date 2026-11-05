@@ -1,0 +1,18 @@
+[
+  { "name": "plain", "op": "search", "q": { "query": "why did the nightly backup fail?", "limit": 5 } },
+  { "name": "other-language", "op": "search", "q": { "query": "unde este parola de la wifi?", "limit": 3 } },
+  { "name": "german-question", "op": "search", "q": { "query": "Wann kommt der Techniker für die Heizung?", "limit": 3 } },
+  { "name": "japanese", "op": "search", "q": { "query": "図書館は何時まで開いていますか", "limit": 3 } },
+  { "name": "kinds", "op": "search", "q": { "query": "backup storage disk", "kinds": ["commit", "ticket"], "limit": 5 } },
+  { "name": "collections", "op": "search", "q": { "query": "when does the trip start?", "collections": ["team"], "limit": 4 } },
+  { "name": "dates", "op": "search", "q": { "query": "what happened in the city?", "from": "2026-04", "to": "2026-04-30", "limit": 4 } },
+  { "name": "year", "op": "search", "q": { "query": "billing", "from": "2026", "to": "2026", "collections": ["ops", "team"], "kinds": ["memo", "ticket"], "limit": 4 } },
+  { "name": "conversation", "op": "search", "q": { "query": "how often to water the tomatoes", "limit": 3 } },
+  { "name": "added-later", "op": "search", "q": { "query": "did the storage alert ever fire?", "limit": 3 } },
+  { "name": "text", "op": "searchText", "q": { "query": "flights to Valencia for the offsite", "limit": 4 } },
+  { "name": "text-by-time", "op": "searchText", "q": { "query": "backup", "limit": 5, "order": "time" } },
+  { "name": "room", "op": "room", "q": { "query": "what made the backup fail and how was it fixed?", "chars": 400 } },
+  { "name": "explore", "op": "explore", "q": { "topic": "billing database", "limit": 5 } },
+  { "name": "explore-scoped", "op": "explore", "q": { "topic": "offsite", "collections": ["team"] } },
+  { "name": "open", "op": "open", "q": { "query": "dentist appointment", "limit": 1 } }
+]
