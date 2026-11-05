@@ -16,7 +16,7 @@ too, and it consolidates what it holds into typed knowledge, dated events and pr
 
 ```toml
 [dependencies]
-memtrails = "0.4"
+memtrails = "0.5"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 ```
 
