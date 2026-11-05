@@ -225,7 +225,19 @@ export async function openMemory(o: MemoryOptions): Promise<Memory> {
   }
 }
 
+/** Windows stops at 260 characters a path, and Qdrant's files sit up to about 170 below a memory's own folder. */
+const WINDOWS_HOME_MAX = 90;
+
+/** Said before Qdrant fails on it with no more than "the system cannot find the path specified". */
+function windowsHomeTooLong(dir: string, o: MemoryOptions, log: (line: string) => void): void {
+  if (process.platform !== 'win32' || (o.qdrant && 'url' in o.qdrant) || dir.length <= WINDOWS_HOME_MAX) return;
+  log(`[memtrails] ${dir} is ${dir.length} characters long: on Windows, Qdrant's files sit up to about 170 characters `
+    + `deeper and a path stops at 260, so the index may fail ("the system cannot find the path specified"); keep a `
+    + `memory's path under ${WINDOWS_HOME_MAX} characters`);
+}
+
 async function openIn(dir: string, o: MemoryOptions, log: (line: string) => void, started: Started, release: () => void): Promise<Memory> {
+  windowsHomeTooLong(dir, o, log);
   // Embedding: here, or on a server — the options' own, else the one the environment names.
   const e = o.embedding ?? {};
   const server = e.server ?? (e.modelDir ? null : resolveEmbedRoute());

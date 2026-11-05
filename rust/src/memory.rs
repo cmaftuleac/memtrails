@@ -190,6 +190,25 @@ impl From<String> for RecordId {
     }
 }
 
+/// Windows stops at 260 characters a path, and Qdrant's files sit up to about 170 below a memory's own folder.
+const WINDOWS_HOME_MAX: usize = 90;
+
+/// Said before Qdrant fails on it with no more than "the system cannot find the path specified".
+fn windows_home_too_long(dir: &Path, log: &LogFn) {
+    if !cfg!(windows) {
+        return;
+    }
+    let text = dir.display().to_string();
+    let n = text.encode_utf16().count(); // as Windows counts
+    if n > WINDOWS_HOME_MAX {
+        log(&format!(
+            "[memtrails] {text} is {n} characters long: on Windows, Qdrant's files sit up to about 170 characters \
+             deeper and a path stops at 260, so the index may fail (\"the system cannot find the path specified\"); \
+             keep a memory's path under {WINDOWS_HOME_MAX} characters"
+        ));
+    }
+}
+
 /// The homes this process holds, released if it exits without close().
 static HOLDING: LazyLock<Mutex<HashSet<PathBuf>>> = LazyLock::new(|| Mutex::new(HashSet::new()));
 static EXIT_HOOK: Once = Once::new();
@@ -447,6 +466,9 @@ impl Memory {
         words.load().await?;
 
         // The index: a Qdrant of its own, or yours.
+        if !matches!(o.qdrant, QdrantOption::Server { .. }) {
+            windows_home_too_long(dir, log);
+        }
         let (endpoint, collection, proc) = match &o.qdrant {
             QdrantOption::Server { url, api_key, collection } => (
                 Endpoint::Fixed(QdrantEndpoint {

@@ -25,6 +25,7 @@ import asyncio
 import atexit
 import inspect
 import os
+import sys
 import threading
 from collections.abc import AsyncIterable, AsyncIterator, Awaitable, Callable, Iterable, Mapping, Sequence
 from contextlib import asynccontextmanager
@@ -118,6 +119,22 @@ def _release_all() -> None:
 
 
 atexit.register(_release_all)
+
+
+#: Windows stops at 260 characters a path, and Qdrant's files sit up to about 170 below a memory's own folder.
+WINDOWS_HOME_MAX = 90
+
+
+def _windows_home_too_long(directory: str, log: Callable[[str], None]) -> None:
+    """Said before Qdrant fails on it with no more than "the system cannot find the path specified"."""
+    n = len(directory.encode("utf-16-le")) // 2  # as Windows counts
+    if sys.platform != "win32" or n <= WINDOWS_HOME_MAX:
+        return
+    log(
+        f"[memtrails] {directory} is {n} characters long: on Windows, Qdrant's files sit up to about 170 characters "
+        f'deeper and a path stops at 260, so the index may fail ("the system cannot find the path specified"); keep a '
+        f"memory's path under {WINDOWS_HOME_MAX} characters"
+    )
 
 
 def _lock_holder(path: str) -> tuple[str, int | None]:
@@ -343,6 +360,8 @@ class Memory:
 
         # The index: a Qdrant of its own, or yours.
         q = qdrant or {}
+        if not q.get("url"):
+            _windows_home_too_long(self.dir, self._log)
         endpoint: Callable[[], QdrantEndpoint | None]
         if q.get("url"):
             fixed_endpoint = QdrantEndpoint(url=q["url"].rstrip("/"), api_key=q.get("api_key", ""))
