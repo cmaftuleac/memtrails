@@ -5,9 +5,11 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.5.1] — 2026-11-05
+
 - Rust: the MCP server and the command line, as in TypeScript and Python — `cargo install memtrails`, then
   `memtrails mcp`, `add`, `search`; `memtrails::mcp::serve_mcp` from code, held to the same answers
-  (`conformance/fixtures/mcp.json`).
+  (`conformance/fixtures/mcp.json`). The TypeScript and Python versions are released at the same version, unchanged.
 
 ## [0.5.0] — 2026-11-05
 
