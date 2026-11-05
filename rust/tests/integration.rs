@@ -18,8 +18,10 @@ fn fixture() -> Value {
     serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap()
 }
 
-/// The same ONNX Runtime build as the reference: the same numbers, to float32 rounding.
-const CLOSE: f64 = 1e-6;
+/// The same ONNX Runtime build as the reference (runtime.rs): on the processor family the fixture was made on (macOS,
+/// arm64) the same numbers, to float32 rounding. On another, ONNX Runtime's own CPU kernels round differently — by up
+/// to ~0.003 a number on x64, the same build for both libraries — so there a vector is the same within this.
+const CLOSE: f64 = if cfg!(all(target_os = "macos", target_arch = "aarch64")) { 1e-6 } else { 1e-2 };
 
 #[tokio::test]
 #[ignore = "downloads the model; run with --ignored"]
