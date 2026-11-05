@@ -4,10 +4,10 @@
  * pinned size and SHA-256. 218 MB. The model is Google's, under the Gemma Terms of Use (ai.google.dev/gemma/terms);
  * memtrails does not ship it.
  */
-import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { cacheDir } from './paths.js';
-import { downloadVerified, withLock, type DownloadOptions } from './qdrant-binary.js';
+import { downloadVerified, ownedSafely, privateDir, withLock, type DownloadOptions } from './qdrant-binary.js';
 
 export const MODEL_REPO = 'onnx-community/embeddinggemma-300m-ONNX';
 export const MODEL_REVISION = '5090578d9565bb06545b4552f76e6bc2c93e4a66';
@@ -23,13 +23,17 @@ export function defaultModelDir(): string {
 }
 
 const marker = (dir: string): string => join(dir, '.verified');
+/** The model's folder and the folders its files are in. */
+const folders = (dir: string): string[] => [...new Set([dir, ...MODEL_FILES.map((f) => dirname(join(dir, f.rel)))])];
 const stamp = MODEL_FILES.map((f) => `${f.rel}:${f.size}:${f.sha256}`).join('\n');
 
-/** Every file in place at its pinned size, and the marker written after the last of them was verified. */
+/** Every file in place at its pinned size, the marker written after the last of them was verified, and no one else could
+ *  have changed any of them since (the folders, the files and the marker this user's alone, as the Qdrant binary's). */
 export function modelReady(dir = defaultModelDir()): boolean {
   try {
     return readFileSync(marker(dir), 'utf8') === stamp &&
-      MODEL_FILES.every((f) => existsSync(join(dir, f.rel)) && statSync(join(dir, f.rel)).size === f.size);
+      MODEL_FILES.every((f) => existsSync(join(dir, f.rel)) && statSync(join(dir, f.rel)).size === f.size) &&
+      [...folders(dir), marker(dir), ...MODEL_FILES.map((f) => join(dir, f.rel))].every(ownedSafely);
   } catch {
     return false;
   }
@@ -43,7 +47,10 @@ export function modelReady(dir = defaultModelDir()): boolean {
 export async function ensureModel(opts: DownloadOptions & { dir?: string; log?: (line: string) => void } = {}): Promise<string> {
   const dir = opts.dir ?? defaultModelDir();
   if (modelReady(dir)) return dir;
-  mkdirSync(dir, { recursive: true });
+  // Made private, or refused when others could change them: what is verified in them is loaded later. A set already
+  // there in folders made before this is ready once they are private (checked again under the lock).
+  if (!opts.dir) privateDir(cacheDir());
+  for (const d of folders(dir)) privateDir(d);
   return withLock(dir, async () => {
     if (modelReady(dir)) return dir; // another run finished it while this one waited
     opts.log?.(`[memtrails] fetching ${MODEL_REPO} (218 MB, Gemma Terms of Use)`);
@@ -58,7 +65,8 @@ export async function ensureModel(opts: DownloadOptions & { dir?: string; log?: 
         rmSync(tmp, { recursive: true, force: true });
       }
     }
-    writeFileSync(marker(dir), stamp);
+    writeFileSync(marker(dir), stamp, { mode: 0o644 });
+    chmodSync(marker(dir), 0o644); // whatever the umask: a marker others could write is not trusted
     opts.log?.('[memtrails] embedding model ready');
     return dir;
   }, { signal: opts.signal });

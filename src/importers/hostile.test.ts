@@ -2,13 +2,15 @@
  * Importers read files someone else wrote: no input may make them take more than linear time (a run of unclosed tags,
  * a long line of spaces), and the linear scans keep what the regexes they replaced did.
  */
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { closeSync, mkdirSync, mkdtempSync, openSync, rmSync, symlinkSync, writeFileSync, writeSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import type { MemoryRecord } from '../records.js';
 import { fromFiles } from './files.js';
-import { fromEml } from './mbox.js';
+import { fromJsonl } from './jsonl.js';
+import { byteLines, LineTooLong, MAX_LINE_BYTES } from './lines.js';
+import { fromEml, fromMbox } from './mbox.js';
 import { fromSlackExport } from './slack.js';
 import { htmlTitle, htmlToText } from './text.js';
 
@@ -151,5 +153,75 @@ describe('a Slack export naming folders outside itself', () => {
     writeFileSync(join(root, 'dms.json'), JSON.stringify([{ id: '../secret', members: ['U1'] }]));
     const texts = (await all(fromSlackExport(root))).map((r) => r.text);
     expect(texts).toEqual(['inside']);
+  });
+});
+
+describe('a note swapped for a link after the folder was listed', () => {
+  it.skipIf(process.platform === 'win32')('is not followed', async () => {
+    const base = mkdtempSync(join(tmpdir(), 'memtrails-files-link-'));
+    const notes = join(base, 'notes');
+    mkdirSync(notes);
+    writeFileSync(join(notes, 'a.md'), '# A\nfine');
+    const secret = join(base, 'secret.md');
+    writeFileSync(secret, '# Secret\nthe private key');
+    const skipped: string[] = [];
+    // `exclude` is asked just before a file is read: the note becomes a link to what is outside the folder then.
+    const records = await all(fromFiles(notes, {
+      exclude: () => {
+        rmSync(join(notes, 'a.md'));
+        symlinkSync(secret, join(notes, 'a.md'));
+        return false;
+      },
+      onSkip: (path, why) => skipped.push(`${path}: ${why}`),
+    }));
+    expect(records.map((r) => r.text)).toEqual([]);
+    expect(skipped).toEqual(['a.md: not a file: it became a link after the folder was read']);
+  });
+});
+
+/** A file of `head`, then a line of `long` bytes, then `tail`, written a megabyte at a time. */
+function withLongLine(path: string, head: string, long: number, tail: string): void {
+  const fd = openSync(path, 'w');
+  writeSync(fd, head);
+  const mb = Buffer.alloc(1 << 20, 'x');
+  for (let left = long; left > 0; left -= mb.length) writeSync(fd, left >= mb.length ? mb : mb.subarray(0, left));
+  writeSync(fd, tail);
+  closeSync(fd);
+}
+
+describe('a line longer than 64 MiB', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'memtrails-long-line-'));
+  const lines = async (text: string, max: number) => {
+    const path = join(dir, 'lines.txt');
+    writeFileSync(path, text);
+    const out: string[] = [];
+    for await (const l of byteLines(path, max)) out.push(l instanceof LineTooLong ? `! ${l.reason}` : l.toString());
+    return out;
+  };
+
+  it('lines end as readline ends them, and one past the bound is passed over', async () => {
+    expect(await lines('a\r\nb\rc\n\nd', 100)).toEqual(['a', 'b', 'c', '', 'd']);
+    expect(await lines('a\r\r\n', 100)).toEqual(['a', '']);
+    expect(await lines('', 100)).toEqual([]);
+    expect(await lines('short\nfar too long a line\nafter\n', 8)).toEqual(['short', '! a line longer than 8 bytes (19)', 'after']);
+  });
+
+  it('JSON Lines: skipped with why, and the next line read', { timeout: 60_000 }, async () => {
+    const path = join(dir, 'big.jsonl');
+    withLongLine(path, '{"id":"a","text":"before"}\n', MAX_LINE_BYTES + 1, '\n{"id":"b","text":"after"}\n');
+    const skipped: string[] = [];
+    const stats = { lines: 0, records: 0, skipped: 0 };
+    const records = await all(fromJsonl(path, { onSkip: (line, why, n) => skipped.push(`${n} ${JSON.stringify(line)}: ${why}`), stats }));
+    expect(records.map((r) => r.id)).toEqual(['a', 'b']);
+    expect(skipped).toEqual([`2 "": a line longer than ${MAX_LINE_BYTES} bytes (${MAX_LINE_BYTES + 1})`]);
+    expect(stats).toEqual({ lines: 3, records: 2, skipped: 1 });
+  });
+
+  it('mbox: the message is past its size from that line, and the next message read', { timeout: 60_000 }, async () => {
+    const path = join(dir, 'big.mbox');
+    const msg = (n: number, body: string) => `From a@b.c Mon Jan  1 00:00:0${n} 2024\nFrom: a@b.c\nSubject: m${n}\nMessage-ID: <m${n}@b.c>\n\n${body}`;
+    withLongLine(path, `${msg(1, 'kept\n')}`, MAX_LINE_BYTES + 1, `\nnot kept\n\n${msg(2, 'second\n')}`);
+    const records = await all(fromMbox(path, { maxMessageBytes: 4 * MAX_LINE_BYTES }));
+    expect(records.map((r) => [r.title, r.text])).toEqual([['m1', 'kept'], ['m2', 'second']]);
   });
 });

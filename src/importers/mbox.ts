@@ -11,11 +11,10 @@
  * metadata { from, to, cc, inReplyTo }.
  */
 import { createHash } from 'node:crypto';
-import { createReadStream } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { basename, extname } from 'node:path';
-import { createInterface } from 'node:readline';
 import { timeOf, type MemoryRecord } from '../records.js';
+import { byteLines, LineTooLong } from './lines.js';
 import { decodeBytes, htmlToText, record } from './text.js';
 
 export interface MboxOptions {
@@ -302,8 +301,6 @@ function messageRecord(lines: string[], fromLine: string, source: string, opts: 
 export async function* fromMbox(path: string, opts: MboxOptions = {}): AsyncIterable<MemoryRecord> {
   const source = opts.source ?? basename(path, extname(path));
   const max = opts.maxMessageBytes ?? 32 * 1024 * 1024;
-  // Latin-1 keeps every byte as one character: each part is decoded later in its own charset.
-  const lines = createInterface({ input: createReadStream(path, { encoding: 'latin1' }), crlfDelay: Infinity });
   let msg: string[] | null = null;
   let fromLine = '';
   let size = 0;
@@ -316,7 +313,15 @@ export async function* fromMbox(path: string, opts: MboxOptions = {}): AsyncIter
     index++;
     return r;
   };
-  for await (const line of lines) {
+  for await (const bytes of byteLines(path)) {
+    // A line past the bound (64 MiB): the message is past its size from here, as a long one is.
+    if (bytes instanceof LineTooLong) {
+      size = max + 1;
+      previousBlank = false;
+      continue;
+    }
+    // Latin-1 keeps every byte as one character: each part is decoded later in its own charset.
+    const line = bytes.toString('latin1');
     // A new message: a `From ` line at the start or after an empty line, carrying a time (`From - Mon Jan 1 00:00:00 2024`).
     if (line.startsWith('From ') && previousBlank && (msg === null || /\d:\d\d/.test(line))) {
       const r = finish();

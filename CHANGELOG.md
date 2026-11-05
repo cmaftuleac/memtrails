@@ -7,6 +7,11 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 - Fixes: search no longer shows a short record's own summary again as the passage that matched (`match`, and after
   " … " in `searchText`); a match is now only ever a passage beyond the start of what is shown.
+- Fixes: the downloaded Qdrant binary and embedding model are only run or loaded from folders that are this user's
+  alone. The cache folder (and the model's folder) is made private when it is created or found open to others, and
+  refused with a clear error when it belongs to someone else or is a link. `fromFiles` no longer reads through a note
+  that was replaced by a link after the folder was listed, and `fromJsonl` and `fromMbox` skip a line longer than
+  64 MiB (with the reason) instead of holding it in memory.
 - Fixes: a rebuild that is stopped (a close, a newer rebuild) returns only once the batches it was writing are written,
   so none of them lands in the index after it.
 - Fixes: `close()` while memory's own Qdrant is being restarted (after it died) stops that restart and waits for the

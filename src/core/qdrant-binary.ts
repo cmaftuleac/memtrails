@@ -54,15 +54,28 @@ export const QDRANT_RELEASE_BASE = `https://github.com/qdrant/qdrant/releases/do
 const assetUrl = (a: QdrantAsset): string => `${QDRANT_RELEASE_BASE}/${a.asset}`;
 
 /**
- * Run only what this user alone could have put there: the folder, the binary and its marker owned by this user, no
- * symlink, writable by no one else. The archive's hash is pinned but not the unpacked binary's (that needs every
+ * Run only what this user alone could have put there: the cache, the folder, the binary and its marker owned by this
+ * user, no symlink, writable by no one else. The archive's hash is pinned but not the unpacked binary's (that needs every
  * platform's archive to compute), so on a shared machine this is what stops a binary swapped in after unpacking.
  * Windows has no owner bits; there the user's profile ACLs keep others out.
  */
-function ownedSafely(path: string): boolean {
-  if (typeof process.getuid !== 'function') return true;
+export function ownedSafely(path: string): boolean {
+  if (typeof process.getuid !== 'function') return !lstatSync(path).isSymbolicLink();
   const st = lstatSync(path);
   return !st.isSymbolicLink() && st.uid === process.getuid() && (st.mode & 0o022) === 0;
+}
+
+/**
+ * The folder made (0700) or made private, and this user's alone — or refused. What is verified in it is run or loaded
+ * later: a folder others could write to lets them swap a binary between its check and its run, or a download between
+ * its hash and its unpacking. (`mkdirSync`'s mode applies only to a folder it makes.)
+ */
+export function privateDir(dir: string): void {
+  mkdirSync(dir, { recursive: true, mode: 0o700 });
+  chmodSync(dir, 0o700);
+  if (!ownedSafely(dir)) {
+    throw new Error(`${dir} is not this user's alone (its owner, its permissions, or it is a link): set MEMTRAILS_CACHE to a folder of your own`);
+  }
 }
 
 /** The binary is in place, its archive was verified when it was unpacked, and no one else could have changed it since. */
@@ -72,7 +85,7 @@ export function qdrantReady(a: QdrantAsset | null = qdrantAsset()): boolean {
   const marker = join(qdrantDir(), '.verified');
   try {
     return readFileSync(marker, 'utf8').trim() === `${a.size}:${a.sha256}` && statSync(bin).size > 0 &&
-      [qdrantDir(), bin, marker].every(ownedSafely);
+      [dirname(qdrantDir()), qdrantDir(), bin, marker].every(ownedSafely);
   } catch {
     return false;
   }
@@ -221,7 +234,7 @@ export async function ensureQdrant(opts: DownloadOptions & { log?: (line: string
   if (qdrantReady(a)) return bin;
   const dir = qdrantDir();
   const cache = dirname(dir);
-  mkdirSync(cache, { recursive: true, mode: 0o700 });
+  privateDir(cache);
   return withLock(dir, async () => {
     if (qdrantReady(a)) return bin; // another run finished it while this one waited
     opts.log?.(`[memtrails] fetching Qdrant ${QDRANT_VERSION} (${Math.round(a.size / 1e6)} MB)`);

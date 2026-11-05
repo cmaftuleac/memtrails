@@ -1,11 +1,11 @@
 /**
  * JSON Lines: one JSON object per line, read a line at a time. With no `map`, each line is a record as it is
  * (`{ "id": "…", "text": "…", "title": …, "at": … }`); with one, `map(obj)` turns each object into a record, or into
- * null to leave it out. Lines that are not JSON or not a record are skipped, counted and reported through `onSkip`.
+ * null to leave it out. Lines that are not JSON or not a record are skipped, counted and reported through `onSkip`; so is a
+ * line longer than 64 MiB, which is never held whole.
  */
-import { createReadStream } from 'node:fs';
-import { createInterface } from 'node:readline';
 import { invalidRecord, type MemoryRecord } from '../records.js';
+import { byteLines, LineTooLong } from './lines.js';
 import { record } from './text.js';
 
 /** Turns one parsed line into a record, or null to leave it out. */
@@ -31,10 +31,15 @@ export async function* fromJsonl(path: string, map?: JsonlMap | JsonlOptions, op
     stats.skipped++;
     o.onSkip?.(line, reason, n);
   };
-  const lines = createInterface({ input: createReadStream(path, { encoding: 'utf8' }), crlfDelay: Infinity });
   let n = 0;
-  for await (const raw of lines) {
+  for await (const bytes of byteLines(path)) {
     n++;
+    if (bytes instanceof LineTooLong) {
+      stats.lines++;
+      skip('', bytes.reason, n);
+      continue;
+    }
+    const raw = bytes.toString('utf8');
     const line = n === 1 ? raw.replace(/^﻿/, '') : raw;
     if (!line.trim()) continue;
     stats.lines++;

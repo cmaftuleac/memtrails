@@ -8,7 +8,8 @@
  * front-matter fields go into metadata (`author` also to the record's author). A file longer than `maxChars` is cut
  * into parts with ids `path#1`, `path#2`, … sharing the thread `path`.
  */
-import { readdir, readFile, stat } from 'node:fs/promises';
+import { constants } from 'node:fs';
+import { lstat, open, readdir, type FileHandle } from 'node:fs/promises';
 import { basename, extname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { timeOf, type MemoryRecord } from '../records.js';
@@ -156,6 +157,22 @@ function decodeFile(bytes: Buffer): string | null {
   return decodeBytes(bytes);
 }
 
+/**
+ * A file opened for reading, never through a link in its last part (`O_NOFOLLOW`), and without waiting on a pipe swapped
+ * in for it (`O_NONBLOCK`, which a regular file ignores); `'link'` when it is one. Where there is no `O_NOFOLLOW`
+ * (Windows), a link is refused by looking first.
+ */
+async function openNoFollow(path: string): Promise<FileHandle | 'link'> {
+  const { O_RDONLY, O_NOFOLLOW, O_NONBLOCK } = constants;
+  if (O_NOFOLLOW === undefined) return (await lstat(path)).isSymbolicLink() ? 'link' : open(path, 'r');
+  try {
+    return await open(path, O_RDONLY | O_NOFOLLOW | (O_NONBLOCK ?? 0));
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ELOOP') return 'link';
+    throw err;
+  }
+}
+
 /** Records from the text files in a folder and its subfolders. */
 export async function* fromFiles(dir: string, opts: FilesOptions = {}): AsyncIterable<MemoryRecord> {
   const root = resolve(dir);
@@ -167,12 +184,30 @@ export async function* fromFiles(dir: string, opts: FilesOptions = {}): AsyncIte
   for await (const path of walk(root, '', { include, skipFolders })) {
     if (opts.exclude?.(path)) continue;
     const abs = join(root, path);
-    const info = await stat(abs);
-    if (info.size > maxBytes) {
-      opts.onSkip?.(path, `larger than ${maxBytes} bytes`);
+    // Opened without following a link, and measured and read from what was opened: a note swapped for a link after the
+    // folder was listed (to a key outside it, say) is not read through it.
+    const file = await openNoFollow(abs);
+    if (file === 'link') {
+      opts.onSkip?.(path, 'not a file: it became a link after the folder was read');
       continue;
     }
-    const raw = decodeFile(await readFile(abs));
+    let info: Awaited<ReturnType<FileHandle['stat']>>;
+    let bytes: Buffer;
+    try {
+      info = await file.stat();
+      if (!info.isFile()) {
+        opts.onSkip?.(path, 'not a file: it changed after the folder was read');
+        continue;
+      }
+      if (info.size > maxBytes) {
+        opts.onSkip?.(path, `larger than ${maxBytes} bytes`);
+        continue;
+      }
+      bytes = await file.readFile();
+    } finally {
+      await file.close();
+    }
+    const raw = decodeFile(bytes);
     if (raw === null) {
       opts.onSkip?.(path, 'not text');
       continue;
