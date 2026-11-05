@@ -62,6 +62,10 @@ Node.js 22 or newer, on macOS or Linux (x64 or arm64). Windows has the pieces it
 (218 MB, from Hugging Face) and the Qdrant binary (~30 MB, from Qdrant's GitHub release) into `~/.cache/memtrails`,
 each checked against a pinned SHA-256. Set `MEMTRAILS_CACHE` to put them elsewhere.
 
+On Linux x64, `ONNXRUNTIME_NODE_INSTALL=skip npm install memtrails` skips the CUDA libraries ONNX Runtime's installer
+downloads otherwise (about 350 MB; memtrails runs on the CPU and never uses them; see [SECURITY.md](SECURITY.md)). In
+an MCP client's configuration the same goes in `"env": { "ONNXRUNTIME_NODE_INSTALL": "skip" }`.
+
 ### Python and Rust
 
 The same library, written natively in each language, fully async, with the same results and the same files: a memory

@@ -19,6 +19,25 @@ within a week. Please do not open a public issue for a vulnerability.
 - Downloads (the embedding model and the Qdrant binary) are verified against pinned sizes and SHA-256 hashes before
   they are used.
 
+## Known advisories in dependencies
+
+**adm-zip, through onnxruntime-node (npm).** `npm audit` reports advisories for adm-zip 0.5.x (crafted ZIP files:
+memory exhaustion, symlink and SUID handling, duplicate entries). memtrails never loads adm-zip. onnxruntime-node uses
+it only in its install script, and only on Linux x64, to unpack the CUDA libraries it downloads from NuGet. memtrails
+runs on the CPU and never uses those libraries. To reach the flaws, that download itself would have to be malicious,
+and a malicious download could already plant code in those libraries, so adm-zip adds no risk of its own.
+
+To leave the download, and adm-zip, out of the install entirely (it also saves about 350 MB and most of the install
+time on Linux x64), install with the installer's own switch:
+
+```bash
+ONNXRUNTIME_NODE_INSTALL=skip npm install memtrails
+```
+
+memtrails works the same with or without it; its CI installs this way. onnxruntime-node stays at 1.23.2 because the
+Python and Rust versions run the same ONNX Runtime, so that all three give the same vectors. 1.31.1 still downloads the
+CUDA libraries, with adm-zip 0.6 (which has the fixes). Moving all three to a newer ONNX Runtime together is planned.
+
 ## Supported versions
 
 The latest minor release receives security fixes.

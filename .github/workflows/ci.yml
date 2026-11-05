@@ -8,6 +8,11 @@ on:
 permissions:
   contents: read
 
+# memtrails runs ONNX Runtime on the CPU: its installer's CUDA download (Linux x64, ~350 MB, unpacked with adm-zip) is
+# never used, so it is skipped (SECURITY.md).
+env:
+  ONNXRUNTIME_NODE_INSTALL: skip
+
 jobs:
   test:
     strategy:
