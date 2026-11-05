@@ -26,7 +26,8 @@ import atexit
 import inspect
 import os
 import threading
-from collections.abc import AsyncIterable, Awaitable, Callable, Iterable, Mapping, Sequence
+from collections.abc import AsyncIterable, AsyncIterator, Awaitable, Callable, Iterable, Mapping, Sequence
+from contextlib import asynccontextmanager
 from types import TracebackType
 from typing import Any, Literal, TypedDict, TypeVar
 
@@ -222,6 +223,55 @@ def _as_rerank(f: Callable[..., Any]) -> Rerank:
     return rerank
 
 
+class _Turns:
+    """Turns shared, and a turn alone: many share at once; one alone waits until no one shares, and keeps new sharers
+    out while it waits, so a stream of them never holds it off. Let go without awaiting anything: a holder that is
+    cancelled lets go too."""
+
+    def __init__(self) -> None:
+        self._sharing = 0
+        self._alone = False
+        self._waiting = 0
+        self._wakers: list[asyncio.Future[None]] = []
+
+    def _wake(self) -> None:
+        wakers, self._wakers = self._wakers, []
+        for f in wakers:
+            if not f.done():
+                f.set_result(None)
+
+    async def _until(self, ok: Callable[[], bool]) -> None:
+        while not ok():
+            f = asyncio.get_running_loop().create_future()
+            self._wakers.append(f)
+            await f
+
+    @asynccontextmanager
+    async def shared(self) -> AsyncIterator[None]:
+        await self._until(lambda: not self._alone and not self._waiting)
+        self._sharing += 1
+        try:
+            yield
+        finally:
+            self._sharing -= 1
+            self._wake()
+
+    @asynccontextmanager
+    async def alone(self) -> AsyncIterator[None]:
+        self._waiting += 1
+        try:
+            await self._until(lambda: not self._alone and not self._sharing)
+        finally:
+            self._waiting -= 1
+            self._wake()  # sharers held off by this wait go on if it was cancelled
+        self._alone = True
+        try:
+            yield
+        finally:
+            self._alone = False
+            self._wake()
+
+
 def _span(text: str, a: int, b: int) -> str:
     """``text.slice(a, b)`` with a and b in UTF-16 units."""
     return u16slice(text, a, b)
@@ -251,6 +301,13 @@ class Memory:
         #: from them — two consolidations pay the model twice and write stale copies over each other, a rebuild clears
         #: what another is writing, a remove during a consolidation would see its record's episode written back after it.
         self._jobs = asyncio.Lock()
+        #: Every call (add, search, open, …) shares a turn; close() takes it alone, so it lets go of Qdrant, the model
+        #: and the home only once the calls in flight are done.
+        self._calls = _Turns()
+        #: Adds share a turn; a rebuild takes it alone. An add beside a rebuild could write its points into the index
+        #: about to be dropped and log its record after the rebuild read the log: logged, never indexed, and skipped
+        #: as unchanged when added again.
+        self._adding = _Turns()
         self._closing = False
         self._closed = False
 
@@ -377,6 +434,14 @@ class Memory:
         if self._closing:
             raise RuntimeError("memory is closed")
 
+    @asynccontextmanager
+    async def _call(self) -> AsyncIterator[None]:
+        """A call's shared turn; refused once close() began, also when it waited for its turn meanwhile."""
+        self._check()
+        async with self._calls.shared():
+            self._check()
+            yield
+
     async def _exclusive(self, job: Callable[[], Awaitable[T]]) -> T:
         async with self._jobs:
             self._check()
@@ -404,6 +469,11 @@ class Memory:
         return len(todo)
 
     async def _write(self, entries: Sequence[StmEntry], total: int) -> dict[str, int]:
+        async with self._call(), self._adding.shared():
+            self._check()
+            return await self._write_now(entries, total)
+
+    async def _write_now(self, entries: Sequence[StmEntry], total: int) -> dict[str, int]:
         fresh = [x for x in entries if (self._stm.meta(x["uid"]) or {}).get("fp") != x["fingerprint"]]
         for i in range(0, len(fresh), _BATCH):
             part = fresh[i : i + _BATCH]
@@ -493,8 +563,8 @@ class Memory:
     async def search(self, q: SearchOptions | Mapping[str, Any]) -> list[RecalledItem]:
         """Best first: records and what consolidation learned, each with its key text, dates, and the passage that
         matched."""
-        self._check()
-        return await memory_search(self._deps, q)
+        async with self._call():
+            return await memory_search(self._deps, q)
 
     async def search_text(self, q: SearchOptions | Mapping[str, Any]) -> str:
         """The same search as a reader is shown it: one line a memory, best first or oldest first (``order: time``)."""
@@ -526,16 +596,17 @@ class Memory:
         self._check()
         if not self._encode:
             raise RuntimeError("the room needs the local embedding model (embedding model_dir, or no embedding server)")
-        found = await memory_search(self._deps, {**q, "limit": q.get("limit") or 20})
-        return await sentence_room(
-            q["query"], [self._room_item(h) for h in found], self._encode, self._words, q.get("chars") or _ROOM_CHARS
-        )
+        async with self._call():
+            found = await memory_search(self._deps, {**q, "limit": q.get("limit") or 20})
+            return await sentence_room(
+                q["query"], [self._room_item(h) for h in found], self._encode, self._words, q.get("chars") or _ROOM_CHARS
+            )
 
     async def open(self, id: str) -> dict[str, Any] | None:
         """One item whole, by the id search returned; for something learned, ``sources``: the records it was learned
         from."""
-        self._check()
-        p = await memory_open(self._deps, id)
+        async with self._call():
+            p = await memory_open(self._deps, id)
         if not p:
             return None
         # A record: its kind as given. Something learned: the records it was learned from, whole.
@@ -555,14 +626,14 @@ class Memory:
     async def explore(self, q: Mapping[str, Any]) -> Explored:
         """Around a topic (``topic``), or around items you found (``from``: ids): what the concept graph reaches that
         search did not (``related``, with ``via``), and its ``concepts``."""
-        self._check()
-        return await memory_explore(self._deps, q)
+        async with self._call():
+            return await memory_explore(self._deps, q)
 
     async def gather(self, q: SearchOptions | Mapping[str, Any], notes: bool = False) -> Gathered:
         """A set for a question that counts, lists or totals: a wide search, then the language model keeps every
         instance (``found``: those first). ``limit`` 200 by default; with ``notes``, what the kept memories say."""
-        self._check()
-        return await memory_gather(self._deps, q, ask=self._ask, limit=q.get("limit") or None, notes=notes)
+        async with self._call():
+            return await memory_gather(self._deps, q, ask=self._ask, limit=q.get("limit") or None, notes=notes)
 
     # --- knowledge ---
 
@@ -626,10 +697,11 @@ class Memory:
 
         async def job() -> None:
             assert self._client is not None
-            self._rebuilder.begin()  # before the drop: a crash, or a close, after it resumes at the next open
-            await self._client.drop_collection()
-            await self._client.ensure_collection()
-            await self._rebuilder.run()
+            async with self._adding.alone():  # the adds in flight end first; the next ones wait for it
+                self._rebuilder.begin()  # before the drop: a crash, or a close, after it resumes at the next open
+                await self._client.drop_collection()
+                await self._client.ensure_collection()
+                await self._rebuilder.run()
 
         await self._exclusive(job)
 
@@ -646,11 +718,13 @@ class Memory:
 
     async def close(self) -> None:
         """Stops a consolidate, sleep, rebuild or index_words at its next step (a rebuild resumes at the next open) and
-        waits for it, then releases Qdrant, the model and the home. Jobs waiting their turn are refused."""
+        waits for it and for the adds and searches in flight, then releases Qdrant, the model and the home. Jobs waiting
+        their turn, and every call after this, are refused ("memory is closed")."""
         if self._closed:
             return
         self._closing = True
-        async with self._jobs:  # the job running stops at its next step; those waiting before this are refused
+        async with self._jobs, self._calls.alone():
+            # The job running stopped at its next step, the calls in flight are done; those waiting are refused.
             if self._closed:
                 return
             self._closed = True

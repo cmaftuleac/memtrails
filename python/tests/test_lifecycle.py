@@ -42,6 +42,8 @@ class Servers:
         self.exists = False
         self.points: dict[str, dict[str, Any]] = {}
         self.delay = 0.0
+        #: An upsert applied at once and answered this much later (its answer slow on the way back).
+        self.answer_delay = 0.0
         self.upserts = 0
         self.drops = 0
         self.embeds = 0
@@ -100,6 +102,7 @@ class Servers:
                 return send(404, None)
             for p in b["points"]:
                 self.points[p["id"]] = {"id": p["id"], "payload": p["payload"]}
+            await asyncio.sleep(self.answer_delay)
             return send(200, True)
         if rest == "/points":
             return send(200, [self.points[i] for i in b["ids"] if i in self.points])
@@ -489,3 +492,31 @@ async def test_close_waits_for_the_recall_records_trim(tmp_path: Path, servers: 
     go.set()
     await closing
     assert trims == ["done", "done"]
+
+
+async def test_an_add_beside_a_rebuild_is_indexed(tmp_path: Path, servers: Servers) -> None:
+    async with await open_memory(tmp_path / "home", **opts(servers)) as m:
+        await m.add(records(40))
+        servers.answer_delay = 0.1
+        upserts = servers.upserts
+        adding = asyncio.ensure_future(m.add(records(1, 100)))
+        await until(lambda: servers.upserts > upserts)  # its points in the index, the answer on its way back
+        # A rebuild asked for meanwhile drops the index only once the add is done and logged, and indexes it with the
+        # rest — not the add's points dropped and its record logged after the rebuild read the log.
+        await asyncio.gather(adding, m.rebuild())
+        assert len(servers.stm_items()) == 41
+        assert f"stm:{record_uid({'id': 'r100'})}" in servers.stm_items()
+
+
+async def test_close_waits_for_the_calls_in_flight_and_refuses_the_next(tmp_path: Path, servers: Servers) -> None:
+    m = await open_memory(tmp_path / "home", **opts(servers))
+    await m.add(records(3))
+    servers.delay = 0.1
+    adding = asyncio.ensure_future(m.add(records(2, 10)))
+    await asyncio.sleep(0.02)
+    await m.close()
+    assert adding.done()
+    assert (await adding)["added"] == 2
+    for call in (lambda: m.search({"query": "certificate"}), lambda: m.add(records(1, 20)), lambda: m.open("stm:x")):
+        with pytest.raises(RuntimeError, match="memory is closed"):
+            await call()
