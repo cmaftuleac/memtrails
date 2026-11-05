@@ -22,7 +22,7 @@ use regex::{Captures, Regex};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
-use super::jsonl::Lines;
+use super::jsonl::{too_long, Lines};
 use super::text::{base64_lenient, crlf_to_lf, decode_bytes, html_to_text, latin1, latin1_bytes, re, Draft};
 use super::{blocking_stream, RecordStream};
 use crate::error::{Error, Result};
@@ -583,6 +583,12 @@ impl Iterator for Mbox {
                 None => {
                     self.done = true;
                     return self.finish().map(Ok);
+                }
+                // A line past the bound: the message is past its size from here, as a long one is.
+                Some(Err(e)) if too_long(&e) => {
+                    self.size = self.max.saturating_add(1);
+                    self.previous_blank = false;
+                    continue;
                 }
                 Some(Err(e)) => {
                     self.done = true;

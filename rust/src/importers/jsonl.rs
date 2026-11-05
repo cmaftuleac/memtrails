@@ -3,7 +3,6 @@
 //! record, or into `None` to leave it out. Lines that are not JSON or not a record are skipped, counted and reported
 //! through `on_skip`.
 
-use std::collections::VecDeque;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::Path;
@@ -51,16 +50,32 @@ pub struct JsonlOptions {
     pub kind: Option<String>,
 }
 
-/// Lines as Node's `readline` gives them: ended by `\n`, `\r\n` or a lone `\r`, without their ends.
+/// The longest line read: one past it is skipped with a reason. The reference's `readline` has no bound but V8's
+/// longest string, and fails there; unbounded, one hostile line held the whole file in memory.
+pub(crate) const MAX_LINE_BYTES: usize = 64 * 1024 * 1024;
+
+/// What `Lines` gives for a line longer than its bound (the line itself is passed over, and reading goes on).
+pub(crate) fn too_long(e: &std::io::Error) -> bool {
+    e.kind() == std::io::ErrorKind::InvalidData && e.to_string().starts_with("a line longer than")
+}
+
+/// Lines as Node's `readline` gives them: ended by `\n`, `\r\n` or a lone `\r`, without their ends. One longer
+/// than its bound comes as an error `too_long` reads, and the lines after it follow.
 pub(crate) struct Lines<R: BufRead> {
     reader: R,
-    queue: VecDeque<Vec<u8>>,
+    max: usize,
+    /// The last line ended with `\r`: a `\n` right after it is the same end.
+    after_cr: bool,
     done: bool,
 }
 
 impl<R: BufRead> Lines<R> {
     pub(crate) fn new(reader: R) -> Self {
-        Lines { reader, queue: VecDeque::new(), done: false }
+        Self::with_max(reader, MAX_LINE_BYTES)
+    }
+
+    pub(crate) fn with_max(reader: R, max: usize) -> Self {
+        Lines { reader, max, after_cr: false, done: false }
     }
 }
 
@@ -68,36 +83,61 @@ impl<R: BufRead> Iterator for Lines<R> {
     type Item = std::io::Result<Vec<u8>>;
 
     fn next(&mut self) -> Option<Self::Item> {
+        if self.done {
+            return None;
+        }
+        let mut line = Vec::new();
+        let (mut read, mut long) = (0usize, false);
         loop {
-            if let Some(l) = self.queue.pop_front() {
-                return Some(Ok(l));
-            }
-            if self.done {
-                return None;
-            }
-            let mut buf = Vec::new();
-            match self.reader.read_until(b'\n', &mut buf) {
+            let avail = match self.reader.fill_buf() {
+                Ok(b) => b,
+                Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
                 Err(e) => {
                     self.done = true;
                     return Some(Err(e));
                 }
-                Ok(0) => {
-                    self.done = true;
+            };
+            if avail.is_empty() {
+                self.done = true;
+                if read == 0 {
                     return None;
                 }
-                Ok(_) => {}
+                break;
             }
-            let content: &[u8] = if buf.ends_with(b"\r\n") {
-                &buf[..buf.len() - 2]
-            } else if buf.ends_with(b"\n") || buf.ends_with(b"\r") {
-                &buf[..buf.len() - 1]
-            } else {
-                &buf
-            };
-            for piece in content.split(|b| *b == b'\r') {
-                self.queue.push_back(piece.to_vec());
+            if std::mem::take(&mut self.after_cr) && avail[0] == b'\n' {
+                self.reader.consume(1);
+                continue;
+            }
+            let end = avail.iter().position(|b| *b == b'\n' || *b == b'\r');
+            let piece = &avail[..end.unwrap_or(avail.len())];
+            if !long {
+                if line.len() + piece.len() > self.max {
+                    long = true;
+                    line = Vec::new();
+                } else {
+                    line.extend_from_slice(piece);
+                }
+            }
+            read += piece.len();
+            match end {
+                Some(i) => {
+                    self.after_cr = avail[i] == b'\r';
+                    self.reader.consume(i + 1);
+                    break;
+                }
+                None => {
+                    let n = avail.len();
+                    self.reader.consume(n);
+                }
             }
         }
+        if long {
+            return Some(Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!("a line longer than {} bytes ({read})", self.max),
+            )));
+        }
+        Some(Ok(line))
     }
 }
 
@@ -217,6 +257,12 @@ impl Iterator for Reader {
         loop {
             let raw = match self.lines.next()? {
                 Ok(l) => l,
+                Err(e) if too_long(&e) => {
+                    self.n += 1;
+                    self.tally(|s| s.lines += 1);
+                    self.left_out("", &e.to_string());
+                    continue;
+                }
                 Err(e) => return Some(Err(Error::Import(format!("cannot read the JSON Lines file: {e}")))),
             };
             self.n += 1;
@@ -244,4 +290,51 @@ pub async fn from_jsonl(path: impl AsRef<Path>, opts: JsonlOptions) -> Result<Re
         Ok(Reader { lines: Lines::new(BufReader::new(file)), n: 0, o: opts, stats })
     })
     .await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn lines(text: &[u8], max: usize) -> Vec<std::result::Result<String, String>> {
+        Lines::with_max(std::io::Cursor::new(text.to_vec()), max)
+            .map(|l| l.map(|b| String::from_utf8_lossy(&b).into_owned()).map_err(|e| e.to_string()))
+            .collect()
+    }
+
+    #[test]
+    fn lines_end_as_readline_ends_them_and_one_past_the_bound_is_passed_over() {
+        let ok = |s: &str| Ok(s.to_string());
+        assert_eq!(lines(b"a\r\nb\rc\n\nd", 100), [ok("a"), ok("b"), ok("c"), ok(""), ok("d")]);
+        assert_eq!(lines(b"a\r\r\n", 100), [ok("a"), ok("")]);
+        assert_eq!(lines(b"", 100), Vec::<std::result::Result<String, String>>::new());
+        let got = lines(b"short\nfar too long a line\nafter\n", 8);
+        assert_eq!(got[0], ok("short"));
+        assert!(got[1].as_ref().is_err_and(|e| e.starts_with("a line longer than 8 bytes")), "{got:?}");
+        assert_eq!(got[2..], [ok("after")]);
+    }
+
+    #[test]
+    fn a_json_line_past_the_bound_is_skipped_with_why_and_the_next_read() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("x.jsonl");
+        let long = format!("{{\"id\":\"big\",\"text\":\"{}\"}}", "x".repeat(200));
+        std::fs::write(&path, format!("{long}\n{{\"id\":\"ok\",\"text\":\"fine\"}}\n")).unwrap();
+        let why = Arc::new(Mutex::new(Vec::<String>::new()));
+        let seen = why.clone();
+        let o = JsonlOptions {
+            on_skip: Some(Arc::new(move |_l: &str, r: &str, n: usize| seen.lock().unwrap().push(format!("{n}: {r}")))),
+            ..Default::default()
+        };
+        let reader = Reader {
+            lines: Lines::with_max(BufReader::new(File::open(&path).unwrap()), 100),
+            n: 0,
+            o,
+            stats: Arc::default(),
+        };
+        let got: Vec<MemoryRecord> = reader.map(|r| r.unwrap()).collect();
+        assert_eq!(got.iter().map(|r| r.id.as_str()).collect::<Vec<_>>(), ["ok"]);
+        let why = why.lock().unwrap();
+        assert!(why.len() == 1 && why[0].starts_with("1: a line longer than 100 bytes"), "{why:?}");
+    }
 }
