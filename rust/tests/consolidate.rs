@@ -717,6 +717,7 @@ async fn profiles_paused_by_two_answers_say_the_last_one_as_the_reference_does()
     let ask: Arc<dyn Ask> = Arc::new(FnAsk(Arc::new(|r: LlmRequest| {
         Box::pin(async move {
             if r.prompt.contains("Miso") {
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
                 LlmAnswer::Unavailable("first".into())
             } else {
                 tokio::time::sleep(std::time::Duration::from_millis(100)).await;
