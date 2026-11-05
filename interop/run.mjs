@@ -16,7 +16,10 @@ const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, '..');
 const corpus = join(here, 'corpus.json');
 const queries = join(here, 'queries.json');
-const SCORE_TOLERANCE = 1e-3;
+// Embeddings come out a little different between languages on x64 processors (ONNX Runtime's 4-bit kernels): a
+// score moved by up to 0.007 was seen on GitHub's Linux runners, on Apple silicon they agree to 1e-6. Within this,
+// two hits whose scores tie may also trade places; anything further apart must be in the same order.
+const SCORE_TOLERANCE = 1e-2;
 const ci = process.env.GITHUB_ACTIONS === 'true';
 
 const say = (line) => process.stdout.write(`${line}\n`);
@@ -101,6 +104,20 @@ function copyHome(from, to) {
 
 const show = (v) => (typeof v === 'number' ? String(Math.round(v * 1000) / 1000) : JSON.stringify(v));
 
+const isHit = (h) => h && typeof h === 'object' && typeof h.score === 'number' && typeof h.id === 'string';
+
+/** Hits in `got` put in `want`'s order where the two that trade places score within SCORE_TOLERANCE of each other. */
+function nearTiesAsWanted(want, got) {
+  if (!want.every(isHit) || !got.every(isHit)) return got;
+  const out = [...got];
+  for (let i = 0; i < Math.min(want.length, out.length); i++) {
+    if (out[i].id === want[i].id) continue;
+    const j = out.findIndex((h, k) => k > i && h.id === want[i].id);
+    if (j > i && Math.abs(out[j].score - out[i].score) <= SCORE_TOLERANCE) [out[i], out[j]] = [out[j], out[i]];
+  }
+  return out;
+}
+
 function differences(want, got, path, out) {
   if (typeof want === 'number' && typeof got === 'number') {
     const ok = path.endsWith('.score') ? Math.abs(want - got) <= SCORE_TOLERANCE : want === got;
@@ -108,6 +125,7 @@ function differences(want, got, path, out) {
     return out;
   }
   if (Array.isArray(want) && Array.isArray(got)) {
+    got = nearTiesAsWanted(want, got);
     if (want.length !== got.length) out.push(`${path}: expected ${want.length} entries, got ${got.length}`);
     for (let i = 0; i < Math.min(want.length, got.length); i++) differences(want[i], got[i], `${path}[${i}]`, out);
     return out;
@@ -180,7 +198,7 @@ for (const w of langs) {
 }
 endGroup();
 
-say('\nResults (scores within 1e-3; everything else exactly):');
+say('\nResults (scores within 1e-2, near ties in either order; everything else exactly):');
 for (const w of langs) {
   for (const r of langs) if (r !== w) compare(`written by ${w}, read by ${r} — against ${w}'s own read`, reads[w][w], reads[w][r]);
 }
