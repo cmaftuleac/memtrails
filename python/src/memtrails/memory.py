@@ -237,6 +237,10 @@ class Memory:
         self._log = log
         self._http = http
         self._own_http = own_http
+        #: Memory's own Qdrant, on loopback with its key, is called through a client of its own that never takes a
+        #: proxy (nor .netrc credentials) from the environment — yours may (httpx's trust_env), and would hand the key
+        #: and every document to the proxy. The reference (Node's fetch) reads no proxy variables either.
+        self._loopback: httpx.AsyncClient | None = None
         self._release = release
         self._proc: QdrantProcess | None = None
         self._local: LocalEmbedder | None = None
@@ -289,11 +293,12 @@ class Memory:
             collection = q.get("collection") or COLLECTION
         else:
             binary = q.get("binary") or await ensure_qdrant(log=self._log, http=self._http)
-            self._proc = QdrantProcess(binary, os.path.join(self.dir, "qdrant"), self._log, http=self._http)
+            self._loopback = new_client()
+            self._proc = QdrantProcess(binary, os.path.join(self.dir, "qdrant"), self._log, http=self._loopback)
             await self._proc.start()
             endpoint = self._proc.current
             collection = COLLECTION
-        self._client = QdrantClient(endpoint, 10_000, collection, http=self._http)
+        self._client = QdrantClient(endpoint, 10_000, collection, http=self._loopback or self._http)
         await self._client.ensure_collection()
 
         self._stm = stm_log(os.path.join(self.dir, "records.jsonl"))
@@ -666,6 +671,8 @@ class Memory:
             if self._local is not None:
                 await self._local.close()
         finally:
+            if self._loopback is not None:
+                await self._loopback.aclose()
             if self._own_http:
                 await self._http.aclose()
 
@@ -690,7 +697,8 @@ async def open_memory(
     ``retries``); default the environment's (MEMTRAILS_MODEL and a key). ``qdrant``: a server of your own, or a binary;
     default, a process of its own (the pinned binary, fetched on first use). ``concurrency``: windows the language model
     reads at once (4). ``http``: the ``httpx.AsyncClient`` every call goes through (yours stays open when the memory
-    closes); default, one of its own."""
+    closes); default, one of its own. Memory's own Qdrant is called through a client of its own that takes no proxy from
+    the environment."""
     directory = os.path.abspath(os.fspath(home))
     say = log or (lambda _line: None)
     # Private: the logs, the index and the word vectors are everything that was added (a shared machine).

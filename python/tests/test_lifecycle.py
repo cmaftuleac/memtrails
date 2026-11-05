@@ -230,6 +230,36 @@ async def test_a_failed_open_stops_its_qdrant_and_frees_the_home(tmp_path: Path,
         await open_memory(home, **{**opts(servers, qdrant={"binary": binary}), "http": http})
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX")
+async def test_its_own_qdrant_is_never_called_through_a_proxy(tmp_path: Path, servers: Servers, monkeypatch: pytest.MonkeyPatch) -> None:
+    # A proxy the environment names, listening: it must hear nothing — its key and documents go to Qdrant directly.
+    heard: list[bytes] = []
+
+    async def listen(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+        heard.append(await reader.read(200))
+        writer.close()
+
+    proxy = await asyncio.start_server(listen, "127.0.0.1", 0)
+    url = f"http://127.0.0.1:{proxy.sockets[0].getsockname()[1]}"
+    for k in ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy"):
+        monkeypatch.setenv(k, url)
+    for k in ("NO_PROXY", "no_proxy"):
+        monkeypatch.delenv(k, raising=False)
+    binary = broken_qdrant_binary(tmp_path)
+    try:
+        # Your client, which takes the environment's proxies (httpx's default), and memory's own.
+        for http in (httpx.AsyncClient(mounts={E: httpx.MockTransport(servers)}), None):
+            home = tmp_path / ("yours" if http else "own")
+            given = {**opts(servers, qdrant={"binary": binary}), "http": http}
+            # Up, proven ours, and refusing the collection call (the stand-in's 500): reached directly.
+            with pytest.raises(Exception, match="500"):
+                await open_memory(home, **given)
+    finally:
+        proxy.close()
+        await proxy.wait_closed()
+    assert heard == []
+
+
 async def test_a_binary_that_is_not_there(tmp_path: Path, servers: Servers) -> None:
     with pytest.raises(RuntimeError, match=r"could not be started.*ENOENT"):
         await open_memory(tmp_path / "home", **opts(servers, qdrant={"binary": "memtrails-no-such-qdrant"}))
