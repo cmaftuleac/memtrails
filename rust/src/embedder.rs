@@ -108,7 +108,7 @@ fn vectors(body: &Value, count: usize) -> Result<Vec<Vec<f32>>> {
                     if bytes.len() != dims * 4 || base64::engine::general_purpose::STANDARD.encode(&bytes) != *s {
                         return Err(bad("invalid base64 vector"));
                     }
-                    bytes.chunks_exact(4).map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]])).collect()
+                    bytes.as_chunks::<4>().0.iter().map(|c| f32::from_le_bytes(*c)).collect()
                 }
                 Value::Array(a) if a.len() == dims && a.iter().all(Value::is_number) => {
                     a.iter().map(|x| x.as_f64().unwrap_or(0.0) as f32).collect()
