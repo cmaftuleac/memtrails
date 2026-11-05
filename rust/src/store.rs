@@ -990,9 +990,9 @@ pub fn ltm_log(path: impl Into<PathBuf>) -> LtmStore {
     JsonlLog::new(path, ltm_meta_of)
 }
 
-/// How often one item was shown and opened, and when last.
+/// How often one item was shown and opened, and when last (a count not written down is none).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", default)]
 pub struct Use {
     /// Shown by a search.
     pub shown: u64,
@@ -1018,11 +1018,17 @@ pub struct UsageBook {
 }
 
 impl UsageBook {
-    /// The book at `path` (empty when there is none, or it cannot be read).
+    /// The book at `path` (empty when there is none, or it cannot be read). An entry that is not a count of use is
+    /// skipped alone: one bad entry once cost every item its use.
     pub async fn open(path: impl Into<PathBuf>) -> Self {
         let path = path.into();
-        let data =
-            tokio::fs::read_to_string(&path).await.ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
+        let all: Option<serde_json::Map<String, Value>> =
+            tokio::fs::read_to_string(&path).await.ok().and_then(|t| serde_json::from_str(&t).ok());
+        let data = all
+            .into_iter()
+            .flatten()
+            .filter_map(|(k, v)| serde_json::from_value::<Use>(v).ok().map(|u| (k, u)))
+            .collect();
         UsageBook { path, book: Arc::new(Mutex::new(Book { data, dirty: false, armed: false })) }
     }
 

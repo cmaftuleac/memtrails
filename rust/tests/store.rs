@@ -306,3 +306,19 @@ async fn a_line_the_reference_reads_is_never_dropped_by_a_compaction() {
     assert_eq!(r.get("partial").await.unwrap().text, "whole now");
     assert_eq!(fs::read_to_string(&path).unwrap().lines().count(), 4);
 }
+
+#[tokio::test]
+async fn one_bad_entry_in_the_usage_book_costs_only_itself() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("usage.json");
+    fs::write(
+        &path,
+        r#"{"good":{"shown":2,"opened":1,"lastUsed":5},"bad":{"shown":"many"},"partial":{"opened":4},"odd":null}"#,
+    )
+    .unwrap();
+    let u = UsageBook::open(&path).await;
+    let good = u.of("good");
+    assert_eq!((good.shown, good.opened, good.last_used), (2, 1, 5.0));
+    assert_eq!((u.of("partial").opened, u.of("partial").shown), (4, 0));
+    assert_eq!(u.of("bad").shown, 0);
+}
