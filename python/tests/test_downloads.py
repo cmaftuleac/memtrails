@@ -21,6 +21,7 @@ from memtrails.core.qdrant_binary import (
     download_verified,
     ensure_qdrant,
     qdrant_asset,
+    qdrant_binary_path,
     qdrant_dir,
     qdrant_ready,
     with_lock,
@@ -127,3 +128,83 @@ def test_the_model_is_fetched_checked_and_marked(tmp_path: Path, monkeypatch: py
     assert (tmp_path / "model" / "onnx" / "model_q4.onnx").read_bytes() == files["onnx/model_q4.onnx"]
     os.remove(tmp_path / "model" / "tokenizer.json")
     assert not model_ready(d)
+
+
+unix = pytest.mark.skipif(not hasattr(os, "getuid"), reason="no owner bits")
+
+
+def counting_404(count: list[int]) -> httpx.AsyncClient:
+    def serve(_r: httpx.Request) -> httpx.Response:
+        count.append(1)
+        return httpx.Response(404, content=b"nope")
+
+    return httpx.AsyncClient(transport=httpx.MockTransport(serve))
+
+
+@unix
+def test_a_cache_others_could_change_is_made_private_or_refused(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    opened = tmp_path / "open"
+    opened.mkdir()
+    os.chmod(opened, 0o777)
+    monkeypatch.setenv("MEMTRAILS_CACHE", str(opened))
+    count: list[int] = []
+    with pytest.raises(RuntimeError, match="HTTP 404"):
+        run(ensure_qdrant(http=counting_404(count)))
+    assert os.stat(opened).st_mode & 0o777 == 0o700
+    # A link to a folder: whoever can change the link can swap what it leads to — refused, nothing fetched.
+    link = tmp_path / "link"
+    link.symlink_to(opened)
+    monkeypatch.setenv("MEMTRAILS_CACHE", str(link))
+    before = len(count)
+    with pytest.raises(RuntimeError, match="not this user's alone"):
+        run(ensure_qdrant(http=counting_404(count)))
+    assert len(count) == before
+
+
+@unix
+def test_no_binary_is_ready_while_others_could_write_to_the_cache_above_it(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("MEMTRAILS_CACHE", str(tmp_path / "cache"))
+    a = qdrant_asset()
+    assert a is not None
+    os.makedirs(qdrant_dir(), mode=0o755)
+    binary = qdrant_binary_path(a)
+    assert binary is not None
+    Path(binary).write_text("binary")
+    os.chmod(binary, 0o755)
+    Path(qdrant_dir(), ".verified").write_text(f"{a.size}:{a.sha256}\n")
+    os.chmod(Path(qdrant_dir(), ".verified"), 0o644)
+    os.chmod(tmp_path / "cache", 0o700)
+    assert qdrant_ready(a)
+    os.chmod(tmp_path / "cache", 0o777)
+    assert not qdrant_ready(a)
+
+
+@unix
+def test_the_model_folder_is_made_private_or_refused_and_not_ready_while_others_could_write(tmp_path: Path) -> None:
+    import memtrails.core.model as model
+
+    d = tmp_path / "model"
+    d.mkdir()
+    os.chmod(d, 0o777)
+    count: list[int] = []
+    with pytest.raises(RuntimeError, match="HTTP 404"):
+        run(ensure_model(str(d), http=counting_404(count)))
+    assert os.stat(d).st_mode & 0o777 == 0o700
+    link = tmp_path / "link"
+    link.symlink_to(d)
+    before = len(count)
+    with pytest.raises(RuntimeError, match="not this user's alone"):
+        run(ensure_model(str(link), http=counting_404(count)))
+    assert len(count) == before
+    # A whole set in place (sparse files of the pinned sizes): ready while private, not once a folder is open to others.
+    for rel, size, _ in model.MODEL_FILES:
+        f = d / rel
+        f.parent.mkdir(mode=0o700, exist_ok=True)
+        with open(f, "wb") as out:
+            out.truncate(size)
+        os.chmod(f, 0o600)
+    (d / ".verified").write_text("\n".join(f"{rel}:{size}:{sha}" for rel, size, sha in model.MODEL_FILES))
+    os.chmod(d / ".verified", 0o644)
+    assert model_ready(str(d))
+    os.chmod(d / "onnx", 0o777)
+    assert not model_ready(str(d))

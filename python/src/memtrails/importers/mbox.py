@@ -25,7 +25,7 @@ import regex
 
 from .._js import JS_SPACE, UNDEFINED, js_trim, js_trim_end, u16slice, utf8
 from ..records import time_of
-from .text import decode_bytes, html_to_text, read_lines, record, undef
+from .text import LineTooLong, decode_bytes, html_to_text, read_lines, record, undef
 
 _WS = regex.compile(f"[{JS_SPACE}]+")
 
@@ -445,6 +445,11 @@ async def from_mbox(
 
     # Latin-1 keeps every byte as one character: each part is decoded later in its own charset.
     async for line in read_lines(p, "latin-1"):
+        # A line past the bound (64 MiB): the message is past its size from here, as a long one is.
+        if isinstance(line, LineTooLong):
+            size = max_message_bytes + 1
+            previous_blank = False
+            continue
         # A new message: a `From ` line at the start or after an empty line, carrying a time.
         if line.startswith("From ") and previous_blank and (msg is None or _TIME_IN_FROM.search(line)):
             r = finish()

@@ -92,19 +92,32 @@ def qdrant_binary_path(a: QdrantAsset | None = None) -> str | None:
 QDRANT_RELEASE_BASE = f"https://github.com/qdrant/qdrant/releases/download/v{QDRANT_VERSION}"
 
 
-def _owned_safely(path: str) -> bool:
+def owned_safely(path: str) -> bool:
     """Run only what this user alone could have put there: owned by this user, no symlink, writable by no one else.
     The archive's hash is pinned but not the unpacked binary's, so on a shared machine this is what stops a binary
     swapped in after unpacking. Windows has no owner bits; there the user's profile ACLs keep others out."""
-    if not hasattr(os, "getuid"):
-        return True
     st = os.lstat(path)
+    if not hasattr(os, "getuid"):
+        return not stat.S_ISLNK(st.st_mode)
     return not stat.S_ISLNK(st.st_mode) and st.st_uid == os.getuid() and (st.st_mode & 0o022) == 0
+
+
+def private_dir(directory: str) -> None:
+    """The folder made (0700) or made private, and this user's alone — or refused. What is verified in it is run or
+    loaded later: a folder others could write to lets them swap a binary between its check and its run, or a download
+    between its hash and its unpacking. (``os.makedirs``'s mode applies only to a folder it makes.)"""
+    os.makedirs(directory, mode=0o700, exist_ok=True)
+    os.chmod(directory, 0o700)
+    if not owned_safely(directory):
+        raise RuntimeError(
+            f"{directory} is not this user's alone (its owner, its permissions, or it is a link): "
+            "set MEMTRAILS_CACHE to a folder of your own"
+        )
 
 
 def qdrant_ready(a: QdrantAsset | None = None) -> bool:
     """The binary is in place, its archive was verified when it was unpacked, and no one else could have changed it
-    since."""
+    since (the cache above it included)."""
     asset = a or qdrant_asset()
     binary = qdrant_binary_path(asset)
     if not asset or not binary:
@@ -113,7 +126,11 @@ def qdrant_ready(a: QdrantAsset | None = None) -> bool:
     try:
         with open(marker, encoding="utf-8") as f:
             ok = f.read().strip() == f"{asset.size}:{asset.sha256}"
-        return ok and os.stat(binary).st_size > 0 and all(_owned_safely(p) for p in (qdrant_dir(), binary, marker))
+        return (
+            ok
+            and os.stat(binary).st_size > 0
+            and all(owned_safely(p) for p in (os.path.dirname(qdrant_dir()), qdrant_dir(), binary, marker))
+        )
     except OSError:
         return False
 
@@ -304,7 +321,7 @@ async def ensure_qdrant(
         return binary
     directory = qdrant_dir()
     cache = os.path.dirname(directory)
-    os.makedirs(cache, mode=0o700, exist_ok=True)
+    private_dir(cache)
 
     async def fetch() -> str:
         if qdrant_ready(a):

@@ -588,30 +588,64 @@ def record(r: Mapping[str, Any]) -> dict[str, Any]:
     return out
 
 
-_NEWLINE = regex.compile(r"\r\n|\r|\n")
+#: The longest line read: one past it is passed over, with a reason. Python reads a line whole otherwise, so one
+#: hostile line held the whole file in memory.
+MAX_LINE_BYTES = 64 * 1024 * 1024
 
 
-async def read_lines(path: str, encoding: str) -> AsyncIterator[str]:
+class LineTooLong:
+    """A line longer than the bound, in its place: its bytes are passed over, never held."""
+
+    def __init__(self, reason: str) -> None:
+        self.reason = reason
+
+
+async def read_lines(path: str, encoding: str, max_bytes: int = MAX_LINE_BYTES) -> AsyncIterator[str | LineTooLong]:
     """A file's lines as Node's readline gives them (a break at ``\\n``, ``\\r\\n`` or a lone ``\\r``; no empty line after
-    the last break), decoded as it is read, a megabyte at a time, off the event loop."""
-    decoder = codecs.getincrementaldecoder(encoding)("replace")
-    rest = ""
+    the last break), each decoded on its own, read a megabyte at a time, off the event loop. One longer than
+    ``max_bytes`` bytes comes as a ``LineTooLong``, and the lines after it follow."""
+    parts: list[bytes] = []
+    held = read = 0
+    long = after_cr = False
+
+    def line() -> str | LineTooLong:
+        nonlocal parts, held, read, long
+        out: str | LineTooLong = (
+            LineTooLong(f"a line longer than {max_bytes} bytes ({read})") if long else b"".join(parts).decode(encoding, "replace")
+        )
+        parts, held, read, long = [], 0, 0, False
+        return out
+
     f = await asyncio.to_thread(open, path, "rb")
     try:
         while True:
             chunk: bytes = await asyncio.to_thread(f.read, 1 << 20)
-            text = rest + decoder.decode(chunk, final=not chunk)
             if not chunk:
-                rest = text
                 break
-            # A '\r' at the end may be the first half of a '\r\n': kept for the next chunk.
-            held = "\r" if text.endswith("\r") else ""
-            parts = _NEWLINE.split(text[:-1] if held else text)
-            rest = parts.pop() + held
-            for line in parts:
-                yield line
+            at = 0
+            while at < len(chunk):
+                # A `\n` right after a `\r` is the same end.
+                if after_cr:
+                    after_cr = False
+                    if chunk[at] == 0x0A:
+                        at += 1
+                        continue
+                lf, cr = chunk.find(b"\n", at), chunk.find(b"\r", at)
+                end = cr if lf < 0 else lf if cr < 0 else min(lf, cr)
+                piece = chunk[at : len(chunk) if end < 0 else end]
+                if not long:
+                    if held + len(piece) > max_bytes:
+                        long, parts, held = True, [], 0
+                    elif piece:
+                        parts.append(piece)
+                        held += len(piece)
+                read += len(piece)
+                if end < 0:
+                    break
+                after_cr = chunk[end] == 0x0D
+                at = end + 1
+                yield line()
     finally:
         f.close()
-    if rest:
-        for line in _NEWLINE.split(rest[:-1] if rest.endswith(("\r", "\n")) else rest):
-            yield line
+    if read > 0:
+        yield line()

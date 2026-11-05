@@ -2,7 +2,7 @@
 JSON Lines: one JSON object per line, read a line at a time. With no ``map``, each line is a record as it is
 (``{"id": "…", "text": "…", "title": …, "at": …}``); with one, ``map(obj, line_number)`` turns each object into a
 record, or into None to leave it out. Lines that are not JSON or not a record are skipped, counted and reported through
-``on_skip``.
+``on_skip``; so is a line longer than 64 MiB, which is never held whole.
 """
 
 from __future__ import annotations
@@ -13,7 +13,7 @@ from typing import Any
 
 from .._js import js_trim, num_str, parse
 from ..records import invalid_record
-from .text import read_lines, record, undef
+from .text import LineTooLong, read_lines, record, undef
 
 JsonlMap = Callable[[Any, int], "dict[str, Any] | None"]
 
@@ -41,6 +41,10 @@ async def from_jsonl(
     n = 0
     async for raw in read_lines(os.fspath(path), "utf-8"):
         n += 1
+        if isinstance(raw, LineTooLong):
+            count["lines"] += 1
+            skip("", raw.reason, n)
+            continue
         line = raw.removeprefix("\ufeff") if n == 1 else raw
         if not js_trim(line):
             continue

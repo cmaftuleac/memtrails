@@ -3,6 +3,7 @@ what the regexes they replaced did (hostile.test.ts, ported)."""
 
 from __future__ import annotations
 
+import os
 import time
 from collections.abc import AsyncIterable
 from pathlib import Path
@@ -11,8 +12,8 @@ from typing import Any
 import pytest
 
 from memtrails._js import date_parse
-from memtrails.importers import from_eml, from_files, from_jsonl, from_slack_export
-from memtrails.importers.text import html_title, html_to_text
+from memtrails.importers import from_eml, from_files, from_jsonl, from_mbox, from_slack_export
+from memtrails.importers.text import MAX_LINE_BYTES, LineTooLong, html_title, html_to_text, read_lines
 
 N = 200_000
 
@@ -170,3 +171,69 @@ async def test_a_slack_day_nested_too_deeply_is_skipped(tmp_path: Path) -> None:
     (root / "general" / "2024-01-01.json").write_text(DEEP)
     (root / "general" / "2024-01-02.json").write_text('[{"type": "message", "user": "U1", "text": "read on", "ts": "1704200000.0001"}]')
     assert [r["text"] for r in await collect(from_slack_export(root))] == ["read on"]
+
+
+@pytest.mark.skipif(not hasattr(os, "O_NOFOLLOW"), reason="no links to swap in")
+async def test_a_note_swapped_for_a_link_after_the_folder_was_listed_is_not_followed(tmp_path: Path) -> None:
+    notes = tmp_path / "notes"
+    notes.mkdir()
+    (notes / "a.md").write_text("# A\nfine")
+    secret = tmp_path / "secret.md"
+    secret.write_text("# Secret\nthe private key")
+
+    # `exclude` is asked just before a file is read: the note becomes a link to what is outside the folder then.
+    def swap(_path: str) -> bool:
+        (notes / "a.md").unlink()
+        (notes / "a.md").symlink_to(secret)
+        return False
+
+    skipped: list[str] = []
+    got = await collect(from_files(notes, exclude=swap, on_skip=lambda p, why: skipped.append(f"{p}: {why}")))
+    assert [r["text"] for r in got] == []
+    assert skipped == ["a.md: not a file: it became a link after the folder was read"]
+
+
+def with_long_line(path: Path, head: str, long: int, tail: str) -> None:
+    """A file of ``head``, then a line of ``long`` bytes, then ``tail``, written a megabyte at a time."""
+    mb = b"x" * (1 << 20)
+    with open(path, "wb") as f:
+        f.write(head.encode())
+        left = long
+        while left > 0:
+            f.write(mb[: min(left, len(mb))])
+            left -= len(mb)
+        f.write(tail.encode())
+
+
+async def test_lines_end_as_readline_ends_them_and_one_past_the_bound_is_passed_over(tmp_path: Path) -> None:
+    async def lines(data: bytes, max_bytes: int) -> list[str]:
+        path = tmp_path / "lines.txt"
+        path.write_bytes(data)
+        return [f"! {x.reason}" if isinstance(x, LineTooLong) else x async for x in read_lines(str(path), "utf-8", max_bytes)]
+
+    assert await lines(b"a\r\nb\rc\n\nd", 100) == ["a", "b", "c", "", "d"]
+    assert await lines(b"a\r\r\n", 100) == ["a", ""]
+    assert await lines(b"", 100) == []
+    assert await lines(b"short\nfar too long a line\nafter\n", 8) == ["short", "! a line longer than 8 bytes (19)", "after"]
+
+
+async def test_a_json_line_past_64_mib_is_skipped_with_why_and_the_next_read(tmp_path: Path) -> None:
+    path = tmp_path / "big.jsonl"
+    with_long_line(path, '{"id":"a","text":"before"}\n', MAX_LINE_BYTES + 1, '\n{"id":"b","text":"after"}\n')
+    skipped: list[str] = []
+    stats: dict[str, int] = {}
+    got = await collect(from_jsonl(path, on_skip=lambda line, why, n: skipped.append(f"{n} {line!r}: {why}"), stats=stats))
+    assert [r["id"] for r in got] == ["a", "b"]
+    assert skipped == [f"2 '': a line longer than {MAX_LINE_BYTES} bytes ({MAX_LINE_BYTES + 1})"]
+    assert stats == {"lines": 3, "records": 2, "skipped": 1}
+
+
+async def test_an_mbox_line_past_64_mib_ends_its_message_and_the_next_is_read(tmp_path: Path) -> None:
+    def msg(n: int, body: str) -> str:
+        return f"From a@b.c Mon Jan  1 00:00:0{n} 2024\nFrom: a@b.c\nSubject: m{n}\nMessage-ID: <m{n}@b.c>\n\n{body}"
+
+    path = tmp_path / "big.mbox"
+    second = msg(2, "second\n")
+    with_long_line(path, msg(1, "kept\n"), MAX_LINE_BYTES + 1, f"\nnot kept\n\n{second}")
+    got = await collect(from_mbox(path, max_message_bytes=4 * MAX_LINE_BYTES))
+    assert [(r["title"], r["text"]) for r in got] == [("m1", "kept"), ("m2", "second")]

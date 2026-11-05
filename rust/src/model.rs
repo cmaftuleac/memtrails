@@ -6,8 +6,9 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use crate::download::{download_verified, with_lock, DownloadOptions, LockOptions, Pin, TempFolder};
+use crate::download::{download_verified, private_cache, with_lock, DownloadOptions, LockOptions, Pin, TempFolder};
 use crate::error::{Error, Result};
+use crate::sys;
 
 /// The model's repository on Hugging Face.
 pub const MODEL_REPO: &str = "onnx-community/embeddinggemma-300m-ONNX";
@@ -30,26 +31,54 @@ fn stamp() -> String {
     MODEL_FILES.iter().map(|(rel, size, sha)| format!("{rel}:{size}:{sha}")).collect::<Vec<_>>().join("\n")
 }
 
-/// Every file in place at its pinned size, and the marker written after the last of them was verified.
+/// The model's folder and the folders its files are in.
+fn folders(dir: &Path) -> Vec<PathBuf> {
+    let mut out = vec![dir.to_path_buf()];
+    for (rel, _, _) in MODEL_FILES {
+        let parent = dir.join(rel).parent().map_or_else(|| dir.to_path_buf(), Path::to_path_buf);
+        if !out.contains(&parent) {
+            out.push(parent);
+        }
+    }
+    out
+}
+
+/// Every file in place at its pinned size, the marker written after the last of them was verified, and no one else
+/// could have changed any of them since (the folders, the files and the marker this user's alone, as the Qdrant
+/// binary's).
 pub async fn model_ready(dir: &Path) -> bool {
     let dir = dir.to_path_buf();
     crate::store::blocking(move || ready_now(&dir)).await.unwrap_or(false)
 }
 
 fn ready_now(dir: &Path) -> bool {
-    fs::read_to_string(dir.join(".verified")).is_ok_and(|t| t == stamp())
+    let marker = dir.join(".verified");
+    fs::read_to_string(&marker).is_ok_and(|t| t == stamp())
         && MODEL_FILES.iter().all(|(rel, size, _)| fs::metadata(dir.join(rel)).is_ok_and(|m| m.len() == *size))
+        && folders(dir)
+            .into_iter()
+            .chain([marker])
+            .chain(MODEL_FILES.iter().map(|(rel, _, _)| dir.join(rel)))
+            .all(|p| sys::owned_safely(&p))
 }
 
 /// The model in `dir` (default: in the cache), fetched and checked unless it is already there; the folder, ready to
 /// load. Each file is fetched to a temp of its own, checked on disk and renamed into place; one run at a time per
 /// folder, and the marker is taken away first, so a set left half-replaced is never taken as ready.
 pub async fn ensure_model(o: &DownloadOptions, dir: Option<PathBuf>) -> Result<PathBuf> {
+    let default = dir.is_none();
     let dir = dir.unwrap_or_else(|| default_model_dir(&o.cache_dir()));
     if model_ready(&dir).await {
         return Ok(dir);
     }
-    tokio::fs::create_dir_all(&dir).await.map_err(|e| Error::io(&dir, e))?;
+    // Made private, or refused when others could change them: what is verified in them is loaded later. A set already
+    // there in folders made before this is ready once they are private (checked again under the lock).
+    if default {
+        private_cache(&o.cache_dir()).await?;
+    }
+    for folder in folders(&dir) {
+        private_cache(&folder).await?;
+    }
     with_lock(&dir, LockOptions::default(), || async {
         if model_ready(&dir).await {
             return Ok(dir.clone()); // another run finished it while this one waited
@@ -73,6 +102,8 @@ pub async fn ensure_model(o: &DownloadOptions, dir: Option<PathBuf>) -> Result<P
             placed?;
         }
         tokio::fs::write(&marker, stamp()).await.map_err(|e| Error::io(&marker, e))?;
+        // Whatever the umask: a marker others could write is not trusted.
+        sys::chmod(&marker, 0o644).map_err(|e| Error::io(&marker, e))?;
         o.say("[memtrails] embedding model ready");
         Ok(dir.clone())
     })

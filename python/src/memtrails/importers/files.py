@@ -12,8 +12,10 @@ is cut into parts with ids ``path#1``, ``path#2``, … sharing the thread ``path
 from __future__ import annotations
 
 import asyncio
+import errno
 import math
 import os
+import stat
 from collections.abc import AsyncIterator, Callable, Iterator, Sequence
 from pathlib import Path
 from typing import Any
@@ -214,12 +216,37 @@ def _decode_file(data: bytes) -> str | None:
     return decode_bytes(data)
 
 
-def _read_file(path: str, max_bytes: int) -> tuple[float, str | None, bool]:
-    info = os.stat(path)
-    if info.st_size > max_bytes:
-        return info.st_mtime * 1000, None, True
-    with open(path, "rb") as f:
-        return info.st_mtime * 1000, _decode_file(f.read()), False
+def _open_no_follow(path: str) -> int | None:
+    """A file opened for reading, never through a link in its last part (``O_NOFOLLOW``), and without waiting on a pipe
+    swapped in for it (``O_NONBLOCK``, which a regular file ignores); None when it is a link. Where there is no
+    ``O_NOFOLLOW`` (Windows), a link is refused by looking first."""
+    nofollow = getattr(os, "O_NOFOLLOW", None)
+    if nofollow is None:
+        if os.path.islink(path):
+            return None
+        return os.open(path, os.O_RDONLY | getattr(os, "O_BINARY", 0))
+    try:
+        return os.open(path, os.O_RDONLY | nofollow | getattr(os, "O_NONBLOCK", 0))
+    except OSError as err:
+        if err.errno == errno.ELOOP:
+            return None
+        raise
+
+
+def _read_file(path: str, max_bytes: int) -> tuple[float, str | None, str | None]:
+    """Its time, its text (None when it is not text), and why it was left out (None when it was read). Opened without
+    following a link, and measured and read from what was opened: a note swapped for a link after the folder was
+    listed (to a key outside it, say) is not read through it."""
+    fd = _open_no_follow(path)
+    if fd is None:
+        return 0, None, "not a file: it became a link after the folder was read"
+    with os.fdopen(fd, "rb") as f:
+        info = os.fstat(f.fileno())
+        if not stat.S_ISREG(info.st_mode):
+            return 0, None, "not a file: it changed after the folder was read"
+        if info.st_size > max_bytes:
+            return 0, None, f"larger than {max_bytes} bytes"
+        return info.st_mtime * 1000, _decode_file(f.read()), None
 
 
 async def from_files(
@@ -247,10 +274,10 @@ async def from_files(
         if exclude and exclude(path):
             continue
         full = os.path.join(root, path)
-        mtime, raw, too_big = await asyncio.to_thread(_read_file, full, max_bytes)
-        if too_big:
+        mtime, raw, left_out = await asyncio.to_thread(_read_file, full, max_bytes)
+        if left_out is not None:
             if on_skip:
-                on_skip(path, f"larger than {max_bytes} bytes")
+                on_skip(path, left_out)
             continue
         if raw is None:
             if on_skip:

@@ -164,8 +164,7 @@ the fixtures that are only this port's. The rules are in
   comparison uses letters first, then accents, then lower case before upper case. Names that differ only in
   punctuation may order differently.
 - **Importers.**
-  - JSON Lines: a line longer than 64 MiB is skipped with a reason (the reference reads any length its strings hold).
-    A line that is not JSON is skipped with serde's wording. A field of the wrong type is skipped with a
+  - JSON Lines: a line that is not JSON is skipped with serde's wording. A field of the wrong type is skipped with a
     reason, where the reference would keep it or fail.
   - Slack: an export with no `channels.json` is read in folder-name order. A message whose `ts` is a number is
     accepted.

@@ -8,7 +8,7 @@ use std::io::Write;
 
 use common::{serve, Response};
 use memtrails::download::{download_verified, with_lock, DownloadOptions, LockOptions, Pin};
-use memtrails::model::{model_ready, MODEL_FILES};
+use memtrails::model::{ensure_model, model_ready, MODEL_FILES};
 use memtrails::qdrant_binary::{ensure_qdrant, qdrant_asset, qdrant_dir, qdrant_ready, QdrantAsset, QDRANT_ASSETS};
 use sha2::{Digest, Sha256};
 
@@ -227,4 +227,39 @@ async fn a_cache_others_could_change_is_made_private_or_refused() {
     let err = ensure_qdrant(&o, None).await.unwrap_err().to_string();
     assert!(err.contains("not this user's alone"), "{err}");
     assert_eq!(s.requests().len(), before);
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn the_model_folder_is_made_private_or_refused_and_not_ready_while_others_could_write() {
+    use std::os::unix::fs::PermissionsExt;
+    let s = serve(|_| Response::new(404, "nope")).await;
+    let root = tempfile::tempdir().unwrap();
+    let dir = root.path().join("model");
+    fs::create_dir(&dir).unwrap();
+    fs::set_permissions(&dir, fs::Permissions::from_mode(0o777)).unwrap();
+    let o = DownloadOptions { base_url: Some(s.url.clone()), ..Default::default() };
+    assert!(ensure_model(&o, Some(dir.clone())).await.unwrap_err().to_string().contains("HTTP 404"));
+    assert_eq!(fs::metadata(&dir).unwrap().permissions().mode() & 0o777, 0o700);
+    // A link to a folder: whoever can change the link can swap what it leads to — refused, nothing fetched.
+    let link = root.path().join("link");
+    std::os::unix::fs::symlink(&dir, &link).unwrap();
+    let before = s.requests().len();
+    let err = ensure_model(&o, Some(link)).await.unwrap_err().to_string();
+    assert!(err.contains("not this user's alone"), "{err}");
+    assert_eq!(s.requests().len(), before);
+    // A whole set in place (sparse files of the pinned sizes): ready while private, not once a folder is open to others.
+    for (rel, size, _) in MODEL_FILES {
+        let f = dir.join(rel);
+        fs::create_dir_all(f.parent().unwrap()).unwrap();
+        fs::set_permissions(f.parent().unwrap(), fs::Permissions::from_mode(0o700)).unwrap();
+        fs::File::create(&f).unwrap().set_len(*size).unwrap();
+        fs::set_permissions(&f, fs::Permissions::from_mode(0o600)).unwrap();
+    }
+    let stamp = MODEL_FILES.iter().map(|(rel, size, sha)| format!("{rel}:{size}:{sha}")).collect::<Vec<_>>().join("\n");
+    fs::write(dir.join(".verified"), stamp).unwrap();
+    fs::set_permissions(dir.join(".verified"), fs::Permissions::from_mode(0o644)).unwrap();
+    assert!(model_ready(&dir).await);
+    fs::set_permissions(dir.join("onnx"), fs::Permissions::from_mode(0o777)).unwrap();
+    assert!(!model_ready(&dir).await);
 }
