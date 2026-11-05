@@ -1,8 +1,11 @@
 name: Windows
 
 # The three libraries on Windows: their tests, and a real memory (the real model and Qdrant) searched by each quick
-# start. Started by hand while Windows support is being made to pass.
+# start. On every change; started by hand, it can run one language, or chosen Python tests.
 on:
+  push:
+    branches: [main]
+  pull_request:
   workflow_dispatch:
     inputs:
       only:
