@@ -117,3 +117,24 @@ fn cuts_a_conversation_at_each_time_the_person_speaks() {
     assert_eq!(es[1].said, es[1].reply);
     assert!(render_for_extraction(&es[1], 1).contains("Agent said:\nThe certificate expired."));
 }
+
+#[test]
+fn metadata_with_number_keys_is_fingerprinted_in_the_order_javascript_gives_its_keys() {
+    // JavaScript puts integer-like keys first, ascending, whatever order they came in (answers from node).
+    let v: serde_json::Value = serde_json::from_str(
+        r#"{"b":1,"10":2,"2":3,"a":{"z":1,"1":2},"01":5,"4294967295":6,"4294967294":7,"-1":8,"1.5":9,"0":10}"#,
+    )
+    .unwrap();
+    assert_eq!(
+        memtrails::js::stringify(&v),
+        r#"{"0":10,"2":3,"10":2,"4294967294":7,"b":1,"a":{"1":2,"z":1},"01":5,"4294967295":6,"-1":8,"1.5":9}"#
+    );
+    let meta: indexmap::IndexMap<String, serde_json::Value> =
+        serde_json::from_str(r#"{"b":1,"10":"x","2":true}"#).unwrap();
+    let r = MemoryRecord { title: Some("T".into()), metadata: Some(meta), ..MemoryRecord::new("m1", "body") };
+    let e = entry_of(&r, now(), 0);
+    assert_eq!(e.fingerprint, "b297e75415e136ae7b19ac32d906f3216972a6f2e978e726616fbf60c4ffab55");
+    // And kept in that order, as the reference's log line has it.
+    let kept: Vec<String> = e.record.unwrap().metadata.unwrap().keys().cloned().collect();
+    assert_eq!(kept, ["2", "10", "b"]);
+}

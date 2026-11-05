@@ -275,7 +275,7 @@ pub fn entry_of(r: &MemoryRecord, now: f64, turn: usize) -> StmEntry {
             source: present(&r.source).map(str::to_string),
             author: present(&r.author).map(str::to_string),
             url: present(&r.url).map(str::to_string),
-            metadata: r.metadata.clone(),
+            metadata: r.metadata.as_ref().map(js::in_js_order),
         }),
         extra: IndexMap::new(),
     }

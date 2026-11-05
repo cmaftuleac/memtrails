@@ -165,7 +165,13 @@ fn write_json(v: &Value, out: &mut String) {
         }
         Value::Object(o) => {
             out.push('{');
-            for (i, (k, x)) in o.iter().enumerate() {
+            // In JavaScript's property order: integer-like keys first, ascending, then the rest as they came. A
+            // record's metadata with a key like "2" fingerprinted otherwise than the reference's.
+            let mut keys: Vec<(&String, &Value)> = o.iter().collect();
+            if keys.iter().any(|(k, _)| array_index(k).is_some()) {
+                keys.sort_by_key(|(k, _)| array_index(k).map_or((1, 0), |n| (0, n)));
+            }
+            for (i, (k, x)) in keys.into_iter().enumerate() {
                 if i > 0 {
                     out.push(',');
                 }
@@ -176,6 +182,22 @@ fn write_json(v: &Value, out: &mut String) {
             out.push('}');
         }
     }
+}
+
+/// A key JavaScript orders as an integer (an array index): digits without a leading zero (but "0"), below 2³² − 1.
+fn array_index(k: &str) -> Option<u32> {
+    if k.is_empty() || k.len() > 10 || !k.bytes().all(|b| b.is_ascii_digit()) || (k.len() > 1 && k.starts_with('0')) {
+        return None;
+    }
+    k.parse::<u32>().ok().filter(|n| *n < u32::MAX)
+}
+
+/// An object's entries in JavaScript's property order: integer-like keys first, ascending, then the rest as they came
+/// — the order the reference's objects iterate and `JSON.stringify` writes them in.
+pub(crate) fn in_js_order<V: Clone>(m: &indexmap::IndexMap<String, V>) -> indexmap::IndexMap<String, V> {
+    let mut entries: Vec<(&String, &V)> = m.iter().collect();
+    entries.sort_by_key(|(k, _)| array_index(k).map_or((1, 0), |n| (0, n)));
+    entries.into_iter().map(|(k, v)| (k.clone(), v.clone())).collect()
 }
 
 /// A whole number of milliseconds as a JSON number when it is one (so a log line reads `1775088000000`, as

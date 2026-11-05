@@ -164,7 +164,8 @@ Importers in `memtrails::importers` stream records: `from_mbox`, `from_eml`, `fr
     reason, where the reference would keep it or fail.
   - Slack: an export with no `channels.json` is read in folder-name order. A message whose `ts` is a number is
     accepted.
-  - Front matter: keys keep the order they have in the file.
+  - Front matter: keys keep the order they have in the file in the record the importer gives. Memory keeps and
+    fingerprints a record's metadata in JavaScript's order (integer-like keys first), as the reference does.
 - **Log lines that are not whole records.** A line of `records.jsonl` or `knowledge.jsonl` that is JSON with a uid but
   lacks a field this port needs (one another version wrote) is not read here, where the reference would read it with
   the field missing. It still counts as that uid's latest line, and a compaction keeps it as it is.
