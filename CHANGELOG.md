@@ -5,6 +5,12 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.4.3] — 2026-11-05
+
+- Fixes: the first start no longer fails with "Qdrant exited (101) while starting" where the system has no CA
+  certificates, as in the official slim Node image. Qdrant will not start without them, though it makes no outside
+  call here: it now gets the host's `SSL_CERT_FILE`, or the certificates the library carries. All three languages.
+
 ## [0.4.2] — 2026-11-05
 
 - Fixes: the first start no longer fails when run as root (as in most containers) with "is not this user's alone":

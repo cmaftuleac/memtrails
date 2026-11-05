@@ -2,7 +2,7 @@
 
 **Retrieval and exploration for any text — e-mail, chat, notes, memos, documents, news, commit messages, conversations.**
 
-A native Python port of [memtrails](https://github.com/cmaftuleac/memtrails) (npm `memtrails` 0.4.2): the same algorithms,
+A native Python port of [memtrails](https://github.com/cmaftuleac/memtrails) (npm `memtrails` 0.4.3): the same algorithms,
 constants, prompts, JSON Schemas and files, written in Python and natively async. Everything you add is searchable the
 moment it is added, on your own machine, with no server and no language model: a local embedding model, a keyword
 channel, and a word-by-word reordering that needs no reranker. Give it a language model too, and it consolidates what it
