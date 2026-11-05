@@ -35,7 +35,8 @@ RECALL_TRIM_EVERY = 1000
 
 class RecallBook:
     """The record, appended a line at a time. Writes are done in order under a lock: a line is a small append, and what
-    is recorded is there when ``record`` returns; a trim, which reads the whole file, runs on a thread."""
+    is recorded is there when ``record`` returns. A trim reads and writes the whole file on a thread, without that lock
+    (``record`` never waits on it), and takes it only to swap its file in."""
 
     def __init__(
         self, path: str, now: Callable[[], float] = now_ms, keep_ms: float = RECALL_KEEP_MS, keep_bytes: int = RECALL_KEEP_BYTES
@@ -44,9 +45,13 @@ class RecallBook:
         self._now = now
         self._keep_ms = keep_ms
         self._keep_bytes = keep_bytes
+        #: Held for an append, and for a trim's swap: never for a trim's reading or writing.
         self._lock = threading.Lock()
+        #: One trim at a time.
+        self._trim_lock = threading.Lock()
         self._appended = 0
-        self._trimming: asyncio.Task[int] | None = None
+        #: Trims ``record`` started on the event loop, until they end (``settled``).
+        self._trims: set[asyncio.Task[int]] = set()
 
     def record(self, e: dict[str, Any]) -> None:
         """``e``: ``{"ev": "search", "project"?: …, "query": …, "shown": [...]}`` or ``{"ev": "open", "item": …}``."""
@@ -69,41 +74,69 @@ class RecallBook:
             except RuntimeError:
                 self.trim()
                 return
-            self._trimming = loop.create_task(asyncio.to_thread(self.trim))
+            task = loop.create_task(asyncio.to_thread(self.trim))
+            self._trims.add(task)
+            task.add_done_callback(self._trims.discard)
+
+    async def settled(self) -> None:
+        """Once the trims ``record`` started have ended (a memory that closes waits for them)."""
+        while self._trims:
+            await asyncio.gather(*self._trims, return_exceptions=True)
 
     def trim(self) -> int:
-        """The events older than ``keep_ms`` dropped, then the oldest until the rest fit ``keep_bytes`` — rewritten
-        between appends (a new file renamed over the old). How many were dropped; 0 on any failure, the record as it
-        was."""
+        """The events older than ``keep_ms`` dropped, then the oldest until the rest fit ``keep_bytes`` — written to a
+        new file renamed over the old, with the events recorded meanwhile carried over. How many were dropped; 0 on any
+        failure, the record as it was."""
+        with self._trim_lock:
+            return self._trim()
+
+    def _trim(self) -> int:
         with self._lock:
             try:
-                with open(self._path, "rb") as f:
-                    text = f.read().decode("utf-8", "replace")
+                st = os.stat(self._path)
             except OSError:
                 return 0
-            try:
-                lines = [x for x in text.split("\n") if x]
-                since = self._now() - self._keep_ms
+        # The file up to here holds whole lines (each append is whole, or cut back under the lock); what is appended
+        # after it is carried over at the swap.
+        size = st.st_size
+        nxt = f"{self._path}.trim"
+        try:
+            with open(self._path, "rb") as f:
+                text = f.read(size).decode("utf-8", "replace")
+            lines = [x for x in text.split("\n") if x]
+            since = self._now() - self._keep_ms
 
-                def recent(line: str) -> bool:
-                    try:
-                        t = parse(line).get("t")
-                        return isinstance(t, (int, float)) and t >= since
-                    except (ValueError, AttributeError):
-                        return False
+            def recent(line: str) -> bool:
+                try:
+                    t = parse(line).get("t")
+                    return isinstance(t, (int, float)) and t >= since
+                except (ValueError, AttributeError):
+                    return False
 
-                kept = [x for x in lines if recent(x)]
-                size = sum(len(x.encode("utf-8")) + 1 for x in kept)
-                start = 0
-                while size > self._keep_bytes and start < len(kept):
-                    size -= len(kept[start].encode("utf-8")) + 1
-                    start += 1
-                kept = kept[start:]
-                if len(kept) == len(lines):
-                    return 0
-                nxt = f"{self._path}.trim"
-                write_file(nxt, "".join(f"{x}\n" for x in kept).encode("utf-8"))
+            kept = [x for x in lines if recent(x)]
+            total = sum(len(x.encode("utf-8")) + 1 for x in kept)
+            start = 0
+            while total > self._keep_bytes and start < len(kept):
+                total -= len(kept[start].encode("utf-8")) + 1
+                start += 1
+            kept = kept[start:]
+            if len(kept) == len(lines):
+                return 0
+            write_file(nxt, "".join(f"{x}\n" for x in kept).encode("utf-8"))
+            with self._lock:
+                now = os.stat(self._path)
+                if now.st_ino != st.st_ino or now.st_size < size:
+                    raise OSError("the record was replaced while it was trimmed")
+                if now.st_size > size:
+                    with open(self._path, "rb") as f:
+                        f.seek(size)
+                        meanwhile = f.read(now.st_size - size)
+                    append_all(nxt, meanwhile)
                 os.replace(nxt, self._path)
-                return len(lines) - len(kept)
+            return len(lines) - len(kept)
+        except OSError:
+            try:
+                os.remove(nxt)
             except OSError:
-                return 0
+                pass  # not written
+            return 0

@@ -11,6 +11,7 @@ import os
 import subprocess
 import sys
 import textwrap
+import threading
 import time
 from collections.abc import AsyncIterator
 from pathlib import Path
@@ -432,3 +433,29 @@ async def test_adds_nothing_twice_and_refuses_what_it_cannot_keep(tmp_path: Path
         tools = {t.name: t for t in m.tools()}
         assert set(tools) == {"memory_search", "memory_open", "memory_explore"}
         assert "certificate" in (await tools["memory_search"].handler({"query": "certificate"}))["content"][0]["text"]
+
+
+async def test_close_waits_for_the_recall_records_trim(tmp_path: Path, servers: Servers, monkeypatch: pytest.MonkeyPatch) -> None:
+    from memtrails.core.recall_log import RECALL_TRIM_EVERY, RecallBook
+
+    go = threading.Event()
+    trims: list[str] = []
+    real = RecallBook.trim
+
+    def slow(book: RecallBook) -> int:
+        if trims:  # the open's own trim is let through
+            go.wait(5)
+        trims.append("done")
+        return real(book)
+
+    monkeypatch.setattr(RecallBook, "trim", slow)
+    m = await open_memory(tmp_path / "home", **opts(servers))
+    assert m._book is not None
+    for i in range(RECALL_TRIM_EVERY):
+        m._book.record({"ev": "open", "item": f"stm:{i}"})
+    closing = asyncio.ensure_future(m.close())
+    await asyncio.sleep(0.05)
+    assert not closing.done()
+    go.set()
+    await closing
+    assert trims == ["done", "done"]

@@ -69,7 +69,9 @@ class JsonlLog(Generic[M]):
     ``project`` is what stays in memory for each record.
 
     A small append or read is done where it is asked for; a load or a compaction, which reads the whole file, is run on
-    a thread (``await asyncio.to_thread(log.load)``), and a lock keeps a put from landing in the middle of one."""
+    a thread (``await asyncio.to_thread(log.load)``). A lock keeps a put from landing in the middle of a load; a
+    compaction holds it only to take its snapshot and to swap the new file in, so a get or put on the event loop never
+    waits for the whole file to be read and written."""
 
     def __init__(self, path: str, project: Callable[[dict[str, Any]], M]) -> None:
         self._path = path
@@ -78,6 +80,9 @@ class JsonlLog(Generic[M]):
         self._lines = 0
         self._end = 0
         self._lock = threading.RLock()
+        #: One compaction at a time; a load since a compaction's snapshot voids it (``_loads``).
+        self._compacting = threading.Lock()
+        self._loads = 0
 
     @property
     def path(self) -> str:
@@ -95,6 +100,7 @@ class JsonlLog(Generic[M]):
             yield uid, s[2]
 
     def _load(self) -> None:
+        self._loads += 1
         self._live.clear()
         self._lines = 0
         self._end = 0
@@ -211,9 +217,14 @@ class JsonlLog(Generic[M]):
             self._remove(uids)
 
     def compact(self) -> None:
-        """Rewrites the log without replaced lines once it is twice what is live (see _compact)."""
-        with self._lock:
+        """Rewrites the log without replaced lines once it is twice what is live (see _compact). One running already
+        does it: this returns."""
+        if not self._compacting.acquire(blocking=False):
+            return
+        try:
             self._compact()
+        finally:
+            self._compacting.release()
 
     def all(self) -> Iterator[dict[str, Any]]:
         """Every live record, in file order."""
@@ -225,28 +236,37 @@ class JsonlLog(Generic[M]):
     def _compact(self) -> None:
         """Rewrite the log without replaced lines once it is twice what is live. Record by record into a file beside it,
         made durable and then renamed over it: a log of any size, and a crash leaves the old one whole. A record that
-        cannot be read is never dropped by a rewrite: it raises, and the log stays as it is."""
-        if self._lines < 2 * len(self._live) + 1000:
-            return
-        order = sorted(self._live.items(), key=lambda kv: kv[1][0])
+        cannot be read is never dropped by a rewrite: it raises, and the log stays as it is.
+
+        The records are copied from a snapshot of the index, without the lock: puts and removes go on meanwhile, at the
+        end of the file. At the swap, under the lock, what they appended is carried over after the copied records as it
+        is, and their places moved with it."""
+        with self._lock:
+            if self._lines < 2 * len(self._live) + 1000:
+                return
+            if not self._end and os.path.exists(self._path):
+                self._end = os.stat(self._path).st_size
+            order = sorted(self._live.items(), key=lambda kv: kv[1][0])
+            snap_end, snap_lines, loads = self._end, self._lines, self._loads
         tmp = f"{self._path}.compact"
-        nxt: dict[str, tuple[int, int, M]] = {}
+        nxt: dict[str, tuple[int, int]] = {}
         out: int | None = None
+        swapped = False
         try:
             with open(self._path, "rb") as src:
                 out = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
                 at = 0
                 parts: list[bytes] = []
                 size = 0
-                for uid, s in order:
+                for uid, slot in order:
                     try:
-                        rec: dict[str, Any] | None = self._read(src, s)
+                        rec: dict[str, Any] | None = self._read(src, slot)
                     except (OSError, ValueError):
                         rec = None
                     if rec is None or rec.get("uid") != uid:
-                        raise RuntimeError(f"{self._path}: record {uid} cannot be read at {s[0]}; not compacted")
+                        raise RuntimeError(f"{self._path}: record {uid} cannot be read at {slot[0]}; not compacted")
                     b = (stringify(rec) + "\n").encode("utf-8", "surrogatepass")
-                    nxt[uid] = (at, len(b), s[2])
+                    nxt[uid] = (at, len(b))
                     parts.append(b)
                     size += len(b)
                     at += len(b)
@@ -255,21 +275,40 @@ class JsonlLog(Generic[M]):
                         parts, size = [], 0
                 if size:
                     write_all(out, b"".join(parts))
-                os.fsync(out)
+            os.fsync(out)
+            with self._lock:
+                if self._loads != loads:
+                    return  # a load replaced the snapshot: the next compaction starts from what it read
+                tail = b""
+                if self._end > snap_end:
+                    with open(self._path, "rb") as src:
+                        src.seek(snap_end)
+                        tail = src.read(self._end - snap_end)
+                    if len(tail) != self._end - snap_end:
+                        raise RuntimeError(f"{self._path}: shorter than its index; not compacted")
+                    write_all(out, tail)
+                    os.fsync(out)
                 os.close(out)
                 out = None
                 os.replace(tmp, self._path)
-            self._live = nxt
-            self._end = at
-            self._lines = len(nxt)
-        except BaseException:
+                swapped = True
+                # A place before the snapshot's end is a copied record's (puts and removes only append); one after it
+                # was appended meanwhile, and moved with the tail.
+                shift = at - snap_end
+                self._live = {
+                    uid: (*nxt[uid], meta) if slot_at < snap_end else (slot_at + shift, length, meta)
+                    for uid, (slot_at, length, meta) in self._live.items()
+                }
+                self._end = at + len(tail)
+                self._lines = len(nxt) + self._lines - snap_lines
+        finally:
             if out is not None:
                 os.close(out)
-            try:
-                os.remove(tmp)
-            except FileNotFoundError:
-                pass
-            raise
+            if not swapped:
+                try:
+                    os.remove(tmp)
+                except FileNotFoundError:
+                    pass
 
 
 def stm_meta_of(r: dict[str, Any]) -> dict[str, Any]:

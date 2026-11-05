@@ -242,6 +242,7 @@ class Memory:
         self._local: LocalEmbedder | None = None
         self._client: QdrantClient | None = None
         self._usage: UsageBook | None = None
+        self._book: RecallBook | None = None
         #: consolidate, sleep, rebuild, index_words and remove one at a time: each reads the logs and writes the index
         #: from them — two consolidations pay the model twice and write stale copies over each other, a rebuild clears
         #: what another is writing, a remove during a consolidation would see its record's episode written back after it.
@@ -300,8 +301,8 @@ class Memory:
         await asyncio.to_thread(self._stm.load)
         await asyncio.to_thread(self._ltm.load)
         self._usage = UsageBook(os.path.join(self.dir, "usage.json"))
-        self._book = RecallBook(os.path.join(self.dir, "recall.jsonl"))
-        await asyncio.to_thread(self._book.trim)  # the documented cap: once an open, and every so many events while open
+        book = self._book = RecallBook(os.path.join(self.dir, "recall.jsonl"))
+        await asyncio.to_thread(book.trim)  # the documented cap: once an open, and every so many events while open
         if callable(llm):
             self._ask: Ask = llm
         else:
@@ -325,7 +326,7 @@ class Memory:
             )
         usage = self._usage
         self._deps = RecallDeps(
-            client=self._client, embed=self._embed, rerank=rr, used=lambda ids, what: usage.note(ids, what), record=self._book.record
+            client=self._client, embed=self._embed, rerank=rr, used=lambda ids, what: usage.note(ids, what), record=book.record
         )
 
         # The index is derived: written again from the logs when it is empty while they are not (a new Qdrant, a deleted
@@ -656,6 +657,8 @@ class Memory:
     async def _shut(self) -> None:
         """Releases what an open started, whatever it got to: a Qdrant left running keeps the host alive."""
         try:
+            if self._book is not None:
+                await self._book.settled()  # a trim left running would rename its file into a home that is let go
             if self._usage is not None:
                 self._usage.close()
             if self._proc is not None:
