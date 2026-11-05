@@ -316,6 +316,13 @@ struct Inner {
     /// them — two consolidations pay the model twice and write stale copies over each other, a rebuild clears what
     /// another is writing, a remove during a consolidation would see its record's episode written back after it.
     jobs: tokio::sync::Mutex<()>,
+    /// Every call (add, search, open, …) shares it; close() takes it alone, so it lets go of Qdrant, the model and
+    /// the home only once the calls in flight are done. Fair: a close waiting keeps new calls out.
+    calls: tokio::sync::RwLock<()>,
+    /// Adds share it; a rebuild takes it alone. An add beside a rebuild could write its points into the index about
+    /// to be dropped and log its record after the rebuild read the log: logged, never indexed, and skipped as
+    /// unchanged when added again.
+    adding: tokio::sync::RwLock<()>,
     closed: tokio::sync::OnceCell<()>,
     lock: PathBuf,
 }
@@ -570,6 +577,8 @@ impl Memory {
                 concurrency: o.concurrency.unwrap_or(4),
                 closing,
                 jobs: tokio::sync::Mutex::new(()),
+                calls: tokio::sync::RwLock::new(()),
+                adding: tokio::sync::RwLock::new(()),
                 closed: tokio::sync::OnceCell::new(),
                 lock,
             }),
@@ -616,6 +625,18 @@ impl Memory {
         job.await
     }
 
+    /// A call's shared turn; refused once close() began, also when it waited for its turn meanwhile.
+    async fn call<T>(&self, job: impl std::future::Future<Output = Result<T>>) -> Result<T> {
+        if self.closing() {
+            return Err(Error::Closed);
+        }
+        let _turn = self.inner.calls.read().await;
+        if self.closing() {
+            return Err(Error::Closed);
+        }
+        job.await
+    }
+
     /// The text word by word scores an item by: its key, as search returns it.
     fn key_text(title: &str, summary: &str) -> String {
         format!("{title}\n{summary}")
@@ -651,9 +672,17 @@ impl Memory {
     }
 
     async fn write(&self, entries: Vec<StmEntry>, total: usize) -> Result<Added> {
-        if self.closing() {
-            return Err(Error::Closed);
-        }
+        self.call(async {
+            let _add = self.inner.adding.read().await;
+            if self.closing() {
+                return Err(Error::Closed); // it waited for a rebuild that a close stopped
+            }
+            self.write_now(entries, total).await
+        })
+        .await
+    }
+
+    async fn write_now(&self, entries: Vec<StmEntry>, total: usize) -> Result<Added> {
         let fresh: Vec<StmEntry> =
             entries.into_iter().filter(|x| self.inner.stm.meta(&x.uid).is_none_or(|m| m.fp != x.fingerprint)).collect();
         let w = self.writer();
@@ -756,17 +785,24 @@ impl Memory {
 
     /// Best first: records and what consolidation learned, each with its key text, dates, and the passage that matched.
     pub async fn search(&self, q: &SearchQuery) -> Result<Vec<RecalledItem>> {
-        memory_search(&self.recall(), q).await
+        self.call(memory_search(&self.recall(), q)).await
     }
 
     /// The same search as a reader is shown it: one line a memory, best first or oldest first.
     pub async fn search_text(&self, q: &SearchOptions) -> Result<String> {
-        Ok(search_text(&memory_search(&self.recall(), &q.query).await?, q.order))
+        self.call(async { Ok(search_text(&memory_search(&self.recall(), &q.query).await?, q.order)) }).await
     }
 
     /// What a small room should hold for a question: the best sentences of what search found, oldest first, in
     /// `chars` (6,000). Needs the local model.
     pub async fn room(&self, q: &SearchQuery, chars: Option<usize>) -> Result<String> {
+        if self.closing() {
+            return Err(Error::Closed);
+        }
+        self.call(self.room_now(q, chars)).await
+    }
+
+    async fn room_now(&self, q: &SearchQuery, chars: Option<usize>) -> Result<String> {
         let Some(encode) = &self.inner.encode else {
             return Err(Error::Model(
                 "the room needs the local embedding model (embedding.model_dir, or no embedding.server)".into(),
@@ -818,6 +854,10 @@ impl Memory {
 
     /// One item whole, by the id search returned; for something learned, `sources`: the records it was learned from.
     pub async fn open_item(&self, id: &str) -> Result<Option<Value>> {
+        self.call(self.open_now(id)).await
+    }
+
+    async fn open_now(&self, id: &str) -> Result<Option<Value>> {
         let Some(mut p) = memory_open(&self.recall(), id).await? else { return Ok(None) };
         // A record: its kind as given. Something learned: the records it was learned from, whole.
         if p["tier"] == "stm" {
@@ -849,7 +889,7 @@ impl Memory {
     /// Around a topic, or around items you found: what the concept graph reaches that search did not, and its
     /// concepts.
     pub async fn explore(&self, q: &ExploreQuery) -> Result<Explored> {
-        memory_explore(&self.recall(), q).await
+        self.call(memory_explore(&self.recall(), q)).await
     }
 
     /// A set for a question that counts, lists or totals: a wide search, then the language model keeps every
@@ -858,7 +898,7 @@ impl Memory {
         // A limit is passed on only when it is one, as the reference does (`s.limit ? { limit } : {}`): 0 is the
         // default wide search, not a search of one.
         let o = GatherOptions { ask: Some(self.inner.ask.as_ref()), limit: q.limit.filter(|l| *l > 0), notes };
-        memory_gather(&self.recall(), q, o).await
+        self.call(memory_gather(&self.recall(), q, o)).await
     }
 
     /// Read what was added since last time and keep typed knowledge, dated observations and kept episodes. Needs a
@@ -922,6 +962,8 @@ impl Memory {
     /// Write the index again from the logs.
     pub async fn rebuild(&self) -> Result<()> {
         self.exclusive(async {
+            // The adds in flight end first; the next ones wait for it.
+            let _alone = self.inner.adding.write().await;
             // Before the drop: a crash, or a close, after it resumes at the next open.
             self.inner.rebuild.begin().await?;
             self.inner.client.drop_collection().await;
@@ -961,7 +1003,8 @@ impl Memory {
     }
 
     /// Stops a consolidate, sleep, rebuild or index_words at its next step (a rebuild resumes at the next open) and
-    /// waits for it, then releases Qdrant, the model and the home. Calling it again waits for the first.
+    /// waits for it and for the adds and searches in flight, then releases Qdrant, the model and the home. Every call
+    /// after it is refused (`Error::Closed`). Calling it again waits for the first.
     pub async fn close(&self) -> Result<()> {
         self.inner
             .closed
@@ -969,6 +1012,9 @@ impl Memory {
                 self.inner.closing.store(true, Ordering::SeqCst);
                 // The job running stops at its next step; those waiting are refused.
                 let _turn = self.inner.jobs.lock().await;
+                // The adds and searches in flight end first; those waiting for their turn, and every call after, are
+                // refused.
+                let _calls = self.inner.calls.write().await;
                 self.inner.book.settled().await;
                 self.inner.usage.flush().await;
                 if let Some(p) = &self.inner.proc {
@@ -988,7 +1034,7 @@ impl Memory {
 #[async_trait::async_trait]
 impl ToolProvider for Memory {
     async fn search(&self, q: SearchQuery) -> Result<Vec<RecalledItem>> {
-        memory_search(&self.recall(), &q).await
+        Memory::search(self, &q).await
     }
 
     async fn open(&self, id: &str) -> Result<Option<Value>> {
@@ -996,6 +1042,6 @@ impl ToolProvider for Memory {
     }
 
     async fn explore(&self, q: ExploreQuery) -> Option<Result<Explored>> {
-        Some(memory_explore(&self.recall(), &q).await)
+        Some(Memory::explore(self, &q).await)
     }
 }

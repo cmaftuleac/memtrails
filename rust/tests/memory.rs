@@ -572,3 +572,60 @@ async fn the_search_tool_takes_a_whole_number_written_with_a_point_as_its_limit(
     assert!(!limits.is_empty() && limits.iter().all(|l| *l == 100), "{limits:?}");
     m.close().await.unwrap();
 }
+
+/// An embedding server that answers each request after `ms`, and says when one has come.
+async fn slow_embed(ms: u64, came: Arc<tokio::sync::Notify>) -> common::Server {
+    common::serve(move |r| {
+        came.notify_one();
+        let input = r.json()["input"].as_array().unwrap().clone();
+        let data: Vec<Value> = input
+            .iter()
+            .enumerate()
+            .map(|(i, t)| json!({ "index": i, "embedding": fake_qdrant::word_vector(t.as_str().unwrap()) }))
+            .collect();
+        common::Response { status: 200, chunks: vec![(ms, serde_json::to_vec(&json!({ "data": data })).unwrap())] }
+    })
+    .await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_rebuild_waits_for_the_add_in_flight_and_close_for_the_calls_in_flight() {
+    let r = rig().await;
+    let came = Arc::new(tokio::sync::Notify::new());
+    let slow = slow_embed(300, came.clone()).await;
+    let mut o = r.options(None);
+    o.embedding.server = Some(EmbedRoute { url: slow.url.clone(), ..Default::default() });
+    let m = Memory::open(o).await.unwrap();
+    // A rebuild begun while an add waits for its embeddings drops the index only after the add has written it.
+    let adding = tokio::spawn({
+        let m = m.clone();
+        async move { m.add(vec![mail("m-1", "Kept", "Something kept in the logs.")]).await }
+    });
+    while slow.requests().is_empty() {
+        came.notified().await;
+    }
+    let rebuilding = tokio::spawn({
+        let m = m.clone();
+        async move { m.rebuild().await }
+    });
+    adding.await.unwrap().unwrap();
+    rebuilding.await.unwrap().unwrap();
+    let seen = r.fake.server.requests();
+    let upsert = seen.iter().position(|q| q.method == "PUT" && q.path.contains("/points")).unwrap();
+    let drop = seen.iter().position(|q| q.method == "DELETE").unwrap();
+    assert!(upsert < drop, "the index was dropped while the add was writing it");
+    assert!(!m.search(&SearchQuery::new("something kept")).await.unwrap().is_empty());
+    // A close lets the add in flight finish, and refuses what comes after it.
+    let before = slow.requests().len();
+    let adding = tokio::spawn({
+        let m = m.clone();
+        async move { m.add(vec![mail("m-2", "Late", "Added as the memory closes.")]).await }
+    });
+    while slow.requests().len() == before {
+        came.notified().await;
+    }
+    m.close().await.unwrap();
+    assert_eq!(adding.await.unwrap().unwrap().added, 1);
+    assert!(matches!(m.search(&SearchQuery::new("kept")).await, Err(Error::Closed)));
+    assert!(matches!(m.add(vec![mail("m-3", "After", "Too late.")]).await, Err(Error::Closed)));
+}
