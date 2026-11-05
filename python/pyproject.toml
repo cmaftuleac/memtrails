@@ -28,6 +28,7 @@ classifiers = [
   "Typing :: Typed",
 ]
 dependencies = [
+  "certifi>=2024.2.2",
   "httpx>=0.27",
   "icu4py>=1.1",
   "numpy>=1.24",

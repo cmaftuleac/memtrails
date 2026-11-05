@@ -184,6 +184,24 @@ def test_none_of_the_hosts_environment(tmp_path: Path, monkeypatch: pytest.Monke
     asyncio.run(go())
 
 
+def test_it_gets_ca_certificates_the_hosts_or_certifis(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Qdrant will not start without CA certificates, and a slim container has none."""
+    monkeypatch.delenv("SSL_CERT_FILE", raising=False)
+
+    async def go() -> None:
+        p = QdrantProcess(fake_qdrant(tmp_path, "ok"), str(tmp_path / "q"))
+        await p.start()
+        pem = Path(json.loads((Path(p.directory) / "env.json").read_text())["SSL_CERT_FILE"]).read_text()
+        assert pem.count("-----BEGIN CERTIFICATE-----") > 50
+        await p.stop_and_wait()
+        monkeypatch.setenv("SSL_CERT_FILE", "/etc/ssl/certs/the-hosts.pem")
+        await p.start()
+        assert json.loads((Path(p.directory) / "env.json").read_text())["SSL_CERT_FILE"] == "/etc/ssl/certs/the-hosts.pem"
+        await p.stop_and_wait()
+
+    asyncio.run(go())
+
+
 def test_its_folder_and_log_are_private(tmp_path: Path) -> None:
     async def go() -> None:
         d = tmp_path / "q"

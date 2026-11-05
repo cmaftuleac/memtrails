@@ -27,6 +27,7 @@ import sys
 import time
 from collections.abc import Callable
 
+import certifi
 import httpx
 
 from .._fs import write_file
@@ -165,9 +166,15 @@ async def _command_of(pid: int) -> str | None:
 def _child_env(api_key: str) -> dict[str, str]:
     """What Qdrant gets of the environment: what a process needs to run and the key. None of the host's secrets, and
     none of its QDRANT__* variables — they override the config (QDRANT__SERVICE__HOST=0.0.0.0 would open it to the
-    network)."""
+    network). Qdrant does not start without CA certificates, though it makes no outside call here, and a slim container
+    has none: it gets the host's SSL_CERT_FILE, or certifi's."""
     env = {k: os.environ[k] for k in ("PATH", "HOME", "TMPDIR", "TEMP", "TMP", "SystemRoot", "USERPROFILE") if k in os.environ}
-    return {**env, "QDRANT__SERVICE__API_KEY": api_key, "QDRANT__TELEMETRY_DISABLED": "true"}
+    return {
+        **env,
+        "SSL_CERT_FILE": os.environ.get("SSL_CERT_FILE") or certifi.where(),
+        "QDRANT__SERVICE__API_KEY": api_key,
+        "QDRANT__TELEMETRY_DISABLED": "true",
+    }
 
 
 #: Every Qdrant this process started and has not seen exit, by pid: stopped when the host exits without close() (a host

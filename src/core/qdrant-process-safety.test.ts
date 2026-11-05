@@ -5,6 +5,7 @@
  * stopped — an unrelated process with its pid never. Over a stand-in Qdrant binary (a Node script) on loopback.
  */
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
+import { X509Certificate } from 'node:crypto';
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -119,6 +120,26 @@ describe('a running Qdrant', () => {
     } finally {
       if (keep.secret === undefined) delete process.env.MEMTRAILS_TEST_SECRET; else process.env.MEMTRAILS_TEST_SECRET = keep.secret;
       if (keep.host === undefined) delete process.env.QDRANT__SERVICE__HOST; else process.env.QDRANT__SERVICE__HOST = keep.host;
+    }
+  });
+
+  it('gets CA certificates, which Qdrant will not start without: the host\'s SSL_CERT_FILE, or the ones Node carries', async () => {
+    const keep = process.env.SSL_CERT_FILE;
+    delete process.env.SSL_CERT_FILE;
+    try {
+      const p = qdrant(fakeQdrant('ok'));
+      await p.start();
+      const env = JSON.parse(readFileSync(join(p.dir, 'env.json'), 'utf8')) as Record<string, string>;
+      const pem = readFileSync(env.SSL_CERT_FILE!, 'utf8');
+      expect(pem.match(/-----BEGIN CERTIFICATE-----/g)!.length).toBeGreaterThan(50);
+      expect(new X509Certificate(pem.slice(0, pem.indexOf('-----END CERTIFICATE-----') + 25)).ca).toBe(true);
+      expect(statSync(env.SSL_CERT_FILE!).mode & 0o777).toBe(0o600);
+      await p.stopAndWait();
+      process.env.SSL_CERT_FILE = '/etc/ssl/certs/the-hosts.pem';
+      await p.start();
+      expect(JSON.parse(readFileSync(join(p.dir, 'env.json'), 'utf8')).SSL_CERT_FILE).toBe('/etc/ssl/certs/the-hosts.pem');
+    } finally {
+      if (keep === undefined) delete process.env.SSL_CERT_FILE; else process.env.SSL_CERT_FILE = keep;
     }
   });
 

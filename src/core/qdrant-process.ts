@@ -18,6 +18,7 @@ import { chmodSync, closeSync, mkdirSync, openSync, readFileSync, renameSync, rm
 import { createServer } from 'node:net';
 import { uptime } from 'node:os';
 import { join, resolve } from 'node:path';
+import { rootCertificates } from 'node:tls';
 
 export interface QdrantEndpoint {
   url: string;
@@ -103,11 +104,13 @@ function commandOf(pid: number): string | null {
 }
 
 /** What Qdrant gets of the environment: what a process needs to run and the key. None of the host's secrets, and none
- *  of its QDRANT__* variables — they override the config (QDRANT__SERVICE__HOST=0.0.0.0 would open it to the network). */
-function childEnv(apiKey: string): NodeJS.ProcessEnv {
+ *  of its QDRANT__* variables — they override the config (QDRANT__SERVICE__HOST=0.0.0.0 would open it to the network).
+ *  Qdrant does not start without CA certificates, though it makes no outside call here, and a slim container has none:
+ *  it gets the host's SSL_CERT_FILE, or `caFile`. */
+function childEnv(apiKey: string, caFile: string): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = {};
   for (const k of ['PATH', 'HOME', 'TMPDIR', 'TEMP', 'TMP', 'SystemRoot', 'USERPROFILE']) if (process.env[k] !== undefined) env[k] = process.env[k];
-  return { ...env, QDRANT__SERVICE__API_KEY: apiKey, QDRANT__TELEMETRY_DISABLED: 'true' };
+  return { ...env, SSL_CERT_FILE: process.env.SSL_CERT_FILE || caFile, QDRANT__SERVICE__API_KEY: apiKey, QDRANT__TELEMETRY_DISABLED: 'true' };
 }
 
 /** Every Qdrant this process started and has not seen exit: stopped when the host exits without `close()` (an 'exit'
@@ -160,13 +163,15 @@ export class QdrantProcess {
     const apiKey = randomBytes(24).toString('hex');
     const config = join(this.opts.dir, 'config.yaml');
     writeFileSync(config, qdrantConfig(this.opts.dir, port), { mode: 0o600 });
+    const caFile = join(this.opts.dir, 'ca.pem');
+    writeFileSync(caFile, `${rootCertificates.join('\n')}\n`, { mode: 0o600 }); // the ones Node carries
     const fd = openLog(this.opts.dir);
     let child: ChildProcess;
     try {
       child = spawn(this.opts.binary, ['--config-path', config, '--disable-telemetry'], {
         cwd: this.opts.dir,
         stdio: ['ignore', fd, fd],
-        env: childEnv(apiKey),
+        env: childEnv(apiKey, caFile),
       });
     } finally {
       closeSync(fd);

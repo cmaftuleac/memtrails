@@ -135,6 +135,7 @@ async fn gets_none_of_the_hosts_environment_but_what_it_needs_and_keeps_its_fold
     // The only test in this file that sets variables: the children of the others see them, and do not care.
     std::env::set_var("MEMTRAILS_TEST_SECRET", "hunter2");
     std::env::set_var("QDRANT__SERVICE__HOST", "0.0.0.0");
+    std::env::remove_var("SSL_CERT_FILE");
     let root = tempfile::tempdir().unwrap();
     let dir = root.path().join("q");
     fs::create_dir_all(&dir).unwrap();
@@ -151,9 +152,19 @@ async fn gets_none_of_the_hosts_environment_but_what_it_needs_and_keeps_its_fold
     assert_eq!(env["PATH"].as_str(), std::env::var("PATH").ok().as_deref());
     assert_eq!(fs::metadata(dir.join("qdrant.log")).unwrap().permissions().mode() & 0o777, 0o600);
     p.stop_and_wait(5000).await;
+    // Qdrant will not start without CA certificates, and a slim container has none: the ones this crate carries, or the
+    // host's SSL_CERT_FILE.
+    let pem = fs::read_to_string(env["SSL_CERT_FILE"].as_str().unwrap()).unwrap();
+    assert!(pem.matches("-----BEGIN CERTIFICATE-----").count() > 50);
+    assert_eq!(fs::metadata(dir.join("ca.pem")).unwrap().permissions().mode() & 0o777, 0o600);
     let fresh_dir = root.path().join("fresh");
     let fresh = qdrant(&fake_qdrant(root.path(), "ok"), &fresh_dir);
+    std::env::set_var("SSL_CERT_FILE", "/etc/ssl/certs/the-hosts.pem");
     fresh.start().await.unwrap();
+    std::env::remove_var("SSL_CERT_FILE");
+    let env: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(fresh_dir.join("env.json")).unwrap()).unwrap();
+    assert_eq!(env["SSL_CERT_FILE"], "/etc/ssl/certs/the-hosts.pem");
     assert_eq!(fs::metadata(&fresh_dir).unwrap().permissions().mode() & 0o777, 0o700);
     assert_eq!(fs::metadata(fresh_dir.join("qdrant.log")).unwrap().permissions().mode() & 0o777, 0o600);
     fresh.stop_and_wait(5000).await;

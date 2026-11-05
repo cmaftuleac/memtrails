@@ -216,6 +216,8 @@ impl QdrantProcess {
         let config = dir.join("config.yaml");
         crate::store::write_private(&config, qdrant_config(&dir, port).as_bytes())
             .map_err(|e| Error::io(&config, e))?;
+        let ca_file = dir.join("ca.pem");
+        crate::store::write_private(&ca_file, ca_pem().as_bytes()).map_err(|e| Error::io(&ca_file, e))?;
         let log = open_log(&dir)?;
         let err_log = log.try_clone().map_err(|e| Error::io(&dir, e))?;
         let mut cmd = tokio::process::Command::new(&self.inner.opts.binary);
@@ -223,13 +225,18 @@ impl QdrantProcess {
         cmd.stdin(Stdio::null()).stdout(Stdio::from(log)).stderr(Stdio::from(err_log));
         // What Qdrant gets of the environment: what a process needs to run and the key. None of the host's secrets,
         // and none of its QDRANT__* variables — they override the config (QDRANT__SERVICE__HOST=0.0.0.0 would open it
-        // to the network).
+        // to the network). Qdrant does not start without CA certificates, though it makes no outside call here, and a
+        // slim container has none: it gets the host's SSL_CERT_FILE, or `ca_file`.
         cmd.env_clear();
         for k in ["PATH", "HOME", "TMPDIR", "TEMP", "TMP", "SystemRoot", "USERPROFILE"] {
             if let Some(v) = std::env::var_os(k) {
                 cmd.env(k, v);
             }
         }
+        match std::env::var_os("SSL_CERT_FILE").filter(|v| !v.is_empty()) {
+            Some(v) => cmd.env("SSL_CERT_FILE", v),
+            None => cmd.env("SSL_CERT_FILE", &ca_file),
+        };
         cmd.env("QDRANT__SERVICE__API_KEY", &api_key).env("QDRANT__TELEMETRY_DISABLED", "true");
         cmd.kill_on_drop(true);
         let mut child = cmd.spawn().map_err(|e| {
@@ -488,4 +495,20 @@ impl Drop for Inner {
             }
         }
     }
+}
+
+/// The CA certificates this crate carries (Mozilla's, from webpki-root-certs), as PEM.
+fn ca_pem() -> String {
+    use base64::Engine;
+    let mut pem = String::new();
+    for cert in webpki_root_certs::TLS_SERVER_ROOT_CERTS {
+        let b64 = base64::engine::general_purpose::STANDARD.encode(cert.as_ref());
+        pem.push_str("-----BEGIN CERTIFICATE-----\n");
+        for line in b64.as_bytes().chunks(64) {
+            pem.push_str(std::str::from_utf8(line).expect("base64 is ASCII"));
+            pem.push('\n');
+        }
+        pem.push_str("-----END CERTIFICATE-----\n");
+    }
+    pem
 }
