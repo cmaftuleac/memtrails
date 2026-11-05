@@ -80,7 +80,7 @@ struct Picked {
 async fn pick(ask: &dyn Ask, question: &str, list: &[RecalledItem], notes: bool) -> Result<Picked> {
     let size = if notes { NOTES_PART } else { PART };
     let system = if notes { format!("{}{NOTES_RULE}", *GATHER_SYSTEM) } else { GATHER_SYSTEM.clone() };
-    let answers = futures::future::join_all(list.chunks(size).map(|part| {
+    let answers = futures::future::try_join_all(list.chunks(size).map(|part| {
         let system = system.clone();
         async move {
             let lines = part.iter().enumerate().map(|(n, h)| line(h, n + 1)).collect::<Vec<_>>().join("\n");
@@ -133,11 +133,10 @@ async fn pick(ask: &dyn Ask, question: &str, list: &[RecalledItem], notes: bool)
             Ok::<Picked, crate::Error>(Picked { keep, searches, notes: said, paused: None })
         }
     }))
-    .await;
+    .await?; // the parts asked at once; one that fails drops the others (the reference's allOrAbort)
     let mut out = Picked::default();
     let mut searches: IndexSet<String> = IndexSet::new();
     for a in answers {
-        let a = a?;
         out.keep.extend(a.keep);
         searches.extend(a.searches.iter().map(|s| js::trim(s).to_string()));
         out.notes.extend(a.notes);

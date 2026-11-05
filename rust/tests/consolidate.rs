@@ -728,3 +728,64 @@ async fn profiles_paused_by_two_answers_say_the_last_one_as_the_reference_does()
     let r = memtrails::profiles::write_profiles(&s.with(ask), 400).await.unwrap();
     assert_eq!(r.paused.as_deref(), Some("second"));
 }
+
+#[tokio::test]
+async fn an_ask_that_fails_stops_the_asks_beside_it() {
+    // The reference's allOrAbort: a window's asks side by side, the first that throws aborts the others — none is
+    // paid for an answer no one reads.
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let s = setup().await;
+    s.base.stm.put(vec![entry("c:1", "rotate the staging certificate", json!({}))]).await.unwrap();
+    let finished = Arc::new(AtomicUsize::new(0));
+    let fin = finished.clone();
+    struct Mixed(Arc<AtomicUsize>);
+    #[async_trait::async_trait]
+    impl Ask for Mixed {
+        async fn ask(&self, req: LlmRequest) -> memtrails::Result<LlmAnswer> {
+            if req.name.as_deref() == Some("memory_consolidation") {
+                return Err(memtrails::Error::Other("the model's client broke".into()));
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+            self.0.fetch_add(1, Ordering::SeqCst);
+            Ok(LlmAnswer::Answer { answer: json!({ "observations": [] }), model: None })
+        }
+    }
+    let mut d = s.with(Arc::new(Mixed(fin)));
+    d.observe_chars = Some(4000);
+    let err = Consolidator::new(d).run(20).await.unwrap_err().to_string();
+    assert!(err.contains("broke"), "{err}");
+    assert_eq!(finished.load(Ordering::SeqCst), 0, "an ask beside the failed one ran on");
+}
+
+#[tokio::test]
+async fn a_window_whose_reading_fails_stops_the_windows_being_read() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let s = setup().await;
+    s.base
+        .stm
+        .put(vec![
+            entry("c:1", "the slow one", json!({ "session": "s1" })),
+            entry("c:2", "the broken one", json!({ "session": "s2" })),
+        ])
+        .await
+        .unwrap();
+    let finished = Arc::new(AtomicUsize::new(0));
+    struct Two(Arc<AtomicUsize>);
+    #[async_trait::async_trait]
+    impl Ask for Two {
+        async fn ask(&self, req: LlmRequest) -> memtrails::Result<LlmAnswer> {
+            if req.prompt.contains("the broken one") {
+                return Err(memtrails::Error::Other("the model's client broke".into()));
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+            self.0.fetch_add(1, Ordering::SeqCst);
+            Ok(LlmAnswer::Answer {
+                answer: json!({ "segment_summary": "x", "episodes": [], "items": [], "observations": [] }),
+                model: None,
+            })
+        }
+    }
+    let err = Consolidator::new(s.with(Arc::new(Two(finished.clone())))).run(20).await.unwrap_err().to_string();
+    assert!(err.contains("broke"), "{err}");
+    assert_eq!(finished.load(Ordering::SeqCst), 0, "a window beside the failed one was read on");
+}

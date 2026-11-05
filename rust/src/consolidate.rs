@@ -643,8 +643,14 @@ impl Consolidator {
         // answer comes back on its own channel, so the windows are still reconciled in order.
         let mut pool = tokio::task::JoinSet::new();
         let mut reading = Vec::with_capacity(wins.len());
+        // Raised by the first failure, a reading's or a lane's: every reading still running stops then and there (the
+        // reference's stop signal), and the failure is the run's.
+        let (stop, _) = tokio::sync::watch::channel(false);
+        let stop = Arc::new(stop);
+        let failed: Arc<Mutex<Option<Error>>> = Arc::new(Mutex::new(None));
         for win in &wins {
             let (me, win, permits, stopped) = (self.clone(), win.clone(), permits.clone(), stopped.clone());
+            let (stop, failed) = (stop.clone(), failed.clone());
             let (tx, rx) = tokio::sync::oneshot::channel::<Result<Read<Extraction>>>();
             reading.push(Mutex::new(Some(rx)));
             pool.spawn(async move {
@@ -654,20 +660,36 @@ impl Consolidator {
                 }
                 let head = &win[0];
                 let meta = WindowMeta { cwd: head.cwd.clone(), engine: head.engine.clone(), title: head.title.clone() };
-                let read = std::panic::AssertUnwindSafe(me.read(&win, &meta))
-                    .catch_unwind()
-                    .await
-                    .unwrap_or_else(|_| Err(Error::Other("a window's reading failed: it panicked".into())));
-                // A failure starts no other window, as the reference's pool launches none after a rejected read.
-                if read.is_err() {
-                    stopped.store(true, Ordering::SeqCst);
+                let mut stopping = stop.subscribe();
+                let reading = std::panic::AssertUnwindSafe(me.read(&win, &meta)).catch_unwind();
+                let read = tokio::select! {
+                    r = reading => r.unwrap_or_else(|_| Err(Error::Other("a window's reading failed: it panicked".into()))),
+                    _ = stopping.wait_for(|s| *s) => return, // stopped: its channel closes unanswered
+                };
+                // A failure starts no other window and stops those being read, as the reference's pool does.
+                match read {
+                    Err(e) => {
+                        stopped.store(true, Ordering::SeqCst);
+                        guard(&failed).get_or_insert(e);
+                        stop.send_replace(true);
+                    }
+                    ok => {
+                        let _ = tx.send(ok);
+                    }
                 }
-                let _ = tx.send(read);
             });
         }
         let together = self.d.reconcile_concurrency.clamp(1, limit);
         let at = AtomicUsize::new(0);
         let halt = AtomicBool::new(false);
+        // A failure stops the readings at once, not once the other lanes finish their windows: as the reference's
+        // stop signal aborts the extractions being read.
+        let fail = |e: Error| {
+            stopped.store(true, Ordering::SeqCst);
+            halt.store(true, Ordering::SeqCst);
+            stop.send_replace(true);
+            Err(e)
+        };
         let lane = || async {
             while !halt.load(Ordering::SeqCst) && !(self.d.aborted)() {
                 let i = at.fetch_add(1, Ordering::SeqCst);
@@ -681,11 +703,7 @@ impl Consolidator {
                 };
                 let x = match read {
                     Ok(x) => x,
-                    Err(e) => {
-                        stopped.store(true, Ordering::SeqCst);
-                        halt.store(true, Ordering::SeqCst);
-                        return Err(e);
-                    }
+                    Err(e) => return fail(e),
                 };
                 match self.settle(&wins[i], x, &report, together, &stopped).await {
                     Ok(Settled::Next) => {}
@@ -693,10 +711,7 @@ impl Consolidator {
                         halt.store(true, Ordering::SeqCst);
                         break;
                     }
-                    Err(e) => {
-                        halt.store(true, Ordering::SeqCst);
-                        return Err(e);
-                    }
+                    Err(e) => return fail(e),
                 }
             }
             Ok::<(), Error>(())
@@ -706,6 +721,9 @@ impl Consolidator {
         // Windows not reached are not read, and readings no lane waits for any more are stopped.
         stopped.store(true, Ordering::SeqCst);
         pool.abort_all();
+        if let Some(e) = guard(&failed).take() {
+            return Err(e); // a reading's failure, whichever window it was
+        }
         for d in done {
             d?;
         }
@@ -852,17 +870,19 @@ impl Consolidator {
         let empty: Vec<StmEntry> = vec![];
         let options = ExtractOptions { ask: Some(ask), observations: false, known: known.clone() };
         let main = extract_window(win, meta, &options);
-        let seen = futures::future::join_all(subs.iter().enumerate().map(|(k, sub)| {
+        // The window's asks at once; the first that fails drops the others (the reference's allOrAbort): none is paid
+        // for an answer no one reads.
+        let seen = futures::future::try_join_all(subs.iter().enumerate().map(|(k, sub)| {
             observe_window(sub, if k > 0 { &subs[k - 1] } else { &empty }, meta, Some(ask), chars, known.as_deref())
         }));
-        let (x, seen) = tokio::join!(main, seen);
-        let mut x = match x? {
+        let (x, seen) = futures::future::try_join(main, seen).await?;
+        let mut x = match x {
             Read::Read(x) => x,
             other => return Ok(other),
         };
         let mut observations = Vec::new();
         for o in seen {
-            match o? {
+            match o {
                 Read::Read(o) => observations.extend(o),
                 Read::Unavailable(w) => return Ok(Read::Unavailable(w)),
                 Read::Busy => return Ok(Read::Busy),
@@ -946,10 +966,7 @@ impl Consolidator {
                 break;
             }
             let answers: Vec<std::result::Result<Vec<MemoryItem>, String>> =
-                futures::future::join_all(group.iter().map(|b| self.cue_batch(b)))
-                    .await
-                    .into_iter()
-                    .collect::<Result<_>>()?;
+                futures::future::try_join_all(group.iter().map(|b| self.cue_batch(b))).await?; // one failing drops the rest
             let paused = answers.iter().find_map(|a| a.as_ref().err().cloned());
             let got: Vec<MemoryItem> = answers.into_iter().filter_map(|a| a.ok()).flatten().collect();
             if !got.is_empty() {
@@ -1063,10 +1080,7 @@ impl Consolidator {
         // The pairs are fixed before any is asked about: every batch asked at once, the answers applied in order.
         let batches = relate_batches(ask, |p| pair_size(&p.it, &p.known));
         let answers: Vec<std::result::Result<HashMap<String, Decision>, String>> =
-            futures::future::join_all(batches.iter().map(|b| self.relate(b)))
-                .await
-                .into_iter()
-                .collect::<Result<_>>()?;
+            futures::future::try_join_all(batches.iter().map(|b| self.relate(b))).await?; // one failing drops the rest
         for (batch, got) in batches.into_iter().zip(answers) {
             for (n, Pair { it, known }) in batch.into_iter().enumerate() {
                 let d = got.as_ref().ok().and_then(|m| m.get(&format!("p{}", n + 1)).cloned());

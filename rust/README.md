@@ -174,6 +174,9 @@ the fixtures that are only this port's. The rules are in
 - **Log lines that are not whole records.** A line of `records.jsonl` or `knowledge.jsonl` that is JSON with a uid but
   lacks a field this port needs (one another version wrote) is not read here, where the reference would read it with
   the field missing. It still counts as that uid's latest line, and a compaction keeps it as it is.
+- **Stopping an ask.** The reference hands each ask an `AbortSignal` (`LlmRequest.signal`). Here an ask is stopped by
+  dropping its future, which every `Ask` supports, so `LlmRequest` has no signal: asks side by side are dropped when
+  one fails, and the readings of a consolidation when it fails or is cancelled.
 - **Windows.** The check that a process is still alive is not implemented, so locks and leftover Qdrants are taken over
   only once they go stale.
 
