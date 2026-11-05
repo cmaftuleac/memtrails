@@ -362,7 +362,9 @@ async fn git_reads_every_commit_newest_first_whatever_its_message_holds() {
     assert!(second.text.contains("\u{1e}0123456789abcdef"));
     assert!(second.text.ends_with("Files: README.md"));
     assert_eq!(second.author.as_deref(), Some("Ana"));
-    assert_eq!(second.at, Some(At::Text("2024-03-02T11:30:00Z".into())));
+    // git writes a UTC author date as `Z` from 2.39 on and as `+00:00` before: the time is compared, not its spelling.
+    assert!(matches!(&second.at, Some(At::Text(_))));
+    assert_eq!(memtrails::records::time_of(second.at.as_ref()), date_parse("2024-03-02T11:30:00Z"));
 
     assert!(first.id.len() == 40 && first.id.bytes().all(|b| b.is_ascii_hexdigit()));
     assert_eq!(meta(first, "sha"), Some(json!(first.id)));
