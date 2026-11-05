@@ -101,19 +101,30 @@ def js_is_space(c: str) -> bool:
 # --- numbers and JSON ---------------------------------------------------------------------------------------------
 
 
+#: Every whole number up to this is exact in a double (Number.MAX_SAFE_INTEGER).
+_SAFE_INT = 2**53 - 1
+
+
 def num_str(x: float | int) -> str:
     """``String(x)`` for a number, as JavaScript writes it."""
     if isinstance(x, bool):
         return "true" if x else "false"
     if isinstance(x, int):
-        return str(x)
+        if abs(x) <= _SAFE_INT:
+            return str(x)
+        # Past 2^53 JavaScript holds the nearest double, and writes its shortest digits: 12345678901234567890 is
+        # "12345678901234567000".
+        try:
+            x = float(x)
+        except OverflowError:
+            return "Infinity" if x > 0 else "-Infinity"
     if math.isnan(x):
         return "NaN"
     if math.isinf(x):
         return "Infinity" if x > 0 else "-Infinity"
     if x == 0:
         return "0"
-    if x.is_integer() and abs(x) < 1e21:
+    if x.is_integer() and abs(x) <= _SAFE_INT:
         return str(int(x))
     _, digits_t, exp = Decimal(repr(abs(x))).as_tuple()
     digits = "".join(map(str, digits_t)).rstrip("0") or "0"

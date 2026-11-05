@@ -11,7 +11,7 @@ import os
 from collections.abc import AsyncIterator, Callable
 from typing import Any
 
-from .._js import js_trim, parse
+from .._js import js_trim, num_str, parse
 from ..records import invalid_record
 from .text import read_lines, record, undef
 
@@ -63,7 +63,12 @@ async def from_jsonl(
             if not isinstance(obj, dict):
                 skip(line, "not an object", n)
                 continue
-            r = {**obj, "id": str(obj["id"])} if isinstance(obj.get("id"), (int, float)) and not isinstance(obj.get("id"), bool) else obj
+            # String(id), as JavaScript writes a number: 1.0 is "1", 1e21 is "1e+21".
+            r = (
+                {**obj, "id": num_str(obj["id"])}
+                if isinstance(obj.get("id"), (int, float)) and not isinstance(obj.get("id"), bool)
+                else obj
+            )
         filled = record(
             {
                 **r,

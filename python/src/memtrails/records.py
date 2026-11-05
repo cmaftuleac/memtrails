@@ -17,7 +17,7 @@ from typing import Any, Literal, TypedDict
 
 import regex
 
-from ._js import UNDEFINED, date_parse, intish, js_trim, local_ms, num_str, stringify
+from ._js import UNDEFINED, date_parse, intish, js_trim, local_ms, num_str, stringify, utf8
 
 Scalar = str | int | float | bool | None
 #: When something was written: milliseconds since the epoch, an ISO or RFC 2822 date, or a ``datetime`` (a naive one
@@ -112,7 +112,8 @@ def collection_key(collection: str | None) -> str:
 
 
 def _hash(*parts: str | None) -> str:
-    return hashlib.sha256("\0".join(p or "" for p in parts).encode("utf-8", "surrogatepass")).hexdigest()
+    # As Node hashes a string: UTF-8, a lone surrogate written as U+FFFD — so a uid is the same in both.
+    return hashlib.sha256(utf8("\0".join(p or "" for p in parts))).hexdigest()
 
 
 def record_uid(r: Mapping[str, Any]) -> str:
@@ -173,8 +174,8 @@ def entry_of(r: Mapping[str, Any], now: int | float, turn: int = 0) -> StmEntry:
     for key in ("source", "author", "url"):
         if r.get(key):
             record[key] = r[key]
-    if metadata:
-        record["metadata"] = metadata
+    if metadata is not None:
+        record["metadata"] = metadata  # an empty one too, as the reference keeps it
     return {
         "uid": uid,
         "fingerprint": _hash(

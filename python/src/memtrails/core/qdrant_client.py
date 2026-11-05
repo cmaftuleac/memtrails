@@ -27,6 +27,7 @@ from urllib.parse import quote
 import httpx
 
 from .._http import new_client
+from .._js import utf8
 from .embedder import MEMORY_EMBEDDER
 from .text import SparseVector
 
@@ -76,7 +77,7 @@ EndpointFn = Callable[[], QdrantEndpoint | Awaitable[QdrantEndpoint | None] | No
 def point_id(item: str, n: int) -> str:
     """A point's id from its item and its place (0 = the key, n = the n-th child): the same item writes the same ids.
     SHA-1 of ``item#n`` laid out as a UUID version 5."""
-    h = hashlib.sha1(f"{item}#{n}".encode("utf-8", "surrogatepass")).hexdigest()
+    h = hashlib.sha1(utf8(f"{item}#{n}")).hexdigest()  # a lone surrogate as U+FFFD, as Node hashes it
     return f"{h[0:8]}-{h[8:12]}-5{h[13:16]}-{(int(h[16], 16) & 0x3) | 0x8:x}{h[17:20]}-{h[20:32]}"
 
 

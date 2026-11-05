@@ -23,7 +23,7 @@ from collections.abc import Mapping, Sequence
 from typing import Any
 
 from .._aio import gather_or_cancel
-from .._js import cut, day_month_year, flatten_ws, js_trim, locale_compare
+from .._js import cut, day_month_year, flatten_ws, js_trim, locale_compare, utf8
 from ..llm import LlmRequest, ask_with, default_ask
 from .consolidate import stamped
 from .redact import redact_string
@@ -62,7 +62,7 @@ def _when(it: Mapping[str, Any]) -> str:
 
 
 def _hash(s: str) -> str:
-    return hashlib.sha256(s.encode("utf-8", "surrogatepass")).hexdigest()
+    return hashlib.sha256(utf8(s)).hexdigest()  # a lone surrogate as U+FFFD, as Node hashes it
 
 
 def profile_subjects(items: Sequence[Mapping[str, Any]], sizes: Mapping[str, int]) -> list[dict[str, Any]]:

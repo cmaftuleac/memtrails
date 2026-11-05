@@ -1,0 +1,126 @@
+{
+ "recordUid": [
+  {
+   "source": "note \ud83d end",
+   "id": "\ude00 first",
+   "uid": "fd68af0cd698ffc1f9216226a0281f8d"
+  },
+  {
+   "source": null,
+   "id": "ok 😀",
+   "uid": "b020ccef11f9c1e384699eb16fb282b1"
+  }
+ ],
+ "fingerprint": [
+  {
+   "parts": [
+    "note \ud83d end",
+    null,
+    [
+     "\ude00 first",
+     "ok 😀"
+    ]
+   ],
+   "fingerprint": "429572936fb1aec6"
+  }
+ ],
+ "pointId": [
+  {
+   "item": "stm:note \ud83d end",
+   "n": 2,
+   "id": "4b92ddf5-2e54-5860-b7f5-20a482c3a37c"
+  }
+ ],
+ "profileSubjects": [
+  {
+   "uid": "pf:adfc2f7883db638ab80852d6",
+   "concept": "gatenote \ud83d end",
+   "fingerprint": "d58446cc7d524514bde63cbc096fbd22bb82fd83ac1018847d324ce90752e154"
+  }
+ ],
+ "jsonlIds": {
+  "written": [
+   "1.0",
+   "100000.0",
+   "1e21",
+   "1.5e-7",
+   "-0.0",
+   "12345678901234567890",
+   "0.1",
+   "1e300"
+  ],
+  "read": [
+   "1",
+   "100000",
+   "1e+21",
+   "1.5e-7",
+   "0",
+   "12345678901234567000",
+   "0.1",
+   "1e+300"
+  ]
+ },
+ "entries": [
+  {
+   "record": {
+    "id": "meta-empty",
+    "text": "A record note \ud83d end",
+    "metadata": {}
+   },
+   "entry": {
+    "uid": "4cbbdc7986c7d1b16facf406752b9f47",
+    "fingerprint": "8923398be280e5eec4778245c97dd3b70fd2422b7b7d9840af9c54af753fef41",
+    "engine": "record",
+    "session": "4cbbdc7986c7d1b16facf406752b9f47",
+    "turn": 0,
+    "cwd": null,
+    "project": "default",
+    "title": "A record note \ud83d end",
+    "ts": 1775131200000,
+    "synthetic": false,
+    "typed": "human",
+    "request": "A record note \ud83d end",
+    "reply": "",
+    "said": "",
+    "steps": [],
+    "files": [],
+    "done": false,
+    "record": {
+     "id": "meta-empty",
+     "metadata": {}
+    }
+   }
+  },
+  {
+   "record": {
+    "id": "\ude00 first",
+    "source": "note \ud83d end",
+    "text": "Another ok 😀",
+    "at": "2026-04-01"
+   },
+   "entry": {
+    "uid": "fd68af0cd698ffc1f9216226a0281f8d",
+    "fingerprint": "801c80723fdb6f9cc92db94194086a343adab780ffb298b14851713a991a00f6",
+    "engine": "record",
+    "session": "fd68af0cd698ffc1f9216226a0281f8d",
+    "turn": 0,
+    "cwd": null,
+    "project": "default",
+    "title": "Another ok 😀",
+    "ts": 1775001600000,
+    "synthetic": false,
+    "typed": "human",
+    "request": "Another ok 😀",
+    "reply": "",
+    "said": "",
+    "steps": [],
+    "files": [],
+    "done": false,
+    "record": {
+     "id": "\ude00 first",
+     "source": "note \ud83d end"
+    }
+   }
+  }
+ ]
+}

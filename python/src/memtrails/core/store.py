@@ -34,7 +34,7 @@ from collections.abc import Callable, Iterator, Sequence
 from typing import Any, Generic, TypeVar
 
 from .._fs import append_all, write_all, write_file
-from .._js import now_ms, parse, stringify
+from .._js import now_ms, parse, stringify, utf8
 
 #: A record of the short-term log (see above).
 StmEntry = dict[str, Any]
@@ -49,7 +49,7 @@ def fingerprint(*parts: str | Sequence[str] | None) -> str:
     h = hashlib.sha1()
     for p in parts:
         text = p if isinstance(p, str) else "" if p is None else "\u0001".join(p)
-        h.update(text.encode("utf-8", "surrogatepass"))
+        h.update(utf8(text))  # a lone surrogate as U+FFFD, as Node hashes it
         h.update(b"\0")
     return h.hexdigest()[:16]
 

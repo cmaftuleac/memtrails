@@ -227,7 +227,8 @@ async def write_ltm(d: _Deps, items: Sequence[Mapping[str, Any]]) -> None:
     points: list[PointStruct] = []
     for it, kids, cues, at in plan:
         common = _ltm_payload(it)
-        files = " ".join(posixpath.basename(f) for f in it["files"])
+        # Node's basename: a trailing slash is not the name (``docs/page/`` is ``page``).
+        files = " ".join(posixpath.basename(f.rstrip("/")) for f in it["files"])
         payload: dict[str, Any] = {
             **common,
             "part": "key",
