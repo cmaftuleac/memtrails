@@ -5,6 +5,9 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+- Fixes: a rebuild that is stopped (a close, a newer rebuild) returns only once the batches it was writing are written,
+  so none of them lands in the index after it.
+
 ## [0.4.0] — 2026-11-04
 
 - Prompt examples are invented now. The extraction and gathering prompts had a few example sentences taken from LoCoMo

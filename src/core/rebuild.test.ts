@@ -152,4 +152,25 @@ describe('durable memory rebuild', () => {
     await new MemoryRebuild(r.deps).run();
     expect(r.written.flat()).toEqual(['mem:a', ...Array.from({ length: 33 }, (_, i) => `stm:${i}`)]);
   });
+
+  it('stopped while batches are being written, returns only once they are: none writes into the index after it', async () => {
+    const r = rig();
+    r.stm.put(Array.from({ length: 32 * 8 }, (_, i) => entry(`stm:${i}`)));
+    let writing = 0;
+    let after = 0;
+    let returned = false;
+    const job = new MemoryRebuild({ ...r.deps, concurrency: 4, writeStm: async () => {
+      writing++;
+      await new Promise((ok) => setTimeout(ok, 30));
+      writing--;
+      if (returned) after++;
+      r.stop(); // a close, as soon as the first batch is written
+    } });
+    job.begin();
+    await job.run();
+    returned = true;
+    expect(writing).toBe(0);
+    await new Promise((ok) => setTimeout(ok, 100));
+    expect(after).toBe(0);
+  });
 });

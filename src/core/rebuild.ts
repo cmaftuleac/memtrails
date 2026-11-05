@@ -85,7 +85,11 @@ export class MemoryRebuild {
     let skip = after !== null;
     let batch: T[] = [];
     for (const it of all) {
-      if (cancelled()) return false;
+      if (cancelled()) {
+        // Stopped (a newer begin, a close): what is being written ends before this returns, not into the next index.
+        await Promise.allSettled(queue.map((q) => q.p));
+        return false;
+      }
       if (skip) { if (it.uid === after) skip = false; continue; }
       if (!keep(it)) continue;
       batch.push(it);
