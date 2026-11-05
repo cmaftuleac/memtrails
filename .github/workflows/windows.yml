@@ -67,7 +67,9 @@ jobs:
       - run: python -m pytest -v -p no:cacheprovider -o faulthandler_timeout=300 $PYTEST_ARGS
         env:
           PYTEST_ARGS: ${{ inputs.pytest }}
-      - run: python -m pytest -q tests/test_integration.py
+      # A short base folder: Qdrant nests its index files deep under the memory's, and Windows limits a path to 260
+      # characters (pytest's own folders under AppData are long already).
+      - run: python -m pytest -q tests/test_integration.py --basetemp="$RUNNER_TEMP/p"
         env:
           MEMTRAILS_INTEGRATION: '1'
       - name: The quick start finds what it should
