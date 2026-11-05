@@ -230,7 +230,6 @@ def test_a_cancelled_run_does_not_move_the_checkpoint(tmp_path: Path) -> None:
         job.cancel()
         release.set()
         await running
-        await job.settled()
         assert r.checkpoint() == {"phase": "ltm", "after": None}
         again = MemoryRebuild(r.deps())
         await again.run()
@@ -300,3 +299,70 @@ def test_a_rebuild_begun_again_while_one_runs(tmp_path: Path) -> None:
     run(go())
     assert len(index) == 32 * 3
     assert not (tmp_path / "rebuild.json").exists()
+
+
+class Writing:
+    """A batch write that takes its time, counting the writes still going on."""
+
+    def __init__(self, r: Rig, seconds: float = 0.05) -> None:
+        self.r = r
+        self.seconds = seconds
+        self.now = 0
+        self.started = asyncio.Event()
+
+    async def __call__(self, xs: list[dict[str, Any]]) -> None:
+        self.now += 1
+        self.started.set()
+        try:
+            await asyncio.sleep(self.seconds)
+            await self.r.write(xs)
+        finally:
+            self.now -= 1
+
+
+async def test_a_run_after_one_its_caller_cancelled_is_not_cancelled_with_it(tmp_path: Path) -> None:
+    r = Rig(tmp_path)
+    r.ltm.put([item(f"mem:{i}") for i in range(30)])
+    slow = Writing(r, seconds=10)
+    job = MemoryRebuild(r.deps(write_ltm=slow))
+    job.begin()
+    first = job.run()
+    await slow.started.wait()
+    first.cancel()
+    job.begin()
+    job.d.write_ltm = r.write
+    await job.run()  # waits for the cancelled one, and is not cancelled by it
+    assert not job.pending()
+
+
+async def test_a_cancelled_run_leaves_no_batch_writing(tmp_path: Path) -> None:
+    r = Rig(tmp_path)
+    r.ltm.put([item(f"mem:{i}") for i in range(30)])
+    slow = Writing(r, seconds=10)
+    job = MemoryRebuild(r.deps(write_ltm=slow, concurrency=2))
+    job.begin()
+    running = job.run()
+    await slow.started.wait()
+    running.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await running
+    assert slow.now == 0
+
+
+async def test_a_stopped_run_returns_once_its_writes_are_done(tmp_path: Path) -> None:
+    r = Rig(tmp_path)
+    r.ltm.put([item(f"mem:{i}") for i in range(60)])
+    slow = Writing(r)
+    took = iter([0.01, 0.2])  # the second batch written slower than the first
+
+    async def write_then_stop(xs: list[dict[str, Any]]) -> None:
+        r.stopped = True  # a close, while the first batches are being written
+        slow.seconds = next(took)
+        await slow(xs)
+
+    job = MemoryRebuild(r.deps(write_ltm=write_then_stop, concurrency=2))
+    job.begin()
+    await job.run()
+    assert slow.now == 0
+    # The two batches in flight when it stopped were written; the third was never started.
+    assert r.written == [[f"mem:{i}" for i in range(20)], [f"mem:{i}" for i in range(20, 40)]]

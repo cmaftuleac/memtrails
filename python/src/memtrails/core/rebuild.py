@@ -40,13 +40,6 @@ class MemoryRebuild:
     def cancel(self) -> None:
         self._generation += 1
 
-    async def settled(self) -> None:
-        if self._running is not None:
-            try:
-                await asyncio.shield(self._running)
-            except Exception:  # noqa: BLE001 - settled, whatever its end
-                return
-
     def pending(self) -> bool:
         return os.path.exists(self.d.path)
 
@@ -67,10 +60,9 @@ class MemoryRebuild:
 
         async def work() -> None:
             if before is not None:
-                try:
-                    await asyncio.shield(before)
-                except Exception:  # noqa: BLE001 - the cancelled run's end is its own
-                    pass
+                # Its end, whatever it was — failed, or cancelled by its own caller — is its own: waited for, never
+                # raised here.
+                await asyncio.wait({before})
             await self._resume(generation)
 
         task = asyncio.ensure_future(work())
@@ -138,22 +130,31 @@ class MemoryRebuild:
 
         skip = after is not None
         batch: list[dict[str, Any]] = []
-        for it in every:
-            if cancelled():
-                return False
-            if skip:
-                if it["uid"] == after:
-                    skip = False
-                continue
-            if not keep(it):
-                continue
-            batch.append(it)
-            if len(batch) >= size:
+        try:
+            for it in every:
+                if cancelled():
+                    # Stopped (a newer begin, a close): what is being written ends before this returns.
+                    await asyncio.gather(*(q["task"] for q in queue), return_exceptions=True)
+                    return False
+                if skip:
+                    if it["uid"] == after:
+                        skip = False
+                    continue
+                if not keep(it):
+                    continue
+                batch.append(it)
+                if len(batch) >= size:
+                    await send(batch)
+                    batch = []
+            if batch:
                 await send(batch)
-                batch = []
-        if batch:
-            await send(batch)
-        results = await asyncio.gather(*(q["task"] for q in queue), return_exceptions=True)
+            results = await asyncio.gather(*(q["task"] for q in queue), return_exceptions=True)
+        except asyncio.CancelledError:
+            # The run itself cancelled: no batch is left writing into the index after it.
+            for q in queue:
+                q["task"].cancel()
+            await asyncio.gather(*(q["task"] for q in queue), return_exceptions=True)
+            raise
         failed = next((x for x in results if isinstance(x, BaseException)), None)
         if failed is not None:
             await fail(failed)
