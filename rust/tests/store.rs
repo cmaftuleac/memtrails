@@ -198,3 +198,111 @@ fn fingerprint_changes_with_any_part_and_does_not_confuse_a_list_with_its_joined
     assert_eq!(fingerprint(&[FpPart::Text("a"), FpPart::Null]), fingerprint(&[FpPart::Text("a"), FpPart::Text("")]));
     assert_ne!(fingerprint(&[FpPart::Text("a")]), fingerprint(&[FpPart::Text("b")]));
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+async fn a_read_during_a_compaction_gets_the_record_it_asked_for() {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("x.jsonl");
+    let l = log(&path);
+    l.put((0..50).map(|i| rec(&format!("k{i}"), &format!("kept {i}"), i)).collect()).await.unwrap();
+    let stop = std::sync::Arc::new(AtomicBool::new(false));
+    // Readers of the kept records, many at once, while replaced lines are compacted away again and again.
+    let readers: Vec<_> = (0..8)
+        .map(|r| {
+            let (l, stop) = (l.clone(), stop.clone());
+            tokio::spawn(async move {
+                let mut n = r;
+                while !stop.load(Ordering::SeqCst) {
+                    let i = n % 50;
+                    let got = l.get_many(vec![format!("k{i}"), format!("k{}", (i + 1) % 50)]).await;
+                    let texts: Vec<Option<String>> = got.into_iter().map(|g| g.map(|x| x.text)).collect();
+                    assert_eq!(texts, [Some(format!("kept {i}")), Some(format!("kept {}", (i + 1) % 50))]);
+                    n += 1;
+                }
+            })
+        })
+        .collect();
+    for round in 0..12 {
+        l.put((0..1100).map(|i| rec("churn", &format!("{round}:{i}"), i)).collect::<Vec<_>>()).await.unwrap();
+        for _ in 0..1100 {
+            l.put(vec![rec("churn", "again", round)]).await.unwrap();
+            if readers.iter().any(|r| r.is_finished()) {
+                break;
+            }
+        }
+        l.compact().await.unwrap();
+    }
+    stop.store(true, Ordering::SeqCst);
+    for r in readers {
+        r.await.unwrap();
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_compaction_does_not_hold_up_what_reads_the_index() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("x.jsonl");
+    let l = log(&path);
+    let big = "ü".repeat(4000);
+    for round in 0..3 {
+        l.put((0..1500).map(|i| rec(&format!("u{i}"), &format!("{round}:{big}"), round)).collect()).await.unwrap();
+    }
+    let c = l.clone();
+    let started = std::time::Instant::now();
+    let compacting = tokio::spawn(async move { c.compact().await });
+    tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+    let mut slowest = std::time::Duration::ZERO;
+    while !compacting.is_finished() {
+        let t = std::time::Instant::now();
+        assert_eq!(l.meta("u7"), Some(2));
+        assert!(l.size() >= 1500);
+        l.put(vec![rec("during", "a put meanwhile", 9)]).await.unwrap();
+        slowest = slowest.max(t.elapsed());
+        tokio::time::sleep(std::time::Duration::from_millis(1)).await;
+    }
+    compacting.await.unwrap().unwrap();
+    let took = started.elapsed();
+    assert!(took > std::time::Duration::from_millis(100), "the compaction was too quick to tell: {took:?}");
+    assert!(slowest < took / 3, "a read of the index waited {slowest:?} of a {took:?} compaction");
+    // What was put meanwhile is there, at the right offset, and after a reload.
+    assert_eq!(l.get("during").await.unwrap().text, "a put meanwhile");
+    assert_eq!(l.get("u1499").await.unwrap().text, format!("2:{big}"));
+    let r = log(&path);
+    r.load().await.unwrap();
+    assert_eq!(r.size(), 1501);
+    assert_eq!(r.get("during").await.unwrap().text, "a put meanwhile");
+    assert_eq!(r.get("u0").await.unwrap().text, format!("2:{big}"));
+}
+
+#[tokio::test]
+async fn a_line_the_reference_reads_is_never_dropped_by_a_compaction() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("x.jsonl");
+    // A record another version wrote without a field this one needs, a lone surrogate, a byte that is not UTF-8.
+    let mut raw =
+        b"{\"uid\":\"partial\",\"text\":\"no number\"}\n{\"uid\":\"lone\",\"text\":\"a\\ud800b\",\"n\":1}\n".to_vec();
+    raw.extend_from_slice(b"{\"uid\":\"bytes\",\"text\":\"a\xffb\",\"n\":2}\n");
+    fs::write(&path, &raw).unwrap();
+    let l = log(&path);
+    l.load().await.unwrap();
+    assert_eq!(l.get("lone").await.unwrap().text, "a\u{fffd}b");
+    assert_eq!(l.get("bytes").await.unwrap().text, "a\u{fffd}b");
+    for i in 0..1100 {
+        l.put(vec![rec("u", &format!("v{i}"), i)]).await.unwrap();
+    }
+    l.compact().await.unwrap();
+    let text = fs::read_to_string(&path).unwrap();
+    assert_eq!(text.lines().count(), 4, "{text}");
+    assert!(text.starts_with("{\"uid\":\"partial\",\"text\":\"no number\"}\n"), "{text}");
+    // A later line for it replaces it, as any other.
+    l.put(vec![rec("partial", "whole now", 5)]).await.unwrap();
+    for i in 0..1100 {
+        l.put(vec![rec("u", &format!("w{i}"), i)]).await.unwrap();
+    }
+    l.compact().await.unwrap();
+    let r = log(&path);
+    r.load().await.unwrap();
+    assert_eq!(r.get("partial").await.unwrap().text, "whole now");
+    assert_eq!(fs::read_to_string(&path).unwrap().lines().count(), 4);
+}

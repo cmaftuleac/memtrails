@@ -165,6 +165,9 @@ Importers in `memtrails::importers` stream records: `from_mbox`, `from_eml`, `fr
   - Slack: an export with no `channels.json` is read in folder-name order. A message whose `ts` is a number is
     accepted.
   - Front matter: keys keep the order they have in the file.
+- **Log lines that are not whole records.** A line of `records.jsonl` or `knowledge.jsonl` that is JSON with a uid but
+  lacks a field this port needs (one another version wrote) is not read here, where the reference would read it with
+  the field missing. It still counts as that uid's latest line, and a compaction keeps it as it is.
 - **Windows.** The check that a process is still alive is not implemented, so locks and leftover Qdrants are taken over
   only once they go stale.
 

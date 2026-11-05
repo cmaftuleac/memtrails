@@ -340,15 +340,84 @@ const WRITE_BYTES: usize = 1 << 20;
 
 struct Inner<M> {
     live: IndexMap<String, Slot<M>>,
+    /// Lines the reference reads as records but this port cannot (JSON with a uid, not a whole record: one another
+    /// version wrote without a field). Not read, but replaced, removed and kept by a compaction like any other, so a
+    /// rewrite never erases what the reference would keep.
+    raw: IndexMap<String, Slot<()>>,
     lines: usize,
     end: u64,
 }
 
-#[derive(Deserialize)]
-struct Removal {
-    uid: String,
-    #[serde(default)]
-    removed: bool,
+/// A JSON value as JavaScript tests it (`if (rec.removed)`).
+fn truthy(v: &Value) -> bool {
+    match v {
+        Value::Null => false,
+        Value::Bool(b) => *b,
+        Value::Number(n) => n.as_f64().is_some_and(|x| x != 0.0 && !x.is_nan()),
+        Value::String(s) => !s.is_empty(),
+        _ => true,
+    }
+}
+
+/// The key a line is kept under: its uid — or, when that is not a text, the JSON of what it is (the reference's
+/// map keys on the value, so a uid of 5 and one of "5" are two).
+fn key_of(v: &Value) -> String {
+    match v.get("uid") {
+        Some(Value::String(u)) => u.clone(),
+        Some(other) => format!("\u{0}{}", js::stringify(other)),
+        None => "\u{0}undefined".into(),
+    }
+}
+
+/// A lone surrogate escape (`\ud800` with no other half) read as U+FFFD: JavaScript's `JSON.parse` takes it into a
+/// string, serde refuses the whole line, and a Rust string cannot hold half a character.
+fn without_lone_surrogates(s: &str) -> std::borrow::Cow<'_, str> {
+    let b = s.as_bytes();
+    let unit = |i: usize| -> Option<u16> {
+        let h = b.get(i..i + 4)?;
+        if h.iter().all(u8::is_ascii_hexdigit) {
+            u16::from_str_radix(std::str::from_utf8(h).ok()?, 16).ok()
+        } else {
+            None
+        }
+    };
+    let mut out = String::new();
+    let (mut from, mut i) = (0, 0);
+    while i + 1 < b.len() {
+        if b[i] != b'\\' {
+            i += 1;
+            continue;
+        }
+        let Some(u) = (b[i + 1] == b'u').then(|| unit(i + 2)).flatten() else {
+            i += 2; // any other escape, `\\` among them
+            continue;
+        };
+        let high = (0xD800..0xDC00).contains(&u);
+        let paired =
+            high && b.get(i + 6..i + 8) == Some(b"\\u") && unit(i + 8).is_some_and(|l| (0xDC00..0xE000).contains(&l));
+        if paired {
+            i += 12;
+        } else if (0xD800..0xE000).contains(&u) {
+            out.push_str(&s[from..i]);
+            out.push_str("\\ufffd");
+            i += 6;
+            from = i;
+        } else {
+            i += 6;
+        }
+    }
+    if from == 0 {
+        return std::borrow::Cow::Borrowed(s);
+    }
+    out.push_str(&s[from..]);
+    std::borrow::Cow::Owned(out)
+}
+
+/// A line as the reference reads it, `JSON.parse(buf.toString('utf8'))`: bytes that are not UTF-8 as U+FFFD, and a
+/// lone surrogate as U+FFFD too.
+fn parse_line(bytes: &[u8]) -> Option<Value> {
+    let text = String::from_utf8_lossy(bytes);
+    serde_json::from_str(js::trim_end(&without_lone_surrogates(&text))).ok()
 }
 
 /// An append-only JSONL log of records by uid, read back by byte offset: a later line for the same uid replaces the
@@ -368,6 +437,8 @@ struct Shared<T, M> {
     path: PathBuf,
     project: fn(&T) -> M,
     inner: Mutex<Inner<M>>,
+    /// One compaction at a time. Held for the whole rewrite; `inner` only for its snapshot and its swap.
+    compacting: Mutex<()>,
 }
 
 #[cfg(unix)]
@@ -407,6 +478,7 @@ impl<T: Keyed, M: Clone + Send + 'static> Shared<T, M> {
     fn load(&self) -> Result<()> {
         let mut g = self.lock();
         g.live.clear();
+        g.raw.clear();
         g.lines = 0;
         g.end = 0;
         let file = match File::open(&self.path) {
@@ -418,28 +490,34 @@ impl<T: Keyed, M: Clone + Send + 'static> Shared<T, M> {
         let mut reader = BufReader::new(file);
         let mut at = 0u64;
         let mut line = Vec::new();
+        // What the reference's JSON.parse reads is taken: a record, a removal, or a line kept as it is (`raw`).
         let take = |g: &mut Inner<M>, line: &[u8], at: u64, len: u64| -> bool {
             if line.is_empty() {
                 return true;
             }
-            let Ok(text) = std::str::from_utf8(line) else { return false };
-            let Ok(v) = serde_json::from_str::<Value>(text) else { return false };
-            if let Ok(r) = serde_json::from_value::<Removal>(v.clone()) {
-                if r.removed {
-                    g.live.shift_remove(&r.uid);
-                    g.lines += 1;
-                    return true;
-                }
+            let Some(v) = parse_line(line) else { return false };
+            if v.is_null() {
+                return false; // `null.removed` throws there
+            }
+            let key = key_of(&v);
+            g.lines += 1;
+            if v.get("removed").is_some_and(truthy) {
+                g.live.shift_remove(&key);
+                g.raw.shift_remove(&key);
+                return true;
             }
             match serde_json::from_value::<T>(v) {
-                Ok(rec) => {
+                Ok(rec) if rec.uid() == key => {
                     let meta = (self.project)(&rec);
-                    g.live.insert(rec.uid().to_string(), Slot { at, len, meta });
-                    g.lines += 1;
-                    true
+                    g.raw.shift_remove(&key);
+                    g.live.insert(key, Slot { at, len, meta });
                 }
-                Err(_) => false,
+                _ => {
+                    g.live.shift_remove(&key);
+                    g.raw.insert(key, Slot { at, len, meta: () });
+                }
             }
+            true
         };
         loop {
             line.clear();
@@ -467,21 +545,29 @@ impl<T: Keyed, M: Clone + Send + 'static> Shared<T, M> {
         Ok(())
     }
 
-    fn read_slot(file: &mut File, s: &Slot<M>) -> Option<T> {
+    fn read_bytes<X>(file: &mut File, s: &Slot<X>) -> Option<Vec<u8>> {
         file.seek(SeekFrom::Start(s.at)).ok()?;
         let mut buf = vec![0u8; s.len as usize];
         file.read_exact(&mut buf).ok()?;
-        let text = std::str::from_utf8(&buf).ok()?;
-        serde_json::from_str(js::trim_end(text)).ok()
+        Some(buf)
+    }
+
+    fn read_slot(file: &mut File, s: &Slot<M>) -> Option<T> {
+        serde_json::from_value(parse_line(&Self::read_bytes(file, s)?)?).ok()
     }
 
     fn get_many(&self, uids: &[String]) -> Vec<Option<T>> {
-        let slots: Vec<Option<Slot<M>>> = {
+        // The file opened with the offsets, under the lock: a compaction renames a new file over it only under the
+        // lock too, so the offsets are the open file's. Each record read is the one asked for, or none.
+        let (slots, mut file): (Vec<Option<Slot<M>>>, Option<File>) = {
             let g = self.lock();
-            uids.iter().map(|u| g.live.get(u.as_str()).cloned()).collect()
+            (uids.iter().map(|u| g.live.get(u.as_str()).cloned()).collect(), File::open(&self.path).ok())
         };
-        let mut file = File::open(&self.path).ok();
-        slots.into_iter().map(|s| Self::read_slot(file.as_mut()?, s.as_ref()?)).collect()
+        slots
+            .into_iter()
+            .zip(uids)
+            .map(|(s, u)| Self::read_slot(file.as_mut()?, s.as_ref()?).filter(|r| r.uid() == u))
+            .collect()
     }
 
     fn put(&self, recs: &[T]) -> Result<()> {
@@ -530,6 +616,7 @@ impl<T: Keyed, M: Clone + Send + 'static> Shared<T, M> {
         }
         append_private(&self.path, &bytes).map_err(|e| Error::io(&self.path, e))?;
         for (uid, slot) in slots {
+            g.raw.shift_remove(&uid);
             g.live.insert(uid, slot);
         }
         g.end = at;
@@ -539,7 +626,11 @@ impl<T: Keyed, M: Clone + Send + 'static> Shared<T, M> {
 
     fn remove(&self, uids: &[String]) -> Result<()> {
         let mut g = self.lock();
-        let gone: Vec<String> = uids.iter().filter(|u| g.live.contains_key(u.as_str())).cloned().collect();
+        let gone: Vec<String> = uids
+            .iter()
+            .filter(|u| g.live.contains_key(u.as_str()) || g.raw.contains_key(u.as_str()))
+            .cloned()
+            .collect();
         if gone.is_empty() {
             return Ok(());
         }
@@ -559,65 +650,150 @@ impl<T: Keyed, M: Clone + Send + 'static> Shared<T, M> {
         g.lines += gone.len();
         for uid in gone {
             g.live.shift_remove(&uid);
+            g.raw.shift_remove(&uid);
         }
         Ok(())
     }
 
+    /// The rewrite runs from a snapshot without the lock — `meta`, `size`, `entries` and puts go on meanwhile — and
+    /// takes it again only to swap: what was appended since the snapshot is carried over as it is, after the
+    /// rewritten lines, and every offset moved with it.
     fn compact(&self) -> Result<()> {
-        let mut g = self.lock();
-        if g.lines < 2 * g.live.len() + 1000 {
-            return Ok(());
-        }
-        let mut order: Vec<(String, Slot<M>)> = g.live.iter().map(|(k, s)| (k.clone(), s.clone())).collect();
-        order.sort_by_key(|x| x.1.at);
+        let _one = self.compacting.lock().unwrap_or_else(|e| e.into_inner());
+        let (order, snap_end, snap_lines) = {
+            let g = self.lock();
+            if g.lines < 2 * (g.live.len() + g.raw.len()) + 1000 {
+                return Ok(());
+            }
+            let mut order: Vec<(String, Slot<Option<M>>)> = g
+                .live
+                .iter()
+                .map(|(k, s)| (k.clone(), Slot { at: s.at, len: s.len, meta: Some(s.meta.clone()) }))
+                .chain(g.raw.iter().map(|(k, s)| (k.clone(), Slot { at: s.at, len: s.len, meta: None })))
+                .collect();
+            order.sort_by_key(|x| x.1.at);
+            (order, g.end, g.lines)
+        };
         let tmp = PathBuf::from(format!("{}.compact", self.path.display()));
-        let result = (|| -> Result<IndexMap<String, Slot<M>>> {
-            let mut src = File::open(&self.path).map_err(|e| Error::io(&self.path, e))?;
-            let mut out = private(OpenOptions::new().create(true).write(true).truncate(true))
-                .open(&tmp)
-                .map_err(|e| Error::io(&tmp, e))?;
-            let mut next = IndexMap::new();
-            let mut at = 0u64;
-            let mut parts: Vec<u8> = Vec::new();
-            for (uid, s) in order {
-                let rec = match Self::read_slot(&mut src, &s) {
-                    Some(r) if r.uid() == uid => r,
-                    _ => {
-                        return Err(Error::Store(format!(
-                            "{}: record {uid} cannot be read at {}; not compacted",
-                            self.path.display(),
-                            s.at
-                        )))
-                    }
-                };
-                let mut line = serde_json::to_vec(&rec).map_err(Error::json)?;
-                line.push(b'\n');
-                next.insert(uid, Slot { at, len: line.len() as u64, meta: s.meta });
-                at += line.len() as u64;
-                parts.extend_from_slice(&line);
-                if parts.len() >= WRITE_BYTES {
-                    out.write_all(&parts).map_err(|e| Error::io(&tmp, e))?;
-                    parts.clear();
-                }
-            }
-            out.write_all(&parts).map_err(|e| Error::io(&tmp, e))?;
-            out.sync_all().map_err(|e| Error::io(&tmp, e))?;
-            drop(out);
-            fs::rename(&tmp, &self.path).map_err(|e| Error::io(&self.path, e))?;
-            Ok(next)
-        })();
-        match result {
-            Ok(next) => {
-                g.end = next.values().map(|s| s.at + s.len).max().unwrap_or(0);
-                g.lines = next.len();
-                g.live = next;
-                Ok(())
-            }
+        let built = self.rewrite(order, &tmp);
+        let (mut src, mut out, next, raw, base) = match built {
+            Ok(b) => b,
             Err(e) => {
                 let _ = fs::remove_file(&tmp);
-                Err(e)
+                return Err(e);
+            }
+        };
+        let written = next.len() + raw.len();
+        let mut g = self.lock();
+        let swapped = (|| -> Result<()> {
+            if g.end < snap_end {
+                return Err(Error::Store(format!(
+                    "{}: changed under a compaction; not compacted",
+                    self.path.display()
+                )));
+            }
+            if g.end > snap_end {
+                let tail = Slot { at: snap_end, len: g.end - snap_end, meta: () };
+                let bytes = Self::read_bytes(&mut src, &tail).ok_or_else(|| {
+                    Error::Store(format!("{}: what was added during a compaction cannot be read", self.path.display()))
+                })?;
+                out.write_all(&bytes).map_err(|e| Error::io(&tmp, e))?;
+            }
+            out.sync_all().map_err(|e| Error::io(&tmp, e))?;
+            fs::rename(&tmp, &self.path).map_err(|e| Error::io(&self.path, e))
+        })();
+        if let Err(e) = swapped {
+            drop(out);
+            let _ = fs::remove_file(&tmp);
+            return Err(e);
+        }
+        // A slot from before the snapshot is the one rewritten; one after it moved with the tail. In the order the
+        // rewrite gives (file order, as the reference's compaction leaves its map), then what is new since.
+        let moved = |at: u64| at - snap_end + base;
+        let mut live = IndexMap::with_capacity(g.live.len());
+        for (uid, s) in next {
+            match g.live.get(&uid) {
+                Some(cur) if cur.at < snap_end => live.insert(uid, s),
+                Some(cur) => live.insert(uid, Slot { at: moved(cur.at), len: cur.len, meta: cur.meta.clone() }),
+                None => None,
+            };
+        }
+        for (uid, cur) in &g.live {
+            if !live.contains_key(uid) {
+                live.insert(uid.clone(), Slot { at: moved(cur.at), len: cur.len, meta: cur.meta.clone() });
             }
         }
+        let mut kept = IndexMap::with_capacity(g.raw.len());
+        for (key, s) in raw {
+            match g.raw.get(&key) {
+                Some(cur) if cur.at < snap_end => kept.insert(key, s),
+                Some(cur) => kept.insert(key, Slot { at: moved(cur.at), len: cur.len, meta: () }),
+                None => None,
+            };
+        }
+        for (key, cur) in &g.raw {
+            if !kept.contains_key(key) {
+                kept.insert(key.clone(), Slot { at: moved(cur.at), len: cur.len, meta: () });
+            }
+        }
+        g.lines = written + (g.lines - snap_lines);
+        g.end = base + (g.end - snap_end);
+        g.live = live;
+        g.raw = kept;
+        Ok(())
+    }
+
+    /// The live records and kept lines of a snapshot, in file order, into `tmp`: each record read and written again
+    /// (a record that cannot be read fails the rewrite — it is never dropped), each kept line as it is. The source
+    /// still open, the rewrite not yet made durable, the new places, and the rewrite's length.
+    #[allow(clippy::type_complexity)]
+    fn rewrite(
+        &self,
+        order: Vec<(String, Slot<Option<M>>)>,
+        tmp: &Path,
+    ) -> Result<(File, File, IndexMap<String, Slot<M>>, IndexMap<String, Slot<()>>, u64)> {
+        let mut src = File::open(&self.path).map_err(|e| Error::io(&self.path, e))?;
+        let mut out = private(OpenOptions::new().create(true).write(true).truncate(true))
+            .open(tmp)
+            .map_err(|e| Error::io(tmp, e))?;
+        let mut next = IndexMap::new();
+        let mut raw = IndexMap::new();
+        let mut at = 0u64;
+        let mut parts: Vec<u8> = Vec::new();
+        let unreadable = |uid: &str, s_at: u64| {
+            Error::Store(format!("{}: record {uid} cannot be read at {s_at}; not compacted", self.path.display()))
+        };
+        for (uid, s) in order {
+            let line = match s.meta {
+                Some(meta) => {
+                    let slot = Slot { at: s.at, len: s.len, meta };
+                    let rec = match Self::read_slot(&mut src, &slot) {
+                        Some(r) if r.uid() == uid => r,
+                        _ => return Err(unreadable(&uid, s.at)),
+                    };
+                    let mut line = serde_json::to_vec(&rec).map_err(Error::json)?;
+                    line.push(b'\n');
+                    next.insert(uid, Slot { at, len: line.len() as u64, meta: slot.meta });
+                    line
+                }
+                None => {
+                    let mut line = Self::read_bytes(&mut src, &s).ok_or_else(|| unreadable(&uid, s.at))?;
+                    if line.last() != Some(&b'\n') {
+                        line.push(b'\n');
+                    }
+                    raw.insert(uid, Slot { at, len: line.len() as u64, meta: () });
+                    line
+                }
+            };
+            at += line.len() as u64;
+            parts.extend_from_slice(&line);
+            if parts.len() >= WRITE_BYTES {
+                out.write_all(&parts).map_err(|e| Error::io(tmp, e))?;
+                parts.clear();
+            }
+        }
+        out.write_all(&parts).map_err(|e| Error::io(tmp, e))?;
+        Ok((src, out, next, raw, at))
     }
 }
 
@@ -628,7 +804,8 @@ impl<T: Keyed, M: Clone + Send + 'static> JsonlLog<T, M> {
             shared: Arc::new(Shared {
                 path: path.into(),
                 project,
-                inner: Mutex::new(Inner { live: IndexMap::new(), lines: 0, end: 0 }),
+                inner: Mutex::new(Inner { live: IndexMap::new(), raw: IndexMap::new(), lines: 0, end: 0 }),
+                compacting: Mutex::new(()),
             }),
         }
     }
