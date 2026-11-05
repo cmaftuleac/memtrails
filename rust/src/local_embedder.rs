@@ -81,7 +81,7 @@ impl Model {
         let shape = [encoded.len(), width];
         let ids = Tensor::from_array((shape, ids)).map_err(model_err)?;
         let mask = Tensor::from_array((shape, mask)).map_err(model_err)?;
-        let last_name = self.session.outputs.last().map(|o| o.name.clone()).unwrap_or_default();
+        let last_name = self.session.outputs().last().map(|o| o.name().to_string()).unwrap_or_default();
         let outputs =
             self.session.run(ort::inputs!["input_ids" => ids, "attention_mask" => mask]).map_err(model_err)?;
         let take = |name: &str| -> Option<(Vec<usize>, Vec<f32>)> {
@@ -148,8 +148,10 @@ impl Model {
 }
 
 /// How the local model runs.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct LocalEmbedderOptions {
+    /// The ONNX Runtime library to run it on (default: the pinned one, fetched into the cache: runtime.rs).
+    pub onnxruntime: Option<std::path::PathBuf>,
     /// CPU threads (default 1; a memory opens it with 2).
     pub threads: usize,
     /// Texts a run (default 8).
@@ -160,14 +162,19 @@ pub struct LocalEmbedderOptions {
 
 impl Default for LocalEmbedderOptions {
     fn default() -> Self {
-        LocalEmbedderOptions { threads: 1, batch: 8, max_tokens: 512 }
+        LocalEmbedderOptions { onnxruntime: None, threads: 1, batch: 8, max_tokens: 512 }
     }
 }
 
 /// Load the model from a folder (onnx/model_q4.onnx and tokenizer.json).
 pub async fn load_local_embedder(dir: &Path, o: LocalEmbedderOptions) -> Result<LocalEmbedder> {
+    let lib = match &o.onnxruntime {
+        Some(l) => l.clone(),
+        None => crate::runtime::ensure_runtime(&crate::download::DownloadOptions::default()).await?,
+    };
     let dir = dir.to_path_buf();
     let model = tokio::task::spawn_blocking(move || -> Result<Model> {
+        crate::runtime::load(&lib)?;
         let tokenizer = Tokenizer::from_file(dir.join("tokenizer.json")).map_err(model_err)?;
         let session = Session::builder()
             .map_err(model_err)?

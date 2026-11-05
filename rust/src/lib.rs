@@ -34,6 +34,7 @@ pub mod records;
 pub mod redact;
 pub mod reranker;
 pub mod room;
+pub mod runtime;
 pub mod sleep;
 pub mod store;
 mod sys;

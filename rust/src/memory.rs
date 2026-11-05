@@ -391,7 +391,8 @@ impl Memory {
                 Some(d) => d.clone(),
                 None => ensure_model(&downloads, None).await?,
             };
-            let options = LocalEmbedderOptions { threads: e.threads.unwrap_or(2), ..Default::default() };
+            let onnxruntime = Some(crate::runtime::ensure_runtime(&downloads).await?);
+            let options = LocalEmbedderOptions { onnxruntime, threads: e.threads.unwrap_or(2), ..Default::default() };
             Some(load_local_embedder(&model, options).await?)
         } else {
             None

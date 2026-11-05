@@ -26,6 +26,10 @@ fn every_supported_platform_has_a_pinned_build() {
     assert_eq!(qdrant_asset("win32-x64").unwrap().exe, "qdrant.exe");
     assert!(qdrant_asset("freebsd-x64").is_none());
     assert_eq!(QDRANT_ASSETS.len(), 5);
+    for p in ["darwin-arm64", "darwin-x64", "linux-x64", "linux-arm64", "win32-x64"] {
+        let a = memtrails::runtime::ONNXRUNTIME_ASSETS.iter().find(|a| a.0 == p).unwrap_or_else(|| panic!("{p}"));
+        assert!(a.1.contains(memtrails::runtime::ONNXRUNTIME_VERSION) && a.3.len() == 64 && a.2 > 5_000_000);
+    }
     assert_eq!(MODEL_FILES.len(), 4);
 }
 
