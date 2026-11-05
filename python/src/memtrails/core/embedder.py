@@ -169,7 +169,12 @@ def remote_embedder(
                 headers["authorization"] = f"Bearer {r['api_key']}"
             attempt = 0
             while True:
-                res = await client.post(url, content=body, headers=headers, timeout=remaining() / 1000)
+                # The whole call in what is left of the budget, the answer read too: httpx's own timeout is per phase.
+                left = remaining() / 1000
+                try:
+                    res = await asyncio.wait_for(client.post(url, content=body, headers=headers, timeout=left), left)
+                except asyncio.TimeoutError:
+                    raise TimeoutError("embeddings: operation deadline exceeded") from None
                 if res.is_success:
                     payload = res.json()
                     remaining()

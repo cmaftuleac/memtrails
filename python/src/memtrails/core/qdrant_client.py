@@ -87,6 +87,25 @@ class QdrantError(Exception):
         self.status = status
 
 
+def _finite(v: Any) -> Any:
+    """``v`` with NaN and ±Infinity as None, as JSON.stringify writes them (null)."""
+    if isinstance(v, float):
+        return v if math.isfinite(v) else None
+    if isinstance(v, dict):
+        return {k: _finite(x) for k, x in v.items()}
+    if isinstance(v, (list, tuple)):
+        return [_finite(x) for x in v]
+    return v
+
+
+def _json(body: Any) -> str:
+    """The request body as the reference sends it: a number that is not finite is null (JSON.stringify), not an error."""
+    try:
+        return json.dumps(body, allow_nan=False)
+    except ValueError:
+        return json.dumps(_finite(body), allow_nan=False)
+
+
 class QdrantClient:
     """``endpoint`` may start Qdrant: every call waits for it. ``http``: the client to call it with (one of its own when
     none is given)."""
@@ -123,7 +142,7 @@ class QdrantClient:
         e = await got if inspect.isawaitable(got) else got
         if not e:
             raise QdrantError("memory index is not running", 503)
-        payload = json.dumps(body, allow_nan=False) if body is not None else None
+        payload = _json(body) if body is not None else None
         headers = {"api-key": e.api_key}
         if payload is not None:
             headers["content-type"] = "application/json"
@@ -134,8 +153,11 @@ class QdrantClient:
         attempt = 0
         while res is None:
             try:
-                res = await self._client().request(method, f"{e.url}{path}", headers=headers, content=payload, timeout=timeout)
-            except httpx.TimeoutException as err:
+                # The whole call in its time, the answer read too (the reference's AbortSignal.timeout).
+                res = await asyncio.wait_for(
+                    self._client().request(method, f"{e.url}{path}", headers=headers, content=payload, timeout=timeout), timeout
+                )
+            except (httpx.TimeoutException, asyncio.TimeoutError) as err:
                 raise QdrantError(f"{method} {path}: timed out ({type(err).__name__})", 0) from err
             except httpx.TransportError as err:
                 if attempt < 2:

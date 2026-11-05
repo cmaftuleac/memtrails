@@ -10,6 +10,7 @@ Optional by design: no route, a refusal, an error or a late answer — and the s
 
 from __future__ import annotations
 
+import asyncio
 import gzip
 import math
 import os
@@ -84,7 +85,8 @@ def remote_reranker(route: Callable[[], RerankRoute | None] | None = None, http:
                 headers["authorization"] = f"Bearer {r['api_key']}"
             url = f"{r['url'].rstrip('/').removesuffix('/rerank')}/rerank"
             async with using(http) as client:
-                res = await client.post(url, content=body, headers=headers, timeout=timeout_ms / 1000)
+                # The whole call in its time, the answer read too, as the reference's AbortSignal.timeout.
+                res = await asyncio.wait_for(client.post(url, content=body, headers=headers, timeout=timeout_ms / 1000), timeout_ms / 1000)
             if not res.is_success:
                 return None
             reply = res.json()

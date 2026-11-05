@@ -4,9 +4,11 @@ llm.test.ts, ported)."""
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import gzip
 import json
+import math
 from typing import Any
 
 import httpx
@@ -15,7 +17,7 @@ import pytest
 
 from fakes import run
 from memtrails.core.embedder import EmbeddingUnavailable, doc_text, query_text, remote_embedder, resolve_embed_route
-from memtrails.core.qdrant_client import QdrantClient, QdrantEndpoint
+from memtrails.core.qdrant_client import QdrantClient, QdrantEndpoint, QdrantError
 from memtrails.core.reranker import remote_reranker, reranked_order, resolve_rerank_route
 from memtrails.llm import LlmRequest, OpenAiAsk
 
@@ -255,3 +257,73 @@ def test_retries_then_says_it_did_not_answer() -> None:
     r = run(OpenAiAsk(model="m", api_key="k", retries=0, http=httpx.AsyncClient(transport=t))(REQ))
     assert r == {"unavailable": "the model did not answer (HTTP 503)"}
     assert len(seen) == 1
+
+
+def trickle(body: bytes, pieces: int = 10, every: float = 0.05) -> Any:
+    """An answer that comes a little at a time: each piece well within httpx's per-read timeout, the whole well past
+    the call's time."""
+
+    async def stream() -> Any:
+        step = max(1, len(body) // pieces)
+        for i in range(0, len(body), step):
+            await asyncio.sleep(every)
+            yield body[i : i + step]
+
+    return stream()
+
+
+def slow_handler(body: dict[str, Any] | list[Any]) -> httpx.MockTransport:
+    async def handler(_req: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=trickle(json.dumps(body).encode()))
+
+    return httpx.MockTransport(handler)
+
+
+async def test_every_call_has_one_deadline_for_the_whole_of_it() -> None:
+    answer = {"output": [{"content": [{"text": "{}"}]}]}
+    ask = OpenAiAsk(model="m", api_key="k", retries=0, http=httpx.AsyncClient(transport=slow_handler(answer)))
+    r = await ask(LlmRequest(purpose="memory", system="s", prompt="p", schema={}, timeout_ms=200))
+    assert r == {"unavailable": "the model did not answer (no answer within 0.2 s)"}
+
+    scores = {"results": [{"index": 0, "relevance_score": 0.5}]}
+    rerank = remote_reranker(lambda: {"url": "http://rerank.test/v1"}, http=httpx.AsyncClient(transport=slow_handler(scores)))
+    assert await rerank("q", ["a"], 200) is None
+
+    embed = remote_embedder(
+        route(), timeout_ms=200, http=httpx.AsyncClient(transport=slow_handler({"data": [{"index": 0, "embedding": vec(0)}]}))
+    )
+    with pytest.raises(TimeoutError):
+        await embed(["a"])
+
+    q = QdrantClient(
+        lambda: QdrantEndpoint(url="http://q.test", api_key="k"), 200, http=httpx.AsyncClient(transport=slow_handler({"result": 3}))
+    )
+    with pytest.raises(QdrantError, match="timed out"):
+        await q.count()
+
+
+async def test_a_model_that_cannot_be_called_pauses_the_caller() -> None:
+    # An address httpx refuses (not an HTTPError), and an on_usage of yours that raises: told, never raised.
+    bad = OpenAiAsk(model="m", api_key="k", base_url="http://[not-an-address", retries=0)
+    assert "the model did not answer" in (await bad(REQ))["unavailable"]
+
+    def counting(_: Any) -> None:
+        raise RuntimeError("the counter is full")
+
+    _, t = capture(body=json.dumps({"output": [{"content": [{"text": "{}"}]}], "usage": {"input_tokens": 3}}))
+    r = await OpenAiAsk(model="m", api_key="k", on_usage=counting, http=httpx.AsyncClient(transport=t))(REQ)
+    assert "the counter is full" in r["unavailable"]
+
+
+async def test_a_number_that_is_not_finite_is_sent_as_null() -> None:
+    sent: list[bytes] = []
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        sent.append(req.content)
+        return httpx.Response(200, json={"result": {"points": []}})
+
+    q = QdrantClient(
+        lambda: QdrantEndpoint(url="http://q.test", api_key="k"), http=httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    )
+    await q.scroll({"must": [{"key": "ts", "range": {"gte": math.nan, "lt": math.inf}}]})
+    assert json.loads(sent[0])["filter"]["must"][0]["range"] == {"gte": None, "lt": None}

@@ -21,7 +21,7 @@ from typing import Any, Literal
 import httpx
 
 from ._http import using
-from ._js import flatten_ws, js_trim, stringify, u16slice
+from ._js import flatten_ws, js_trim, num_str, stringify, u16slice
 from .core.redact import redact_string
 
 
@@ -138,13 +138,21 @@ class OpenAiAsk:
                 if attempt:
                     await asyncio.sleep(min(60.0, 2 ** (attempt - 1)) * (0.5 + random.random()))
                 try:
-                    res = await http.post(
-                        f"{base}/responses",
-                        content=body,
-                        timeout=timeout,
-                        headers={"authorization": f"Bearer {key}", "content-type": "application/json"},
+                    # The whole call in its time, the answer read too (the reference's AbortSignal.timeout): httpx's own
+                    # timeout is per phase, and an answer that trickles in would never run out of it.
+                    res = await asyncio.wait_for(
+                        http.post(
+                            f"{base}/responses",
+                            content=body,
+                            timeout=timeout,
+                            headers={"authorization": f"Bearer {key}", "content-type": "application/json"},
+                        ),
+                        timeout,
                     )
-                except httpx.HTTPError as err:
+                except asyncio.TimeoutError:
+                    last = f"no answer within {num_str(timeout)} s"
+                    continue
+                except Exception as err:  # noqa: BLE001 - any failure to call (an address httpx refuses too) is tried again, as fetch's are
                     last = str(err) or type(err).__name__
                     continue
                 if res.status_code == 429 or res.status_code >= 500:
@@ -169,7 +177,7 @@ class OpenAiAsk:
                         )
                     text = "".join(c.get("text") or "" for x in r.get("output") or [] for c in x.get("content") or [])
                     return {"model": r.get("model") or model, "answer": json.loads(text)}
-                except (ValueError, AttributeError, TypeError) as err:
+                except Exception as err:  # noqa: BLE001 - an answer that cannot be read, or an on_usage that raises, pauses the caller
                     return {"unavailable": _why(f"the model's answer could not be read ({err})", req)}
         return {"unavailable": _why(f"the model did not answer ({last})", req)}
 
