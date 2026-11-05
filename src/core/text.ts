@@ -48,7 +48,8 @@ function wordSpans(text: string): Array<[number, number]> {
   return at;
 }
 
-const flat = (s: string): string => s.replace(/\s+/g, ' ').trim();
+/** Whitespace runs as one space, the ends trimmed. */
+export const flat = (s: string): string => s.replace(/\s+/g, ' ').trim();
 
 /** A text's first `n` words, as written (whitespace flattened). */
 export function firstWords(text: string, n: number): string {

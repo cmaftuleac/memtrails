@@ -55,6 +55,8 @@ pub struct State {
     pub upserts: AtomicUsize,
     /// A pause before each upsert answers, in ms.
     pub delay: AtomicUsize,
+    /// Points that tie: a chunk before its item's key (Qdrant may return either).
+    pub chunk_first: AtomicBool,
 }
 
 pub struct Fake {
@@ -140,7 +142,9 @@ fn ranked(state: &State, query: &Value, using: &str, filter: &Value) -> Vec<(Str
         .filter(|(_, p)| matches(&p.payload, filter))
         .filter_map(|(id, p)| score(p, query, using).map(|s| (id.clone(), s, p.payload.clone())))
         .collect();
-    out.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
+    let chunk_first = state.chunk_first.load(Ordering::SeqCst);
+    let key = |p: &Map<String, Value>| chunk_first && p["part"] == "key";
+    out.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap().then_with(|| key(&a.2).cmp(&key(&b.2))));
     out
 }
 

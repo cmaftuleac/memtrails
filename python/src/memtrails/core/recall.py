@@ -22,7 +22,7 @@ from .embedder import Embed, query_text
 from .graph import explore
 from .qdrant_client import Filter, point_id
 from .reranker import RERANK_TOP, reranked_order
-from .text import children, query_sparse
+from .text import children, flat, query_sparse
 from .words import Rerank
 from .writer import LONG_SUMMARY_CHUNKS, date_span
 
@@ -280,7 +280,7 @@ async def memory_search(d: RecallDeps, q: Mapping[str, Any]) -> list[RecalledIte
 
 async def _passages(d: RecallDeps, hits: Sequence[Mapping[str, Any]]) -> dict[str, str]:
     """For each hit whose best point was a chunk of its text, that chunk — found again from the text (writer.py chunks a
-    request's whole body; an item's body, and a summary too long for one key vector)."""
+    request's whole body; an item's body, and a summary too long for one key vector) — unless the key starts with it."""
     chunked = [h for h in hits if h.get("point") and h["point"] != point_id(h["item"], 0)]
     if not chunked:
         return {}
@@ -299,7 +299,10 @@ async def _passages(d: RecallDeps, hits: Sequence[Mapping[str, Any]]) -> dict[st
             kids = [*children(body), *(summary_kids if len(summary_kids) >= LONG_SUMMARY_CHUNKS else [])]
         for i, k in enumerate(kids):
             if point_id(h["item"], i + 1) == h["point"]:
-                out[h["item"]] = k
+                # A chunk that is the key's own start is not a passage found elsewhere: a short record's only chunk is
+                # its whole key, the two points tie, and either may come back first.
+                if not flat(summary).startswith(k):
+                    out[h["item"]] = k
                 break
     return out
 

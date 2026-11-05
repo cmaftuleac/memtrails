@@ -69,28 +69,7 @@ function run(lang, cmd, home, file) {
 function read(lang, home, label) {
   const out = run(lang, 'read', home, queries);
   writeFileSync(join(work, `${label}.json`), out);
-  return normalize(JSON.parse(out));
-}
-
-/** One thing is not compared: a `match` that is the record's whole key again. A short record's only chunk holds the
- *  same text as its key, so the two points tie exactly and Qdrant returns either one — from run to run, in every
- *  language, the reference included. When the chunk wins, search reports it as the passage that matched (and
- *  searchText repeats the summary after " … "). A match that is a different passage is still compared. */
-function normalize(read) {
-  const hit = (h) => (h.match === h.summary ? { ...h, match: null } : h);
-  for (const r of Object.values(read.results)) {
-    for (const key of ['hits', 'found', 'related']) if (Array.isArray(r[key])) r[key] = r[key].map(hit);
-    if (typeof r.text === 'string') {
-      r.text = r.text.split('\n').map((line) => {
-        if (!line.startsWith('   ')) return line;
-        for (let at = line.indexOf(' … '); at >= 0; at = line.indexOf(' … ', at + 1)) {
-          if (line.slice(3, at) === line.slice(at + 3)) return line.slice(0, at);
-        }
-        return line;
-      }).join('\n');
-    }
-  }
-  return read;
+  return JSON.parse(out);
 }
 
 /** A copy of a home, so that every reader starts from the same files (a read writes usage.json and recall.jsonl). */

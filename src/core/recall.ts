@@ -12,7 +12,7 @@ import { queryText } from './embedder.js';
 import { explore } from './graph.js';
 import type { RecallEvent } from './recall-log.js';
 import { RERANK_TOP, rerankedOrder } from './reranker.js';
-import { children, cut, querySparse } from './text.js';
+import { children, cut, flat, querySparse } from './text.js';
 import { dateSpan, LONG_SUMMARY_CHUNKS } from './writer.js';
 import { collectionKey } from '../records.js';
 
@@ -195,7 +195,7 @@ export async function memorySearch(d: RecallDeps, q: SearchQuery): Promise<Recal
 }
 
 /** For each hit whose best point was a chunk of its text, that chunk — found again from the text (writer.ts chunks a
- *  request's whole body; an item's body, and a summary too long for one key vector). */
+ *  request's whole body; an item's body, and a summary too long for one key vector) — unless the key starts with it. */
 async function passages(d: RecallDeps, hits: Array<{ item: string; point?: string }>): Promise<Map<string, string>> {
   const chunked = hits.filter((h) => h.point && h.point !== pointId(h.item, 0));
   if (!chunked.length) return new Map();
@@ -209,7 +209,9 @@ async function passages(d: RecallDeps, hits: Array<{ item: string; point?: strin
     const summary = String(p.summary ?? '');
     const kids = p.tier === 'stm' ? children(body) : [...children(body), ...(children(summary).length >= LONG_SUMMARY_CHUNKS ? children(summary) : [])];
     const k = kids.findIndex((_, i) => pointId(h.item, i + 1) === h.point);
-    if (k >= 0) out.set(h.item, kids[k]!);
+    // A chunk that is the key's own start is not a passage found elsewhere: a short record's only chunk is its whole
+    // key, the two points tie, and either may come back first.
+    if (k >= 0 && !flat(summary).startsWith(kids[k]!)) out.set(h.item, kids[k]!);
   }
   return out;
 }

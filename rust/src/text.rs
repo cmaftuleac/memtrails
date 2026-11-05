@@ -131,7 +131,8 @@ pub(crate) fn word_spans(text: &str) -> Vec<(usize, usize)> {
     out
 }
 
-fn flat(s: &str) -> String {
+/// Whitespace runs as one space, the ends trimmed.
+pub fn flat(s: &str) -> String {
     js::trim(&js::collapse_spaces(s)).to_string()
 }
 

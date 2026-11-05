@@ -23,7 +23,7 @@ use crate::recall_log::RecallEvent;
 use crate::records::collection_key;
 use crate::reranker::{reranked_order, RERANK_TOP};
 use crate::store::RecordRef;
-use crate::text::{children, cut, query_sparse};
+use crate::text::{children, cut, flat, query_sparse};
 use crate::writer::{date_span, LONG_SUMMARY_CHUNKS};
 use crate::RerankFn;
 
@@ -307,7 +307,7 @@ pub async fn memory_search(d: &RecallDeps, q: &SearchQuery) -> Result<Vec<Recall
 }
 
 /// For each hit whose best point was a chunk of its text, that chunk — found again from the text (a record's whole
-/// body is chunked; an item's body, and a summary too long for one key vector).
+/// body is chunked; an item's body, and a summary too long for one key vector) — unless the key starts with it.
 async fn passages(d: &RecallDeps, hits: &[FusedHit]) -> Result<IndexMap<String, String>> {
     let chunked: Vec<&FusedHit> =
         hits.iter().filter(|h| h.point.as_ref().is_some_and(|p| *p != point_id(&h.item, 0))).collect();
@@ -329,8 +329,12 @@ async fn passages(d: &RecallDeps, hits: &[FusedHit]) -> Result<IndexMap<String, 
                 kids.extend(more);
             }
         }
+        // A chunk that is the key's own start is not a passage found elsewhere: a short record's only chunk is its
+        // whole key, the two points tie, and either may come back first.
         if let Some(k) = (0..kids.len()).find(|i| Some(point_id(&h.item, *i as i64 + 1)) == h.point) {
-            out.insert(h.item.clone(), kids[k].clone());
+            if !flat(&summary).starts_with(kids[k].as_str()) {
+                out.insert(h.item.clone(), kids[k].clone());
+            }
         }
     }
     Ok(out)
