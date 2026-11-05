@@ -209,3 +209,20 @@ async fn a_rerank_server_orders_and_a_failing_one_leaves_the_order() {
     let rerank = remote_reranker(RerankRoute { url: down.url.clone(), ..Default::default() });
     assert!(rerank("q".into(), vec!["a".into()], 3000).await.is_none());
 }
+
+#[tokio::test]
+async fn as_many_retries_as_a_u32_holds_is_not_an_overflow() {
+    let s = serve(|_| {
+        Response::json(200, &json!({ "model": "m", "output": [{ "content": [{ "text": "{\"ok\":true}" }] }] }))
+    })
+    .await;
+    let ask = openai_ask(OpenAiAskOptions {
+        model: Some("m".into()),
+        api_key: Some("k".into()),
+        base_url: Some(s.url.clone()),
+        retries: Some(u32::MAX),
+        ..Default::default()
+    });
+    let a = ask.ask(req()).await.unwrap();
+    assert_eq!(a, LlmAnswer::Answer { answer: json!({ "ok": true }), model: Some("m".into()) });
+}

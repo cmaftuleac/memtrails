@@ -218,7 +218,7 @@ async fn ask_openai(o: &OpenAiAskOptions, req: LlmRequest) -> LlmAnswer {
         json!({ "format": { "type": "json_schema", "name": req.name.clone().unwrap_or_else(|| "memory".into()), "strict": true, "schema": req.schema } }),
     );
     let body = crate::js::stringify(&Value::Object(body));
-    let tries = o.retries.unwrap_or(5) + 1;
+    let tries = o.retries.unwrap_or(5).saturating_add(1); // `u32::MAX` retries is as many as there can be
     let timeout = Duration::from_millis(req.timeout_ms.unwrap_or(180_000));
     let mut last = String::new();
     for attempt in 0..tries {
