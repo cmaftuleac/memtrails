@@ -5,10 +5,14 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-- LangChain and LlamaIndex retrievers: `memtrails/langchain` and `memtrails/llamaindex` (with `@langchain/core` or
-  `@llamaindex/core` beside it, optional peers), and in Python `memtrails.integrations.langchain` and
-  `memtrails.integrations.llama_index` (`pip install memtrails[langchain]` / `[llama-index]`). Each found item becomes
-  the framework's document with the same id, text and flat metadata in both languages (`conformance/fixtures/retriever.json`).
+## [0.5.3] — 2026-11-05
+
+- LangChain and LlamaIndex retrievers: `memtrails/langchain` (with `@langchain/core` beside it, an optional peer), and
+  in Python `memtrails.integrations.langchain` and `memtrails.integrations.llama_index` (`pip install
+  memtrails[langchain]` / `[llama-index]`). Each found item becomes the framework's document with the same id, text and
+  flat metadata in both languages (`conformance/fixtures/retriever.json`). No TypeScript LlamaIndex adapter: its
+  packages are no longer maintained.
+  The Rust version is released at the same version, unchanged (LangChain and LlamaIndex are Python and JavaScript).
 
 ## [0.5.2] — 2026-11-05
 

@@ -1,6 +1,6 @@
 {
   "name": "memtrails",
-  "version": "0.5.2",
+  "version": "0.5.3",
   "description": "Retrieval and exploration for any text — e-mail, chat, notes, documents, news, commits, conversations. Searchable at once, on your own machine, in any language; optional consolidation into typed knowledge with a language model.",
   "keywords": [
     "retrieval",
