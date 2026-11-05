@@ -101,7 +101,8 @@ export interface Memory {
   tools(): AgentTool[];
   stats(): { records: number; items: number; words: number };
   /** Stops a consolidate, sleep, rebuild or indexWords at its next step (a rebuild resumes at the next open) and waits
-   *  for it, then releases Qdrant, the model and the home. */
+   *  for it and for the adds and searches in flight, then releases Qdrant, the model and the home. Every call after it
+   *  is refused ("memory is closed"). */
   close(): Promise<void>;
 }
 
@@ -176,6 +177,31 @@ function saveIndexLayout(dir: string): void {
   const path = join(dir, LAYOUT_FILE);
   writeFileSync(`${path}.tmp`, JSON.stringify({ layout: INDEX_LAYOUT }), { mode: 0o600 });
   renameSync(`${path}.tmp`, path);
+}
+
+/** Turns shared, and a turn alone: many share at once; one alone waits until no one shares, and keeps new sharers out
+ *  while it waits, so a stream of them never holds it off. */
+function turns(): { shared<T>(job: () => Promise<T>): Promise<T>; alone<T>(job: () => Promise<T>): Promise<T> } {
+  let sharing = 0;
+  let alone = false;
+  let waiting = 0;
+  let wakers: Array<() => void> = [];
+  const wake = (): void => { const w = wakers; wakers = []; for (const f of w) f(); };
+  const until = async (ok: () => boolean): Promise<void> => { while (!ok()) await new Promise<void>((r) => wakers.push(r)); };
+  return {
+    async shared(job) {
+      await until(() => !alone && !waiting);
+      sharing++;
+      try { return await job(); } finally { sharing--; wake(); }
+    },
+    async alone(job) {
+      waiting++;
+      await until(() => !alone && !sharing);
+      waiting--;
+      alone = true;
+      try { return await job(); } finally { alone = false; wake(); }
+    },
+  };
 }
 
 /** What an open has started, for an open that fails half-way to release: a Qdrant left running keeps the host alive. */
@@ -285,6 +311,19 @@ async function openIn(dir: string, o: MemoryOptions, log: (line: string) => void
     return run;
   };
   let closed: Promise<void> | null = null;
+  /** Every call (add, search, open, …) shares a turn; close() takes it alone, so it lets go of Qdrant, the model and the
+   *  home only once the calls in flight are done. */
+  const calls = turns();
+  /** Adds share a turn; a rebuild takes it alone. An add beside a rebuild could write its points into the index about to
+   *  be dropped and log its record after the rebuild read the log: logged, never indexed, and skipped as unchanged when
+   *  added again. */
+  const adding = turns();
+  const check = (): void => { if (closing) throw new Error('memory is closed'); };
+  /** A call's shared turn; refused once close() began, also when it waited for its turn meanwhile. */
+  const call = async <T>(job: () => Promise<T>): Promise<T> => {
+    check();
+    return calls.shared(async () => { check(); return job(); });
+  };
 
   /** The text word by word scores an item by: its key, as search returns it. */
   const keyText = (title: string, summary: string): string => `${title}\n${summary}`;
@@ -316,7 +355,8 @@ async function openIn(dir: string, o: MemoryOptions, log: (line: string) => void
     return [keyText(stmTitle(x), rawKey(x)), ...sentenceSpans(room).map(([a, b]) => room.slice(a, b))];
   });
 
-  const write = async (entries: StmEntry[], total: number): Promise<{ added: number; unchanged: number }> => {
+  const write = (entries: StmEntry[], total: number): Promise<{ added: number; unchanged: number }> => call(() => adding.shared(async () => {
+    check(); // it may have waited for a rebuild that a close stopped
     const fresh = entries.filter((x) => stm.meta(x.uid)?.fp !== x.fingerprint);
     for (let i = 0; i < fresh.length; i += BATCH) {
       const part = fresh.slice(i, i + BATCH);
@@ -326,7 +366,7 @@ async function openIn(dir: string, o: MemoryOptions, log: (line: string) => void
     }
     stm.compact();
     return { added: fresh.length, unchanged: total - fresh.length };
-  };
+  }));
 
   /** Unlocked: consolidate and sleep run it inside their own turn. */
   const indexWords = async (): Promise<number> => {
@@ -389,15 +429,18 @@ async function openIn(dir: string, o: MemoryOptions, log: (line: string) => void
       await Promise.all([stm.flush(), ltm.flush()]);
       return uids.length;
     }),
-    search: (s) => memorySearch(deps, s),
-    searchText: async (s) => searchText(await memorySearch(deps, s), s.order ?? 'relevance'),
+    search: (s) => call(() => memorySearch(deps, s)),
+    searchText: (s) => call(async () => searchText(await memorySearch(deps, s), s.order ?? 'relevance')),
     async room(s) {
+      check();
       if (!encode) throw new Error('the room needs the local embedding model (embedding.modelDir, or no embedding.server)');
-      const found = await memorySearch(deps, { ...s, limit: s.limit ?? 20 });
-      return sentenceRoom(s.query, found.map(roomItem), encode, words, s.chars ?? ROOM_CHARS);
+      return call(async () => {
+        const found = await memorySearch(deps, { ...s, limit: s.limit ?? 20 });
+        return sentenceRoom(s.query, found.map(roomItem), encode, words, s.chars ?? ROOM_CHARS);
+      });
     },
     async open(id) {
-      const p = await memoryOpen(deps, id);
+      const p = await call(() => memoryOpen(deps, id));
       if (!p) return null;
       // A record: its kind as given. Something learned: the records it was learned from, whole.
       if (p.tier === 'stm') return { ...p, kind: p.engine };
@@ -406,8 +449,8 @@ async function openIn(dir: string, o: MemoryOptions, log: (line: string) => void
         .map((x) => ({ id: stmItem(x.uid), when: x.ts, title: x.title, body: episodeBody(x), ...(x.record ? { record: x.record } : {}) }));
       return sources.length ? { ...p, sources } : p;
     },
-    explore: (s) => memoryExplore(deps, s),
-    gather: (s, g) => memoryGather(deps, s, { ask, ...(s.limit ? { limit: s.limit } : {}), ...(g?.notes ? { notes: true } : {}) }),
+    explore: (s) => call(() => memoryExplore(deps, s)),
+    gather: (s, g) => call(() => memoryGather(deps, s, { ask, ...(s.limit ? { limit: s.limit } : {}), ...(g?.notes ? { notes: true } : {}) })),
     consolidate: () => exclusive(async () => {
       const worker = new Consolidator({ ...base, concurrency: o.concurrency ?? 4 });
       const total: ConsolidationReport = { windows: 0, added: 0, merged: 0, updated: 0, superseded: 0, linked: 0, dropped: 0, episodes: 0, observed: 0, cued: 0 };
@@ -426,30 +469,33 @@ async function openIn(dir: string, o: MemoryOptions, log: (line: string) => void
       return r;
     }),
     indexWords: () => exclusive(indexWords),
-    rebuild: () => exclusive(async () => {
+    rebuild: () => exclusive(() => adding.alone(async () => { // the adds in flight end first; the next ones wait for it
       rebuild.begin(); // before the drop: a crash, or a close, after it resumes at the next open
       await client.dropCollection();
       await client.ensureCollection();
       await rebuild.run();
-    }),
+    })),
     tools: () => buildAgentTools({
-      search: (s) => memorySearch(deps, s),
+      search: (s) => memory.search(s),
       open: (id) => memory.open(id),
-      explore: (s) => memoryExplore(deps, s),
+      explore: (s) => memory.explore(s),
     }),
     stats: () => ({ records: stm.size(), items: [...ltm.entries()].filter(([, m]) => m.status === 'active').length, words: words.size }),
     close() {
       closed ??= (async () => {
         closing = true;
         await queue; // the job running stops at its next step; those waiting are refused
-        try {
-          await book.settled();
-          usage.flush();
-          await proc?.stopAndWait();
-          await local?.close();
-        } finally {
-          release();
-        }
+        // The adds and searches in flight end first; those waiting for their turn, and every call after, are refused.
+        await calls.alone(async () => {
+          try {
+            await book.settled();
+            usage.flush();
+            await proc?.stopAndWait();
+            await local?.close();
+          } finally {
+            release();
+          }
+        });
       })();
       return closed;
     },

@@ -45,7 +45,8 @@ type Point = { id: string; payload: Record<string, unknown> };
 
 /** Qdrant's REST API as far as memory uses it, in memory: points by id, deletes by item, every key point a search hit. */
 function fakeQdrant() {
-  const s = { exists: false, points: new Map<string, Point>(), delay: 0, upserts: 0, drops: 0 };
+  /** `hold`: ms an upsert's answer waits after its points are in; `written`: the items of every upsert, as it arrives. */
+  const s = { exists: false, points: new Map<string, Point>(), delay: 0, upserts: 0, drops: 0, hold: 0, written: [] as string[] };
   const server = createServer(async (req, res) => {
     const b = await body(req);
     const path = new URL(req.url ?? '/', 'http://x').pathname;
@@ -65,7 +66,8 @@ function fakeQdrant() {
       s.upserts++;
       await wait(s.delay);
       if (!s.exists) return send(404, null);
-      for (const p of b.points as Point[]) s.points.set(p.id, { id: p.id, payload: p.payload });
+      for (const p of b.points as Point[]) { s.points.set(p.id, { id: p.id, payload: p.payload }); s.written.push(String(p.payload.item)); }
+      await wait(s.hold);
       return send(200, true);
     }
     if (rest === '/points') return send(200, (b.ids as string[]).flatMap((id) => (s.points.has(id) ? [s.points.get(id)!] : [])));
@@ -133,12 +135,13 @@ function home(): string {
 afterAll(() => { for (const d of homes) rmSync(d, { recursive: true, force: true }); });
 
 /** A fresh index for each test: the fake is shared. */
-function reset(): void { q.s.exists = false; q.s.points.clear(); q.s.delay = 0; q.s.upserts = 0; q.s.drops = 0; }
+function reset(): void { q.s.exists = false; q.s.points.clear(); q.s.delay = 0; q.s.upserts = 0; q.s.drops = 0; q.s.hold = 0; q.s.written = []; }
 
 const opts = (dir: string, more: Partial<MemoryOptions> = {}): MemoryOptions => ({
   home: dir, embedding: { server: { url: embedUrl } }, qdrant: { url: qUrl }, rerank: false, ...more,
 });
 const records = (n: number, from = 0) => Array.from({ length: n }, (_, i) => ({ id: `r${from + i}`, text: `Record number ${from + i}: the gateway certificate expired on day ${from + i}.`, at: '2025-01-02' }));
+const stmItemOf = (uid: string): string => `stm:${uid}`;
 const stmItems = (): string[] => [...new Set([...q.s.points.values()].filter((p) => p.payload.tier === 'stm').map((p) => String(p.payload.item)))];
 
 /** A Qdrant stand-in binary that comes up, proves its key, and fails the collection call (`broken`). */
@@ -340,6 +343,42 @@ describe('one job at a time', () => {
     expect(stmItems().length).toBe(200);
     await m.close();
   }, 20_000);
+});
+
+describe('adds, a rebuild and close()', () => {
+  it('a rebuild asked for while an add writes waits for it: the record is logged and indexed, not logged alone', async () => {
+    reset();
+    const dir = home();
+    const m = await openMemory(opts(dir));
+    // The add's points are in the index, its answer held: a rebuild beside it would drop them before the record is in
+    // the log it reads.
+    q.s.hold = 300;
+    const late = recordUid({ id: 'late' });
+    const adding = m.add({ id: 'late', text: 'The proxy moved to port 8443.', at: '2025-01-02' });
+    await until(() => q.s.written.includes(stmItemOf(late)));
+    const rebuilding = m.rebuild();
+    await Promise.all([adding, rebuilding]);
+    q.s.hold = 0;
+    expect(stmItems()).toContain(stmItemOf(late));
+    await m.close();
+  });
+
+  it('close() waits for an add in flight, then refuses every call: "memory is closed"', async () => {
+    reset();
+    const dir = home();
+    const m = await openMemory(opts(dir));
+    q.s.hold = 300;
+    const order: string[] = [];
+    const adding = m.add(records(1)).then(() => order.push('add'));
+    await until(() => q.s.written.length > 0);
+    await m.close().then(() => order.push('close'));
+    await adding;
+    expect(order).toEqual(['add', 'close']);
+    await expect(m.add(records(1, 5))).rejects.toThrow('memory is closed');
+    await expect(m.addConversation({ id: 'c', turns: [{ role: 'user', text: 'hi' }] })).rejects.toThrow('memory is closed');
+    await expect(m.search({ query: 'certificate' })).rejects.toThrow('memory is closed');
+    await expect(m.open('stm:x')).rejects.toThrow('memory is closed');
+  });
 });
 
 describe('the recall record', () => {

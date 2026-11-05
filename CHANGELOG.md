@@ -9,6 +9,9 @@ versions follow [Semantic Versioning](https://semver.org/).
   so none of them lands in the index after it.
 - Fixes: `close()` while memory's own Qdrant is being restarted (after it died) stops that restart and waits for the
   Qdrant it began; one could come up after the close and stay running.
+- Fixes: an add no longer runs beside a rebuild (a record could be logged but never indexed, then skipped as unchanged
+  when added again); `close()` waits for the adds and searches in flight, and every call after it is refused with
+  "memory is closed".
 
 ## [0.4.0] — 2026-11-04
 
