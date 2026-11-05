@@ -117,6 +117,26 @@ fn take_out(archive: &Path, inner: &str, to: &Path) -> Result<()> {
     Err(Error::Download(format!("{name} did not contain {inner}")))
 }
 
+/// The verified archive's library taken out into a fresh folder in `tmp` and moved into place whole: never a
+/// half-written library under the real name. Every file and folder `ready` looks at is given its mode here, not left
+/// to the umask: under a umask of 002 the library came out group-writable, `ready` refused it, and every open fetched
+/// it again only to refuse it again.
+fn place(file: &Path, tmp: &Path, dir: &Path, inner: &str, size: u64, sha: &str) -> Result<()> {
+    let unpacked = tmp.join("unpacked");
+    fs::create_dir(&unpacked).map_err(|e| Error::io(&unpacked, e))?;
+    let lib = unpacked.join(file_name(inner));
+    take_out(file, inner, &lib)?;
+    sys::chmod(&lib, 0o644).map_err(|e| Error::io(&lib, e))?;
+    let marker = unpacked.join(".verified");
+    fs::write(&marker, format!("{size}:{sha}\n")).map_err(|e| Error::io(&marker, e))?;
+    sys::chmod(&marker, 0o644).map_err(|e| Error::io(&marker, e))?;
+    sys::chmod(&unpacked, 0o755).map_err(|e| Error::io(&unpacked, e))?;
+    if dir.exists() {
+        fs::rename(dir, tmp.join("old")).map_err(|e| Error::io(dir, e))?;
+    }
+    fs::rename(&unpacked, dir).map_err(|e| Error::io(dir, e))
+}
+
 /// The library, fetched, verified and taken out of its archive unless it is already there; or the one
 /// `MEMTRAILS_ONNXRUNTIME` names.
 pub async fn ensure_runtime(o: &DownloadOptions) -> Result<PathBuf> {
@@ -149,21 +169,7 @@ pub async fn ensure_runtime(o: &DownloadOptions) -> Result<PathBuf> {
         let (file, tmp) =
             download_verified(&format!("{}/{archive}", base.trim_end_matches('/')), &cache, &pin, o).await?;
         let (d, t, s) = (dir.clone(), tmp.clone(), sha.to_string());
-        // Taken out into a fresh folder and moved into place whole: never a half-written library under the real name.
-        let placed = blocking(move || -> Result<()> {
-            let unpacked = t.join("unpacked");
-            fs::create_dir(&unpacked).map_err(|e| Error::io(&unpacked, e))?;
-            take_out(&file, inner, &unpacked.join(file_name(inner)))?;
-            let marker = unpacked.join(".verified");
-            fs::write(&marker, format!("{size}:{s}\n")).map_err(|e| Error::io(&marker, e))?;
-            sys::chmod(&marker, 0o644).map_err(|e| Error::io(&marker, e))?;
-            sys::chmod(&unpacked, 0o755).map_err(|e| Error::io(&unpacked, e))?;
-            if d.exists() {
-                fs::rename(&d, t.join("old")).map_err(|e| Error::io(&d, e))?;
-            }
-            fs::rename(&unpacked, &d).map_err(|e| Error::io(&d, e))
-        })
-        .await;
+        let placed = blocking(move || place(&file, &t, &d, inner, size, &s)).await;
         let _ = tokio::fs::remove_dir_all(&tmp).await;
         placed??;
         let (c, s) = (cache.clone(), sha.to_string());
@@ -195,5 +201,38 @@ pub(crate) fn load(lib: &Path) -> Result<()> {
         Ok(at) if at == lib => Ok(()),
         Ok(at) => Err(Error::Model(format!("ONNX Runtime is already loaded from {}", at.display()))),
         Err(e) => Err(Error::Model(e.clone())),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn a_library_taken_out_under_a_loose_umask_is_still_ready() {
+        let cache = tempfile::tempdir().unwrap();
+        let tmp = cache.path().join(".download-test");
+        fs::create_dir(&tmp).unwrap();
+        let inner = "lib/libonnxruntime.so.1.23.2";
+        let archive = tmp.join("file");
+        {
+            let gz = flate2::write::GzEncoder::new(fs::File::create(&archive).unwrap(), flate2::Compression::fast());
+            let mut tar = tar::Builder::new(gz);
+            let body = b"not really a library";
+            let mut h = tar::Header::new_gnu();
+            h.set_size(body.len() as u64);
+            h.set_mode(0o664);
+            h.set_cksum();
+            tar.append_data(&mut h, format!("onnxruntime/{inner}"), &body[..]).unwrap();
+            tar.into_inner().unwrap().finish().unwrap();
+        }
+        // SAFETY: umask only sets this process's file-creation mask; it is put back right after.
+        let was = unsafe { libc::umask(0o002) };
+        let placed = place(&archive, &tmp, &runtime_dir(cache.path()), inner, 7, "abc");
+        // SAFETY: as above.
+        unsafe { libc::umask(was) };
+        placed.unwrap();
+        assert!(ready(cache.path(), 7, "abc", inner));
     }
 }
