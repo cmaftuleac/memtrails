@@ -523,3 +523,32 @@ process.on('SIGTERM', () => process.exit(0));
     assert!(!r.home.path().join("mem/memory.lock").exists());
     r.open().await.close().await.unwrap();
 }
+
+#[tokio::test]
+async fn gathering_with_a_limit_of_zero_searches_as_wide_as_with_none() {
+    // The reference passes a limit on only when it is one (`s.limit ? { limit } : {}`): 0 is the default, 200 a list.
+    let r = rig().await;
+    let m = Memory::open(r.options(Some(Arc::new(Counting { now: AtomicUsize::new(0), most: AtomicUsize::new(0) }))))
+        .await
+        .unwrap();
+    m.add(vec![mail("m-1", "Kept", "Something kept in the logs.")]).await.unwrap();
+    let limits = |from: usize| -> Vec<u64> {
+        r.fake.server.requests()[from..]
+            .iter()
+            .filter(|q| q.path.contains("/points/query"))
+            .flat_map(|q| {
+                let b = q.json();
+                let mut out: Vec<u64> = b["limit"].as_u64().into_iter().collect();
+                out.extend(b["searches"].as_array().into_iter().flatten().filter_map(|s| s["limit"].as_u64()));
+                out
+            })
+            .collect()
+    };
+    let before = r.fake.server.requests().len();
+    m.gather(&SearchQuery { limit: None, ..SearchQuery::new("something kept") }, false).await.unwrap();
+    let wide = limits(before);
+    let before = r.fake.server.requests().len();
+    m.gather(&SearchQuery { limit: Some(0), ..SearchQuery::new("something kept") }, false).await.unwrap();
+    assert_eq!(limits(before), wide);
+    m.close().await.unwrap();
+}

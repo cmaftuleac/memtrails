@@ -855,7 +855,9 @@ impl Memory {
     /// A set for a question that counts, lists or totals: a wide search, then the language model keeps every
     /// instance. With `notes`, it also writes what the kept memories say that answers the question.
     pub async fn gather(&self, q: &SearchQuery, notes: bool) -> Result<Gathered> {
-        let o = GatherOptions { ask: Some(self.inner.ask.as_ref()), limit: q.limit, notes };
+        // A limit is passed on only when it is one, as the reference does (`s.limit ? { limit } : {}`): 0 is the
+        // default wide search, not a search of one.
+        let o = GatherOptions { ask: Some(self.inner.ask.as_ref()), limit: q.limit.filter(|l| *l > 0), notes };
         memory_gather(&self.recall(), q, o).await
     }
 
