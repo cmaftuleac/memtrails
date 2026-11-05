@@ -278,10 +278,16 @@ pub fn iso_string(ms: f64) -> String {
     format!("{year}-{:02}-{:02}T{:02}:{:02}:{:02}.{:03}Z", u.month, u.day, u.hour, u.minute, u.second, u.milli)
 }
 
+/// The first `n` characters of `new Date(ms).toISOString()` (`.slice(0, n)`): cut by place, as the reference cuts it,
+/// so a year past 9999 (`+010000-…`) is cut where JavaScript cuts it, not from the tail.
+pub(crate) fn iso_head(ms: f64, n: usize) -> String {
+    let s = iso_string(ms);
+    s.get(..n).unwrap_or(&s).to_string()
+}
+
 /// The date of `ms` as `YYYY-MM-DD` (`toISOString().slice(0, 10)`).
 pub(crate) fn iso_day(ms: f64) -> String {
-    let s = iso_string(ms);
-    s[..s.len() - 14].to_string()
+    iso_head(ms, 10)
 }
 
 pub(crate) const WEEKDAYS: [&str; 7] = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];

@@ -138,3 +138,18 @@ fn metadata_with_number_keys_is_fingerprinted_in_the_order_javascript_gives_its_
     let kept: Vec<String> = e.record.unwrap().metadata.unwrap().keys().cloned().collect();
     assert_eq!(kept, ["2", "10", "b"]);
 }
+
+#[test]
+fn a_date_past_year_9999_is_cut_from_its_iso_text_as_javascript_cuts_it() {
+    // `toISOString().slice(0, n)` on a six-digit year (answers from node): the cut is by place, not by the tail.
+    let t = 253_407_762_367_000.0; // +010000-03-04T05:06:07.000Z
+    let cal = memtrails::episodes::calendar_of(&[t]);
+    assert!(cal.starts_with("- Sat +010000-03: yesterday "), "{cal}");
+    assert!(cal.contains("last month +010000 ·"), "{cal}");
+    let e = entry_of(&MemoryRecord { at: Some(At::Ms(t)), ..MemoryRecord::new("m1", "text") }, now(), 0);
+    assert!(
+        render_for_extraction(&e, 1).starts_with("## Record 1 · +010000-03-04 05 · record"),
+        "{}",
+        render_for_extraction(&e, 1)
+    );
+}

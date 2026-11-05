@@ -51,8 +51,7 @@ pub fn calendar_of(tss: &[f64]) -> String {
             let u = js::utc_of(d);
             let monday = d - ((u.weekday + 6) % 7) as f64 * DAY;
             let sunday = d - (if u.weekday == 0 { 7 } else { u.weekday }) as f64 * DAY;
-            let month = js::iso_string(js::date_utc(u.year, u.month - 2, 1, 0, 0, 0, 0));
-            let last_month = &month[..month.len() - 17];
+            let last_month = js::iso_head(js::date_utc(u.year, u.month - 2, 1, 0, 0, 0, 0), 7);
             let before = [2.0, 3.0, 4.0, 5.0, 6.0, 7.0]
                 .iter()
                 .map(|n| format!("{} {}", wd(d - n * DAY), iso(d - n * DAY)))
@@ -70,12 +69,7 @@ pub fn calendar_of(tss: &[f64]) -> String {
 
 /// A record as the consolidation model reads it, numbered `n` in its window.
 pub fn render_for_extraction(e: &StmEntry, n: usize) -> String {
-    let when = if e.ts != 0.0 && !e.ts.is_nan() {
-        let s = js::iso_string(e.ts);
-        s[..s.len() - 8].replacen('T', " ", 1)
-    } else {
-        String::new()
-    };
+    let when = if e.ts != 0.0 && !e.ts.is_nan() { js::iso_head(e.ts, 16).replacen('T', " ", 1) } else { String::new() };
     // Whole: a record too long for one window is read in parts and its parts joined, never shortened.
     if !is_conversation(&e.engine) {
         return [format!("## Record {n} · {when} · {}", e.engine), e.request.clone(), e.reply.clone()]
