@@ -197,6 +197,11 @@ async def test_the_fused_search_adds_up_the_same() -> None:
 
 @pytest.fixture
 def utc() -> Iterator[None]:
+    if not hasattr(time, "tzset"):  # Windows: the zone cannot be changed here, only used when it is UTC already
+        if time.timezone != 0 or time.daylight:
+            pytest.skip("local time is not UTC and cannot be set to it in this process")
+        yield
+        return
     before = os.environ.get("TZ")
     os.environ["TZ"] = "UTC"
     time.tzset()

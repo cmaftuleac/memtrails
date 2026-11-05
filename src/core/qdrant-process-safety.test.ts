@@ -19,6 +19,9 @@ async function until(ok: () => boolean, ms = 5000): Promise<boolean> {
 }
 
 const root = mkdtempSync(join(tmpdir(), 'memtrails-qp-'));
+/** The stand-in Qdrant is a script, which Windows does not run as a program: what needs it is Unix's here, and the real
+ *  Qdrant is started and stopped on Windows by the integration tests. */
+const standIn = process.platform !== 'win32';
 afterAll(() => rmSync(root, { recursive: true, force: true }));
 
 /** A stand-in Qdrant: `ok` checks its key like Qdrant; `anykey` takes any key (not ours); `exit` dies at once. Each
@@ -66,14 +69,14 @@ describe('a start that fails', () => {
     expect(p.current()).toBeNull();
   }, 10_000);
 
-  it('schedules no restart when Qdrant dies while starting: whoever started it was told, and may be gone', async () => {
+  it.skipIf(!standIn)('schedules no restart when Qdrant dies while starting: whoever started it was told, and may be gone', async () => {
     const p = qdrant(fakeQdrant('exit'));
     await expect(p.start()).rejects.toThrow(/exited/);
     await wait(1500); // the first restart would come after 1 s
     expect(spawns(p.dir)).toHaveLength(1);
   }, 10_000);
 
-  it('refuses what answers on the port but takes any key: it is not ours, and is stopped', async () => {
+  it.skipIf(!standIn)('refuses what answers on the port but takes any key: it is not ours, and is stopped', async () => {
     const p = qdrant(fakeQdrant('anykey'));
     await expect(p.start()).rejects.toThrow(/not this memory's Qdrant: it took a wrong key/);
     const [pid] = spawns(p.dir);
@@ -82,7 +85,7 @@ describe('a start that fails', () => {
   }, 10_000);
 });
 
-describe('a running Qdrant', () => {
+describe.skipIf(!standIn)('a running Qdrant', () => {
   it('is started again when it dies after it was up', async () => {
     const p = qdrant(fakeQdrant('ok'));
     await p.start();
@@ -175,7 +178,7 @@ if (process.argv[4] === 'exit') process.exit(0); else setInterval(() => {}, 1000
   return { child, qdrantPid: spawns(dir)[0]! };
 }
 
-describe('a host that goes without close()', () => {
+describe.skipIf(!standIn)('a host that goes without close()', () => {
   it('stops its Qdrant when it exits', async () => {
     const dir = folder();
     const { child, qdrantPid } = await host(dir, fakeQdrant('ok'), 'exit');

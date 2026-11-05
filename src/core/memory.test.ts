@@ -612,7 +612,7 @@ describe('recall', () => {
     expect(lines.map((l) => l.ev)).toEqual(['search', 'open']);
     expect(lines[0]).toMatchObject({ t: NOW, query: 'invoice pdf', shown: found.map((h) => h.id) });
     expect(lines[1]).toEqual({ t: NOW, ev: 'open', item: 'mem:other' });
-    expect(statSync(path).mode & 0o777).toBe(0o600);
+    if (process.platform !== 'win32') expect(statSync(path).mode & 0o777).toBe(0o600); // owner bits are Unix's
     // A long message is kept up to its start.
     book.record({ ev: 'search', query: 'x'.repeat(RECALL_QUERY_CHARS + 100), shown: [] });
     await book.settled();
@@ -636,7 +636,7 @@ describe('recall', () => {
     expect(lines.at(-1)).toMatchObject({ item: 'mem:after' });
     expect(lines.at(-2)?.query).toMatch(/^q5 /);
     expect(readFileSync(path).length).toBeLessThanOrEqual(400 + 200);
-    expect(statSync(path).mode & 0o777).toBe(0o600);
+    if (process.platform !== 'win32') expect(statSync(path).mode & 0o777).toBe(0o600); // owner bits are Unix's
     // What came in after a trim is the next trim's: then it fits, and a trim with nothing to drop leaves it be.
     await book.trim();
     expect(readFileSync(path).length).toBeLessThanOrEqual(400);

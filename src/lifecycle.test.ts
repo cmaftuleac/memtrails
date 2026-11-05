@@ -165,7 +165,8 @@ process.on('SIGTERM', () => process.exit(0));
 }
 
 describe('a failed open', () => {
-  it('stops the Qdrant it started and frees the home: nothing keeps the host alive', async () => {
+  // The stand-in Qdrant is a script, which Windows does not run as a program; the real one is tested there.
+  it.skipIf(process.platform === 'win32')('stops the Qdrant it started and frees the home: nothing keeps the host alive', async () => {
     const dir = home();
     const bin = brokenQdrantBinary(mkdtempSync(join(tmpdir(), 'memtrails-bin-')));
     await expect(openMemory({ ...opts(dir), qdrant: { binary: bin } })).rejects.toThrow(/500/);
@@ -214,10 +215,13 @@ describe('one process a home', () => {
     const dir = home();
     chmodSync(dir, 0o755);
     await (await openMemory(opts(dir))).close();
-    expect(statSync(dir).mode & 0o777).toBe(0o700);
     const fresh = join(home(), 'nested', 'mem');
     await (await openMemory(opts(fresh))).close();
-    expect(statSync(fresh).mode & 0o777).toBe(0o700);
+    // Owner bits are Unix's: on Windows the user's profile ACLs keep the home private.
+    if (process.platform !== 'win32') {
+      expect(statSync(dir).mode & 0o777).toBe(0o700);
+      expect(statSync(fresh).mode & 0o777).toBe(0o700);
+    }
   });
 });
 
