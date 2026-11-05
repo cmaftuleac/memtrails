@@ -142,3 +142,16 @@ fn stays_linear_on_hostile_input() {
         assert!(ms < limit_ms, "{}: {ms} ms", &s[..20.min(s.len())]);
     }
 }
+
+#[test]
+fn a_long_run_of_scheme_characters_is_not_slow() {
+    // Every `a` after a `-` could start a scheme; each was scanned to the end of the run before its length was checked.
+    let limit = if cfg!(debug_assertions) { 10.0 } else { 1.0 };
+    for input in [format!("://{}", "a-".repeat(100_000)), format!("{}://x:y@host", "a-".repeat(100_000))] {
+        let t = Instant::now();
+        let out = redact_string(&input);
+        let took = t.elapsed().as_secs_f64();
+        assert!(took < limit, "{} chars took {took:.2} s", input.len());
+        assert_eq!(out.contains(":<redacted>@host"), input.ends_with("@host"), "{}", &out[out.len() - 40..]);
+    }
+}

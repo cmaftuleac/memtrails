@@ -217,8 +217,10 @@ fn url_credentials(s: &str) -> String {
             continue;
         }
         let scheme_class = |c: char| c.is_ascii_alphanumeric() || matches!(c, '+' | '.' | '-');
+        // No further than one past the longest scheme (1 + 31): scanned to the end of the run, every place in a long
+        // run of scheme characters (`a-a-a-…`) read the rest of it, quadratic before the length was checked.
         let mut j = i + 1;
-        while j < n && scheme_class(cs[j].1) {
+        while j < n && j < i + 33 && scheme_class(cs[j].1) {
             j += 1;
         }
         let matched = (|| -> Option<(usize, usize)> {
@@ -228,7 +230,7 @@ fn url_credentials(s: &str) -> String {
             let user_start = j + 3;
             let mut k = user_start;
             let mut user_units = 0;
-            while k < n && !(js::is_space(cs[k].1) || matches!(cs[k].1, '/' | ':' | '@')) {
+            while k < n && user_units <= 256 && !(js::is_space(cs[k].1) || matches!(cs[k].1, '/' | ':' | '@')) {
                 user_units += units(k);
                 k += 1;
             }
