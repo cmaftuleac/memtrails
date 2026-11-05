@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import io
 import os
 import sys
 from collections.abc import AsyncIterator, Awaitable, Callable
@@ -120,6 +121,11 @@ def _parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    # Windows writes a pipe in the system's code page, which has no room for most of the world's text: a search that
+    # found Japanese notes would fail on printing them.
+    for stream in (sys.stdout, sys.stderr):
+        if isinstance(stream, io.TextIOWrapper):
+            stream.reconfigure(encoding="utf-8")
     p = _parser()
     a = p.parse_args(argv)
     run = {"mcp": _mcp, "add": _add, "search": _search}.get(a.command or "")
