@@ -5,6 +5,11 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.4.1] — 2026-11-05
+
+- Native Python (`pip install memtrails`, asyncio) and Rust (`cargo add memtrails`, tokio) versions, with the same
+  results and the same files as this library: held to shared answers (`conformance/`), and a memory folder written by
+  any of the three is searched the same by the others (`interop/`).
 - Fixes: search no longer shows a short record's own summary again as the passage that matched (`match`, and after
   " … " in `searchText`); a match is now only ever a passage beyond the start of what is shown.
 - Fixes: the downloaded Qdrant binary and embedding model are only run or loaded from folders that are this user's

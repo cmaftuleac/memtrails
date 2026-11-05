@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "memtrails"
-version = "0.4.0"
+version = "0.4.1"
 description = "Retrieval and exploration for any text — e-mail, chat, notes, documents, news, commits, conversations. Searchable at once, on your own machine, in any language; optional consolidation into typed knowledge with a language model."
 readme = "README.md"
 license = "MIT"

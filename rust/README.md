@@ -16,7 +16,7 @@ too, and it consolidates what it holds into typed knowledge, dated events and pr
 
 ```toml
 [dependencies]
-memtrails = { git = "https://github.com/cmaftuleac/memtrails" }   # crates.io: `memtrails = "0.4"` once published
+memtrails = "0.4"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 ```
 

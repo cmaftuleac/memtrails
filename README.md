@@ -58,6 +58,17 @@ Node.js 22 or newer, on macOS or Linux (x64 or arm64). Windows has the pieces it
 (218 MB, from Hugging Face) and the Qdrant binary (~30 MB, from Qdrant's GitHub release) into `~/.cache/memtrails`,
 each checked against a pinned SHA-256. Set `MEMTRAILS_CACHE` to put them elsewhere.
 
+### Python and Rust
+
+The same library, written natively in each language, fully async, with the same results and the same files: a memory
+folder written by one opens in the others (checked on every change by [`interop/`](https://github.com/cmaftuleac/memtrails/tree/main/interop) and held to the shared
+answers in [`conformance/`](https://github.com/cmaftuleac/memtrails/tree/main/conformance)).
+
+```bash
+pip install memtrails          # Python 3.10–3.13, asyncio — see python/README.md
+cargo add memtrails            # Rust 1.88+, tokio — see rust/README.md
+```
+
 ## Adding data
 
 A **record** is anything with text. Only `id` and `text` are required.
