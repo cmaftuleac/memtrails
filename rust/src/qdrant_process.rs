@@ -238,7 +238,6 @@ impl QdrantProcess {
         let pid = child.id().unwrap_or(0);
         let (tx, rx) = watch::channel(None);
         track(pid);
-        self.record_pid(pid, &config).await;
         let pid_file = dir.join(PID_FILE);
         // Weak: a memory dropped without close() drops its Qdrant too (Inner's Drop stops it).
         let me = Arc::downgrade(&self.inner);
@@ -261,7 +260,9 @@ impl QdrantProcess {
                 QdrantProcess { inner }.exited(pid, &how);
             }
         });
+        // Known before the first await: a start cancelled from here on leaves a process `stop` (or a drop) ends.
         self.state().child = Some(Running { pid, exited: rx.clone() });
+        self.record_pid(pid, &config).await;
         let endpoint = QdrantEndpoint { url: format!("http://127.0.0.1:{port}"), api_key };
         let proven = async {
             self.ready(&endpoint, &rx).await?;

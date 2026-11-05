@@ -336,11 +336,44 @@ pub struct Memory {
     inner: Arc<Inner>,
 }
 
-/// What an open has started, for an open that fails half-way to release.
-#[derive(Default)]
+/// What an open holds while it runs: the home's lock and what it has started. An open that fails releases them on
+/// its way out (waiting for Qdrant to stop); one that is cancelled (its future dropped) releases them here, on drop —
+/// it once left the home locked for the life of the process. An open that completes hands them to the memory.
 struct Started {
+    lock: PathBuf,
     proc: Option<QdrantProcess>,
     local: Option<LocalEmbedder>,
+    open: bool,
+}
+
+impl Started {
+    /// Released now, waiting for Qdrant to stop (an open that failed).
+    async fn release(mut self) {
+        if let Some(p) = self.proc.take() {
+            p.stop_and_wait(10_000).await;
+        }
+        if let Some(l) = self.local.take() {
+            l.close().await;
+        }
+    }
+}
+
+impl Drop for Started {
+    fn drop(&mut self) {
+        if self.open {
+            return;
+        }
+        if let Some(p) = self.proc.take() {
+            p.stop();
+        }
+        if let Some(l) = self.local.take() {
+            // The model is freed on a blocking thread when there is a runtime to run it; else here.
+            if let Ok(rt) = tokio::runtime::Handle::try_current() {
+                rt.spawn(async move { l.close().await });
+            }
+        }
+        unlock_home(&self.lock);
+    }
 }
 
 impl Memory {
@@ -355,18 +388,19 @@ impl Memory {
             log(&format!("[memtrails] {} could not be made private: {e}", dir.display()));
         }
         let at = dir.clone();
-        let lock = blocking(move || lock_home(&at)).await??;
-        let mut started = Started::default();
-        match Self::open_in(&dir, &o, &log, &mut started, lock.clone()).await {
-            Ok(m) => Ok(m),
+        // Held from inside the file task: an open cancelled while the lock is taken still lets it go when the task
+        // ends.
+        let mut started =
+            blocking(move || lock_home(&at).map(|lock| Started { lock, proc: None, local: None, open: false }))
+                .await??;
+        let lock = started.lock.clone();
+        match Self::open_in(&dir, &o, &log, &mut started, lock).await {
+            Ok(m) => {
+                started.open = true;
+                Ok(m)
+            }
             Err(e) => {
-                if let Some(p) = started.proc {
-                    p.stop_and_wait(10_000).await;
-                }
-                if let Some(l) = started.local {
-                    l.close().await;
-                }
-                unlock_home(&lock);
+                started.release().await;
                 Err(e)
             }
         }

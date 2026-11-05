@@ -467,3 +467,59 @@ process.on('SIGTERM', () => process.exit(0));
     assert_ne!(unsafe { libc::kill(pid, 0) }, 0);
     assert!(!r.home.path().join("mem/memory.lock").exists());
 }
+
+#[cfg(unix)]
+#[tokio::test]
+async fn an_open_cancelled_half_way_stops_its_qdrant_and_leaves_the_home_free() {
+    if std::process::Command::new("node").arg("-v").output().is_err() {
+        return;
+    }
+    let r = rig().await;
+    let bin = r.home.path().join("hanging-qdrant.cjs");
+    // Ours (it takes this run's key and no other), but the collection is never answered: the open waits there.
+    std::fs::write(
+        &bin,
+        r#"#!/usr/bin/env node
+const http = require('node:http'); const fs = require('node:fs');
+const args = process.argv.slice(2);
+const port = Number(/http_port: (\d+)/.exec(fs.readFileSync(args[args.indexOf('--config-path') + 1], 'utf8'))[1]);
+fs.writeFileSync('pid', String(process.pid));
+const key = process.env.QDRANT__SERVICE__API_KEY;
+http.createServer((req, res) => {
+  if (req.url !== '/readyz' && req.headers['api-key'] !== key) { res.writeHead(401); return res.end('{}'); }
+  if (req.url.startsWith('/collections/')) { fs.writeFileSync('waiting', ''); return; }
+  res.writeHead(200); res.end('{"result":{"collections":[]}}');
+}).listen(port, '127.0.0.1');
+process.on('SIGTERM', () => process.exit(0));
+"#,
+    )
+    .unwrap();
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(&bin, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let mut o = r.options(None);
+    o.qdrant = QdrantOption::Binary(bin);
+    let opening = tokio::spawn(Memory::open(o));
+    let waiting = r.home.path().join("mem/qdrant/waiting");
+    for _ in 0..200 {
+        if waiting.exists() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    assert!(waiting.exists(), "the open never reached the collection");
+    opening.abort();
+    assert!(opening.await.err().is_some_and(|e| e.is_cancelled()));
+    let pid: i32 = std::fs::read_to_string(r.home.path().join("mem/qdrant/pid")).unwrap().trim().parse().unwrap();
+    let mut alive = true;
+    for _ in 0..100 {
+        // SAFETY: signal 0 only checks.
+        alive = unsafe { libc::kill(pid, 0) } == 0;
+        if !alive {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    assert!(!alive, "the Qdrant the cancelled open started is still running");
+    assert!(!r.home.path().join("mem/memory.lock").exists());
+    r.open().await.close().await.unwrap();
+}
