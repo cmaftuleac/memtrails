@@ -5,6 +5,14 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+- Windows (x64), in all three languages, tested on every change (the tests, and a real memory searched with the real
+  model and Qdrant). Fixed on the way: TypeScript and Python rewrote a log over a file still open; Python checked a
+  process with `os.kill(pid, 0)`, which on Windows sends Ctrl+C to its console group, wrote `\r\n` where the files say
+  `\n` (records then read back as missing), removed lock files while they were open, took a time-zone offset 2³³
+  seconds off for some years, and printed in the console's code page; Rust took every process for alive, never stopped
+  its Qdrant at exit, and unpacked the Windows ONNX Runtime as gzip. A memory whose path is too long for Qdrant's files
+  on Windows is now said to be so.
+
 ## [0.5.3] — 2026-11-05
 
 - LangChain and LlamaIndex retrievers: `memtrails/langchain` (with `@langchain/core` beside it, an optional peer), and

@@ -36,10 +36,13 @@ model).
 pip install memtrails
 ```
 
-Python 3.10 to 3.13, on macOS or Linux (x64 or arm64). The first `open_memory` downloads the embedding model (218 MB, from
+Python 3.10 to 3.13, on macOS or Linux (x64 or arm64) or Windows (x64). The first `open_memory` downloads the embedding model (218 MB, from
 Hugging Face) and the Qdrant binary (~30 MB, from Qdrant's GitHub release) into `~/.cache/memtrails`, each checked against
 a pinned SHA-256 — the same files, in the same folder, as the TypeScript library, so the two share one download. Set
 `MEMTRAILS_CACHE` to put them elsewhere.
+
+On Windows, keep a memory's path under 90 characters: Qdrant's files sit up to about 170 characters deeper, and
+Windows stops a path at 260 (memtrails says so when one is longer).
 
 ## One memory, two languages
 
@@ -249,7 +252,6 @@ searches in flight.
   Python has no ICU collator here, so the root collation is approximated (punctuation, digits, letters by base, then
   accents, then case). It agrees on every name memory compares in the tests.
 - **ONNX Runtime**: pinned to 1.23.2 for identical vectors; Python 3.14 waits for a runtime that both libraries pin.
-- **Windows** has the pieces it needs but is not tested yet (as with the TypeScript library).
 
 ## Licence
 

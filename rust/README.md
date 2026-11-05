@@ -20,7 +20,9 @@ memtrails = "0.5"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 ```
 
-It needs Rust 1.88 or newer, on macOS or Linux (x64 or arm64). Windows has the pieces it needs but is not tested yet.
+It needs Rust 1.88 or newer, on macOS or Linux (x64 or arm64) or Windows (x64). On Windows, keep a memory's path
+under 90 characters: Qdrant's files sit up to about 170 characters deeper, and Windows stops a path at 260 (memtrails
+says so when one is longer).
 
 The first `Memory::open` downloads three things into `~/.cache/memtrails`, and checks each against a pinned SHA-256:
 
@@ -205,8 +207,6 @@ the fixtures that are only this port's. The rules are in
 - **Stopping an ask.** The reference hands each ask an `AbortSignal` (`LlmRequest.signal`). Here an ask is stopped by
   dropping its future, which every `Ask` supports, so `LlmRequest` has no signal: asks side by side are dropped when
   one fails, and the readings of a consolidation when it fails or is cancelled.
-- **Windows.** The check that a process is still alive is not implemented, so locks and leftover Qdrants are taken over
-  only once they go stale.
 
 MIT © Corneliu Maftuleac. EmbeddingGemma is Google's, under the [Gemma Terms of Use](https://ai.google.dev/gemma/terms).
 It is downloaded from Hugging Face, not shipped with this crate. Qdrant (Apache-2.0) and ONNX Runtime (MIT) are

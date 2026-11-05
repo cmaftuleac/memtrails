@@ -58,9 +58,12 @@ More to run in [`examples/`](https://github.com/cmaftuleac/memtrails/blob/main/e
 npm install memtrails
 ```
 
-Node.js 22 or newer, on macOS or Linux (x64 or arm64). Windows has the pieces it needs but is not tested yet. The first `openMemory` downloads the embedding model
+Node.js 22 or newer, on macOS or Linux (x64 or arm64) or Windows (x64). The first `openMemory` downloads the embedding model
 (218 MB, from Hugging Face) and the Qdrant binary (~30 MB, from Qdrant's GitHub release) into `~/.cache/memtrails`,
 each checked against a pinned SHA-256. Set `MEMTRAILS_CACHE` to put them elsewhere.
+
+On Windows, keep a memory's path under 90 characters: Qdrant's files sit up to about 170 characters deeper, and
+Windows stops a path at 260 (memtrails says so when one is longer).
 
 On Linux x64, `ONNXRUNTIME_NODE_INSTALL=skip npm install memtrails` skips the CUDA libraries ONNX Runtime's installer
 downloads otherwise (about 350 MB; memtrails runs on the CPU and never uses them; see [SECURITY.md](SECURITY.md)). In
