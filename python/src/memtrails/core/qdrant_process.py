@@ -213,6 +213,7 @@ class QdrantProcess:
         self._stopping = False
         self._deaths: list[float] = []
         self._restart: asyncio.Task[None] | None = None
+        #: A task for each child that has not exited yet, by pid: gone once it has.
         self._watchers: dict[int, asyncio.Task[None]] = {}
 
     def current(self) -> QdrantEndpoint | None:
@@ -288,6 +289,7 @@ class QdrantProcess:
                         os.remove(path)
             except (OSError, ValueError, AttributeError):
                 pass  # none
+            self._watchers.pop(child.pid, None)
             self._exited(child)
 
         self._watchers[child.pid] = asyncio.ensure_future(wait())
@@ -388,17 +390,23 @@ class QdrantProcess:
         wait = min(60.0, 2 ** (len(self._deaths) - 1))
 
         async def again() -> None:
-            await asyncio.sleep(wait)
-            self._restart = None
-            if self._stopping:
-                return
+            # Held in _restart until it ends, its start too: stop() cancels a restart that is starting Qdrant, and the
+            # start it cancels terminates what it began — none is left running after a close.
+            me = asyncio.current_task()
             try:
-                await self.start()
-            except Exception as err:  # noqa: BLE001 - told through on_down, and tried again
-                if self._on_down:
-                    self._on_down(str(err))
-                if not self._stopping:
-                    self._restart_later(str(err))
+                await asyncio.sleep(wait)
+                if self._stopping:
+                    return
+                try:
+                    await self.start()
+                except Exception as err:  # noqa: BLE001 - told through on_down, and tried again
+                    if self._on_down:
+                        self._on_down(str(err))
+                    if not self._stopping:
+                        self._restart_later(str(err))
+            finally:
+                if self._restart is me:
+                    self._restart = None
 
         self._restart = asyncio.ensure_future(again())
 
@@ -414,18 +422,15 @@ class QdrantProcess:
             c.terminate()
 
     async def stop_and_wait(self, ms: float = 10_000) -> None:
-        """Stop and wait for the process to be gone — before its storage is deleted."""
-        c = self._child
+        """Stop and wait for the process to be gone — before its storage is deleted. A restart that was starting one is
+        cancelled and waited for: the Qdrant it began is stopped too."""
+        restart = self._restart
         self.stop()
-        if c is None:
-            return
-        watcher = self._watchers.get(c.pid)
-        if watcher is None:
-            return
-        try:
-            await asyncio.wait_for(asyncio.shield(watcher), ms / 1000)
-        except (TimeoutError, asyncio.TimeoutError):
-            return
+        if restart is not None:
+            await asyncio.wait({restart}, timeout=ms / 1000)
+        watchers = list(self._watchers.values())
+        if watchers:
+            await asyncio.wait(watchers, timeout=ms / 1000)
 
 
 def _exit_text(code: int | None) -> str:

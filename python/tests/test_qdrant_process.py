@@ -25,13 +25,14 @@ pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="POSIX signals a
 
 
 def fake_qdrant(root: Path, mode: str) -> str:
-    """A stand-in Qdrant: ``ok`` checks its key like Qdrant; ``anykey`` takes any key; ``exit`` dies at once. Each start
+    """A stand-in Qdrant: ``ok`` checks its key like Qdrant; ``anykey`` takes any key; ``exit`` dies at once; ``slow-again``
+    is ``ok`` that takes two seconds to listen when it is started again. Each start
     is a line in spawns.log, and its environment is env.json — both in the folder it runs in."""
     path = root / f"fake-qdrant-{mode}.py"
     path.write_text(
         f"#!{sys.executable}\n"
         + textwrap.dedent(f"""
-        import http.server, json, os, re, signal, socketserver, sys
+        import http.server, json, os, re, signal, socketserver, sys, time
         args = sys.argv[1:]
         port = int(re.search(r"http_port: (\\d+)", open(args[args.index("--config-path") + 1]).read()).group(1))
         with open("spawns.log", "a") as f:
@@ -39,11 +40,14 @@ def fake_qdrant(root: Path, mode: str) -> str:
         json.dump(dict(os.environ), open("env.json", "w"))
         if {mode!r} == "exit":
             sys.exit(1)
+        signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
+        if {mode!r} == "slow-again" and len(open("spawns.log").read().split()) > 1:
+            time.sleep(2)
         key = os.environ.get("QDRANT__SERVICE__API_KEY")
         class H(http.server.BaseHTTPRequestHandler):
             def log_message(self, *a): pass
             def do_GET(self):
-                if self.path != "/readyz" and {mode!r} == "ok" and self.headers.get("api-key") != key:
+                if self.path != "/readyz" and {mode!r} in ("ok", "slow-again") and self.headers.get("api-key") != key:
                     self.send_response(401); self.end_headers(); self.wfile.write(b"{{}}"); return
                 self.send_response(200); self.end_headers(); self.wfile.write(b'{{"result":{{"collections":[]}}}}')
         signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
@@ -116,6 +120,49 @@ def test_started_again_when_it_dies_after_it_was_up(tmp_path: Path) -> None:
         os.kill(spawns(p.directory)[0], signal.SIGKILL)
         assert await until(lambda: len(spawns(p.directory)) == 2 and p.current() is not None, 8)
         await p.stop_and_wait()
+
+    asyncio.run(go())
+
+
+def test_a_restart_that_is_starting_qdrant_is_stopped_by_a_close(tmp_path: Path) -> None:
+    async def go() -> None:
+        p = QdrantProcess(fake_qdrant(tmp_path, "slow-again"), str(tmp_path / "q"))
+        await p.start()
+        # The restart held where it has not started the process yet (it looks for one left running first).
+        starting = asyncio.Event()
+        real_reap = p._reap_leftover
+
+        async def slow_reap() -> None:
+            starting.set()
+            await asyncio.sleep(0.5)
+            await real_reap()
+
+        p._reap_leftover = slow_reap  # type: ignore[method-assign]
+        os.kill(spawns(p.directory)[0], signal.SIGKILL)
+        await asyncio.wait_for(starting.wait(), 8)
+        await p.stop_and_wait()
+        await asyncio.sleep(1)  # past the held step: nothing is started after the close
+        try:
+            assert len(spawns(p.directory)) == 1
+            assert p.current() is None
+        finally:
+            for pid in spawns(p.directory)[1:]:
+                os.kill(pid, signal.SIGTERM)
+
+    asyncio.run(go())
+
+
+def test_a_restart_whose_qdrant_is_not_up_yet_is_stopped_by_a_close(tmp_path: Path) -> None:
+    async def go() -> None:
+        p = QdrantProcess(fake_qdrant(tmp_path, "slow-again"), str(tmp_path / "q"))
+        await p.start()
+        os.kill(spawns(p.directory)[0], signal.SIGKILL)
+        assert await until(lambda: len(spawns(p.directory)) == 2, 8)  # started again, not answering yet
+        await p.stop_and_wait()
+        assert gone(spawns(p.directory)[1])
+        await asyncio.sleep(2.5)  # past the time it takes to answer: nothing came up, nothing started again
+        assert p.current() is None
+        assert len(spawns(p.directory)) == 2
 
     asyncio.run(go())
 
