@@ -35,7 +35,8 @@ jobs:
           node-version: 22
       - run: |
           mkdir check && cd check && npm init -y >/dev/null
-          npm install "memtrails@$VERSION"
+          # A new version reaches each registry's index a few minutes after it is published.
+          for i in $(seq 1 20); do npm install "memtrails@$VERSION" && break; sleep 30; done
           cat > check.mjs <<'EOF'
           import { openMemory } from 'memtrails';
           const memory = await openMemory({ home: 'memory' });
@@ -63,7 +64,7 @@ jobs:
         with:
           python-version: '3.13'
       - run: |
-          python -m pip install "memtrails==$VERSION"
+          for i in $(seq 1 20); do python -m pip install --no-cache-dir "memtrails==$VERSION" && break; sleep 30; done
           mkdir check && cd check
           cat > check.py <<'EOF'
           import asyncio, sys
@@ -97,7 +98,7 @@ jobs:
           toolchain: stable
       - run: |
           cargo new -q check && cd check
-          cargo add -q "memtrails@=$VERSION"
+          for i in $(seq 1 20); do cargo add -q "memtrails@=$VERSION" && break; sleep 30; done
           cargo add -q tokio --features macros,rt-multi-thread
           cat > src/main.rs <<'EOF'
           use memtrails::{Memory, MemoryOptions, MemoryRecord, SearchQuery};
