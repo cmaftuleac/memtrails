@@ -97,6 +97,35 @@ describe('a cache others could change', () => {
     expect(count.n).toBe(before);
   });
 
+  /** A one-file tar whose entry belongs to `uid`, as an archive built elsewhere does. */
+  function tarOwnedBy(uid: number, name: string, body: Uint8Array): Uint8Array<ArrayBuffer> {
+    const header = new Uint8Array(512);
+    const put = (at: number, text: string) => header.set(new TextEncoder().encode(text), at);
+    const octal = (n: number, width: number) => `${n.toString(8).padStart(width - 1, '0')}\0`;
+    put(0, name);
+    put(100, octal(0o755, 8));
+    put(108, octal(uid, 8));
+    put(116, octal(uid, 8));
+    put(124, octal(body.length, 12));
+    put(136, octal(0, 12));
+    put(148, ' '.repeat(8));
+    put(156, '0');
+    put(257, 'ustar\0' + '00');
+    put(148, `${header.reduce((a, b) => a + b, 0).toString(8).padStart(6, '0')}\0 `);
+    const out = new Uint8Array(512 + Math.ceil(body.length / 512) * 512 + 1024);
+    out.set(header);
+    out.set(body, 512);
+    return out;
+  }
+
+  it.skipIf(!unix)('runs a binary unpacked as root, whoever owned it in the archive', async () => {
+    const archive = tarOwnedBy(4242, 'qdrant', new TextEncoder().encode('#!/bin/sh\n'));
+    const asset = { asset: 'qdrant-test.tar', size: archive.length, sha256: createHash('sha256').update(archive).digest('hex'), exe: 'qdrant' };
+    const fetchImpl = (async () => new Response(archive, { status: 200 })) as unknown as typeof fetch;
+    const bin = await inCache(join(mkdtempSync(join(tmpdir(), 'mt-root-')), 'cache'), () => ensureQdrant({ fetchImpl, asset }));
+    expect(statSync(bin).uid).toBe(process.getuid!());
+  });
+
   it.skipIf(!unix)('holds no binary that is ready while others could write to the cache above it', async () => {
     const cache = mkdtempSync(join(tmpdir(), 'mt-cache-'));
     await inCache(cache, () => {

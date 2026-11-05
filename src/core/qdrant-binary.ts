@@ -96,10 +96,13 @@ function tarProgram(): string {
   return process.platform === 'win32' ? join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'tar.exe') : 'tar';
 }
 
-/** Unpack one archive with the system's tar (bsdtar on macOS and Windows reads zip too). */
+/**
+ * Unpack one archive with the system's tar (bsdtar on macOS and Windows reads zip too). Run as root, tar would give
+ * the files the archive's owner, and the binary would then not be this user's alone.
+ */
 function untar(archive: string, into: string): Promise<void> {
   return new Promise((resolve, reject) => {
-    const child = spawn(tarProgram(), ['-xf', archive, '-C', into], { stdio: 'ignore' });
+    const child = spawn(tarProgram(), ['--no-same-owner', '-xf', archive, '-C', into], { stdio: 'ignore' });
     child.once('error', reject);
     child.once('exit', (code) => (code === 0 ? resolve() : reject(new Error(`tar exited ${code}`))));
   });

@@ -6,8 +6,10 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import io
 import os
 import socket
+import tarfile
 from pathlib import Path
 from typing import Any
 
@@ -18,6 +20,7 @@ from fakes import run
 from memtrails.core.model import ensure_model, model_ready
 from memtrails.core.qdrant_binary import (
     QDRANT_ASSETS,
+    QdrantAsset,
     download_verified,
     ensure_qdrant,
     qdrant_asset,
@@ -159,6 +162,21 @@ def test_a_cache_others_could_change_is_made_private_or_refused(tmp_path: Path, 
     with pytest.raises(RuntimeError, match="not this user's alone"):
         run(ensure_qdrant(http=counting_404(count)))
     assert len(count) == before
+
+
+@unix
+def test_runs_a_binary_unpacked_as_root_whoever_owned_it_in_the_archive(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    body = b"#!/bin/sh\n"
+    entry = tarfile.TarInfo("qdrant")
+    entry.size, entry.mode, entry.uid, entry.gid = len(body), 0o755, 4242, 4242
+    packed = io.BytesIO()
+    with tarfile.open(fileobj=packed, mode="w", format=tarfile.USTAR_FORMAT) as tar:
+        tar.addfile(entry, io.BytesIO(body))
+    archive = packed.getvalue()
+    asset = QdrantAsset(asset="qdrant-test.tar", size=len(archive), sha256=hashlib.sha256(archive).hexdigest(), exe="qdrant")
+    monkeypatch.setenv("MEMTRAILS_CACHE", str(tmp_path / "cache"))
+    binary = run(ensure_qdrant(asset=asset, http=httpx.AsyncClient(transport=answer(200, archive))))
+    assert os.stat(binary).st_uid == os.getuid()
 
 
 @unix

@@ -34,6 +34,17 @@ jobs:
       - { name: The Python port's fixtures are what the library gives, if: "matrix.os == 'ubuntu-latest' && matrix.node == 24", run: npx tsx conformance/generate-python.ts && git diff --exit-code conformance/fixtures }
       - { name: The Python port's second fixtures are what the library gives, if: "matrix.os == 'ubuntu-latest' && matrix.node == 24", run: npx tsx conformance/generate-python-2.ts && git diff --exit-code conformance/fixtures }
 
+  # Run as root, as in most containers: a downloaded binary must still count as this user's own.
+  as-root:
+    runs-on: ubuntu-latest
+    container: node:22-slim@sha256:de170b39439eb0e5a3444ad7d60b015614a381e10fecae2e30ec9e735122f38d
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - run: npm ci --ignore-scripts
+      - run: npx vitest run src/core/qdrant-binary.test.ts
+
   integration:
     runs-on: ubuntu-latest
     needs: test

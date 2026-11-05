@@ -34,6 +34,17 @@ jobs:
       - run: mypy
       - run: python -m pytest -q
 
+  # Run as root, as in most containers: a downloaded binary must still count as this user's own.
+  as-root:
+    runs-on: ubuntu-latest
+    container: python:3.12-slim@sha256:e695ab189fa2d082b1c61c69a6b888a5adeca61ceeccad107b1ed2a125721a9e
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - run: python -m pip install --root-user-action=ignore -e '.[dev]'
+      - run: python -m pytest -q tests/test_downloads.py
+
   # The real EmbeddingGemma model and a real Qdrant, both fetched into the cache (checked against their pinned hashes)
   # on the first run and kept between runs. Then the TypeScript library embeds the fixture's texts on this same machine,
   # and Python must give the same vectors: ONNX Runtime's 4-bit kernels differ a little between CPU architectures, in

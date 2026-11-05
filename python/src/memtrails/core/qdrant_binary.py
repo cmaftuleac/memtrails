@@ -144,9 +144,13 @@ def _tar_program() -> str:
 
 
 async def _untar(archive: str, into: str) -> None:
-    """Unpack one archive with the system's tar (bsdtar on macOS and Windows reads zip too)."""
+    """Unpack one archive with the system's tar (bsdtar on macOS and Windows reads zip too).
+
+    Run as root, tar would give the files the archive's owner, and the binary would then not be this user's alone.
+    """
     child = await asyncio.create_subprocess_exec(
         _tar_program(),
+        "--no-same-owner",
         "-xf",
         archive,
         "-C",
