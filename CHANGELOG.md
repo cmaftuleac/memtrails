@@ -5,6 +5,11 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.5.2] — 2026-11-05
+
+- Examples in Python and Rust, the same four as in TypeScript (a quick start, importing sources, the agent tools,
+  consolidation), each run in CI against the real model; every README links them. No change to the libraries.
+
 ## [0.5.1] — 2026-11-05
 
 - Rust: the MCP server and the command line, as in TypeScript and Python — `cargo install memtrails`, then

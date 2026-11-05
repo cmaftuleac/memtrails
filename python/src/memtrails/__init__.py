@@ -28,7 +28,7 @@ from .memory import EmbeddingOptions, Memory, QdrantOptions, SearchOptions, open
 from .records import DEFAULT_COLLECTION, Conversation, MemoryRecord, record_uid, time_of
 from .tools.agent_tools import AgentTool, build_agent_tools, search_text
 
-__version__ = "0.5.1"
+__version__ = "0.5.2"
 
 __all__ = [
     "DEFAULT_COLLECTION",
