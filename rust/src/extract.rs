@@ -228,19 +228,8 @@ pub fn clean_concepts(raw: &Value) -> Vec<String> {
     out.into_values().collect()
 }
 
-fn is_date(d: &str) -> bool {
-    let b = d.as_bytes();
-    let digits = |r: std::ops::Range<usize>| b[r].iter().all(u8::is_ascii_digit);
-    match b.len() {
-        4 => digits(0..4),
-        7 => digits(0..4) && b[4] == b'-' && digits(5..7),
-        10 => digits(0..4) && b[4] == b'-' && digits(5..7) && b[7] == b'-' && digits(8..10),
-        _ => false,
-    }
-}
-
 fn date_of(d: &Value) -> String {
-    d.as_str().map(js::trim).filter(|t| is_date(t)).unwrap_or("").to_string()
+    d.as_str().map(js::trim).filter(|t| crate::writer::is_date_shape(t)).unwrap_or("").to_string()
 }
 
 /// The uid of request `n` (1-based), when `n` is a whole number naming one.

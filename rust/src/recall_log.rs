@@ -134,12 +134,18 @@ impl RecallBook {
 
     /// The events older than the time kept dropped, then the oldest until the rest fit the bytes kept — rewritten
     /// between appends (a new file renamed over the old). How many were dropped; 0 on any failure, the log as it was.
-    pub async fn trim(&self) -> usize {
+    /// Queued in order with the events at the call — what is recorded after it is the next trim's — and run between
+    /// appends.
+    pub fn trim(&self) -> impl std::future::Future<Output = usize> + Send + 'static {
         let (tx, rx) = tokio::sync::oneshot::channel();
-        if self.jobs.send(Job::Trim(tx)).is_err() {
-            return 0;
+        let sent = self.jobs.send(Job::Trim(tx)).is_ok();
+        async move {
+            if sent {
+                rx.await.unwrap_or(0)
+            } else {
+                0
+            }
         }
-        rx.await.unwrap_or(0)
     }
 
     /// Every event recorded so far written (tests, shutdown).
