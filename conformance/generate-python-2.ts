@@ -1,7 +1,8 @@
 /**
  * More of the answer key, for the Python port (any port may read it): what the TypeScript library gives where JavaScript
  * and Python differ underneath — a lone surrogate (half of a UTF-16 pair) in what is hashed, which Node writes as U+FFFD,
- * a JSON Lines id that is a number (String(1.0) is "1"), and a record whose metadata is an empty object.
+ * a JSON Lines id that is a number (String(1.0) is "1"), a record whose metadata is an empty object, and the agent tools'
+ * arguments where a regular expression or null reads differently (zod's messages).
  *
  *   npx tsx conformance/generate-python-2.ts      # python-2.json
  *
@@ -17,6 +18,7 @@ import { pointId } from '../src/core/qdrant-client.js';
 import { fingerprint, type MemoryItem } from '../src/core/store.js';
 import { fromJsonl } from '../src/importers/jsonl.js';
 import { entryOf, recordUid } from '../src/records.js';
+import { buildAgentTools } from '../src/tools/agent-tools.js';
 
 const OUT = join(import.meta.dirname, 'fixtures');
 const NOW = Date.UTC(2026, 3, 2, 12, 0, 0);
@@ -24,7 +26,7 @@ const NOW = Date.UTC(2026, 3, 2, 12, 0, 0);
 /** Lone surrogates, a high and a low one, and a whole pair beside them (which stays a character). */
 const LONE = 'note \uD83D end';
 const LOW = '\uDE00 first';
-const PAIR = 'ok 😀';
+const PAIR = 'ok \uD83D\uDE00';
 
 const item = (uid: string, concepts: string[]): MemoryItem => ({
   uid, kind: 'fact', scope: 'project', project: '-p', engine: 'conversation', session: 's', cwd: '/p', where: 'conv',
@@ -46,6 +48,22 @@ try {
     new Map([['-p', 15]]),
   );
 
+  const tools = new Map(buildAgentTools({
+    search: async () => [], open: async () => null, explore: async () => ({ found: [], related: [], concepts: [] }),
+  } as unknown as Parameters<typeof buildAgentTools>[0]).map((t) => [t.name, t]));
+  const toolCalls: Array<{ tool: string; args: Record<string, unknown> }> = [
+    { tool: 'memory_search', args: { query: 'q', from: '2024-01-01\n' } },
+    { tool: 'memory_search', args: { query: 'q', to: '2024\n' } },
+    { tool: 'memory_search', args: { query: 'q', from: '2024-01' } },
+    { tool: 'memory_search', args: { query: 'q', limit: null, order: null, collections: null, from: null } },
+    { tool: 'memory_explore', args: { topic: null, from: null, limit: null } },
+  ];
+  const toolAnswers = [];
+  for (const c of toolCalls) {
+    const r = await tools.get(c.tool)!.handler(c.args) as { content: Array<{ text: string }>; isError?: boolean };
+    toolAnswers.push({ ...c, isError: r.isError ?? false, text: r.isError ? r.content[0]!.text : null });
+  }
+
   const data = {
     recordUid: [
       { source: LONE, id: LOW, uid: recordUid({ source: LONE, id: LOW }) },
@@ -61,6 +79,7 @@ try {
       { record: { id: 'meta-empty', text: `A record ${LONE}`, metadata: {} } },
       { record: { id: LOW, source: LONE, text: `Another ${PAIR}`, at: '2026-04-01' } },
     ].map(({ record }) => ({ record, entry: entryOf(record, NOW) })),
+    tools: toolAnswers,
   };
   writeFileSync(join(OUT, 'python-2.json'), `${JSON.stringify(data, null, 1)}\n`);
 } finally {

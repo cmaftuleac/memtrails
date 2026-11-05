@@ -122,5 +122,56 @@
     }
    }
   }
+ ],
+ "tools": [
+  {
+   "tool": "memory_search",
+   "args": {
+    "query": "q",
+    "from": "2024-01-01\n"
+   },
+   "isError": true,
+   "text": "Invalid arguments: from: Invalid string: must match pattern /^\\d{4}(-\\d{2}(-\\d{2})?)?$/"
+  },
+  {
+   "tool": "memory_search",
+   "args": {
+    "query": "q",
+    "to": "2024\n"
+   },
+   "isError": true,
+   "text": "Invalid arguments: to: Invalid string: must match pattern /^\\d{4}(-\\d{2}(-\\d{2})?)?$/"
+  },
+  {
+   "tool": "memory_search",
+   "args": {
+    "query": "q",
+    "from": "2024-01"
+   },
+   "isError": false,
+   "text": null
+  },
+  {
+   "tool": "memory_search",
+   "args": {
+    "query": "q",
+    "limit": null,
+    "order": null,
+    "collections": null,
+    "from": null
+   },
+   "isError": true,
+   "text": "Invalid arguments: collections: Invalid input: expected array, received null; limit: Invalid input: expected number, received null; order: Invalid option: expected one of \"relevance\"|\"time\"; from: Invalid input: expected string, received null"
+  },
+  {
+   "tool": "memory_explore",
+   "args": {
+    "topic": null,
+    "from": null,
+    "limit": null
+   },
+   "isError": true,
+   "text": "Invalid arguments: topic: Invalid input: expected string, received null; from: Invalid input: expected array, received null; limit: Invalid input: expected number, received null"
+  }
  ]
 }

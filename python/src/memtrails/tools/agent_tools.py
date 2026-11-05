@@ -175,15 +175,18 @@ def _check(schema: Mapping[str, Any], v: Any, path: str, issues: list[str]) -> N
     where = path or "input"
     t = schema.get("type")
     if t == "string":
-        if not isinstance(v, str):
+        if not isinstance(v, str) and "enum" not in schema:
             issues.append(f"{where}: Invalid input: expected string, received {_type_name(v)}")
             return
-        if "enum" in schema and v not in schema["enum"]:
+        if "enum" in schema and v not in schema["enum"]:  # anything else (null too): zod's enum names its options
             options = "|".join(f'"{x}"' for x in schema["enum"])
             issues.append(f"{where}: Invalid option: expected one of {options}")
+            return
         if "maxLength" in schema and u16len(v) > schema["maxLength"]:
             issues.append(f"{where}: Too big: expected string to have <={schema['maxLength']} characters")
-        if "pattern" in schema and not regex.search(schema["pattern"], v, regex.ASCII):
+        # The whole string, as a JavaScript /^…$/ reads it: Python's $ also matches before a trailing newline (every
+        # pattern here is anchored at both ends).
+        if "pattern" in schema and not regex.fullmatch(schema["pattern"], v, regex.ASCII):
             issues.append(f"{where}: Invalid string: must match pattern /{schema['pattern']}/")
     elif t == "integer":
         if not isinstance(v, (int, float)) or isinstance(v, bool):
@@ -207,7 +210,8 @@ def _check(schema: Mapping[str, Any], v: Any, path: str, issues: list[str]) -> N
 
 
 def _validate(schema: Mapping[str, Any], args: Any) -> tuple[dict[str, Any] | None, str]:
-    """The arguments the handler may use, or why they are refused. Unknown keys are left out, as zod leaves them."""
+    """The arguments the handler may use, or why they are refused. Unknown keys are left out, as zod leaves them; an
+    optional one given as null is refused, as zod's optional() refuses it."""
     if args is None:
         args = {}
     if not isinstance(args, Mapping):
@@ -215,7 +219,7 @@ def _validate(schema: Mapping[str, Any], args: Any) -> tuple[dict[str, Any] | No
     issues: list[str] = []
     got: dict[str, Any] = {}
     for key, prop in schema["properties"].items():
-        if key not in args or (args[key] is None and key not in schema.get("required", [])):
+        if key not in args:
             if key in schema.get("required", []):
                 issues.append(f"{key}: Invalid input: expected {prop['type']}, received undefined")
             continue

@@ -17,6 +17,7 @@ from memtrails.core.text import doc_sparse
 from memtrails.core.writer import write_ltm
 from memtrails.importers.jsonl import from_jsonl
 from memtrails.records import entry_of, record_uid
+from memtrails.tools.agent_tools import build_agent_tools
 
 KEY = fixture("python-2.json")
 NOW = 1775131200000
@@ -75,3 +76,22 @@ async def test_a_file_named_with_a_trailing_slash_is_indexed_by_its_name(tmp_pat
     await write_ltm(deps, [it])
     key = next(p for p in client.points.values() if p["payload"].get("part") == "key")
     assert key["vector"]["bm25"] == doc_sparse("the page\nwhere it is\nwhere it is\npage b.md")
+
+
+async def test_tool_arguments_as_zod_reads_them() -> None:
+    class Provider:
+        async def search(self, q: Any) -> list[dict[str, Any]]:
+            return []
+
+        async def open(self, id: str) -> None:
+            return None
+
+        async def explore(self, q: Any) -> dict[str, Any]:
+            return {"found": [], "related": [], "concepts": []}
+
+    tools = {t.name: t for t in build_agent_tools(Provider())}
+    for x in KEY["tools"]:
+        r = await tools[x["tool"]].handler(x["args"])
+        assert bool(r.get("isError")) == x["isError"], x
+        if x["isError"]:
+            assert r["content"][0]["text"] == x["text"]
