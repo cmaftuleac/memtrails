@@ -88,15 +88,6 @@ function fakeQdrant() {
         .map((p) => ({ item: String(p.payload.item), score: cos(vector, p.vector.dense as number[]), payload: p.payload }))
         .sort((a, b) => b.score - a.score).slice(0, limit);
     },
-    async bestPerItem(vector: number[], items: string[], part: string) {
-      const best = new Map<string, number>();
-      for (const p of points.values()) {
-        const item = String(p.payload.item);
-        if (!items.includes(item) || p.payload.part !== part) continue;
-        best.set(item, Math.max(best.get(item) ?? -1, cos(vector, p.vector.dense as number[])));
-      }
-      return best;
-    },
     async fusedItems(q: { dense: number[][]; filter?: Filter; per?: number; limit?: number }) {
       const score = new Map<string, number>();
       const point = new Map<string, string>();

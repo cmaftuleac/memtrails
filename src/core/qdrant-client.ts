@@ -189,18 +189,6 @@ export class QdrantClient {
     return (r?.points ?? []).map((p) => ({ item: String(p.payload?.item ?? ''), score: p.score, payload: p.payload ?? {} }));
   }
 
-  /** Each of these items' best cosine to one vector among its points of one part (key, child, cue) — the ranker's
-   *  per-family similarities. An item with no such point is not in the map. */
-  async bestPerItem(vector: number[], items: string[], part: string, timeoutMs = 2000): Promise<Map<string, number>> {
-    if (!items.length) return new Map();
-    const r = await this.call<{ groups: Array<{ id: string; hits: Array<{ id?: string; score: number }> }> }>('POST', `${this.at}/points/query/groups`, {
-      query: vector, using: 'dense', params: RESCORE,
-      filter: { must: [{ key: 'item', match: { any: items } }, { key: 'part', match: { value: part } }] },
-      group_by: 'item', group_size: 1, limit: items.length, with_payload: false,
-    }, timeoutMs);
-    return new Map((r?.groups ?? []).map((g) => [String(g.id), g.hits[0]?.score ?? 0]));
-  }
-
   /** `nearest` for several vectors in one call. */
   /** `fields`: only these payload fields (and the item), for a caller that needs no more — a walk over
    *  many neighbours reads ids, not the bodies of long requests. */
