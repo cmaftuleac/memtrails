@@ -5,6 +5,12 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.4.2] — 2026-11-05
+
+- Fixes: the first start no longer fails when run as root (as in most containers) with "is not this user's alone":
+  the downloaded Qdrant binary was unpacked with the archive's owner and then refused. TypeScript and Python; the Rust
+  version was not affected and is released at the same version.
+
 ## [0.4.1] — 2026-11-05
 
 - Native Python (`pip install memtrails`, asyncio) and Rust (`cargo add memtrails`, tokio) versions, with the same
