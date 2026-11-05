@@ -106,11 +106,7 @@ fn track(pid: u32) {
         r.insert(pid);
     }
     EXIT_HOOK.call_once(|| {
-        #[cfg(unix)]
-        // SAFETY: stop_running is a plain extern "C" function that only reads a static and sends signals.
-        unsafe {
-            libc::atexit(stop_running);
-        }
+        sys::at_exit(stop_running);
     });
 }
 

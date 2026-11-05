@@ -278,11 +278,7 @@ fn lock_home(dir: &Path) -> Result<PathBuf> {
         h.insert(path.clone());
     }
     EXIT_HOOK.call_once(|| {
-        #[cfg(unix)]
-        // SAFETY: release_all only reads a static and removes files.
-        unsafe {
-            libc::atexit(release_all);
-        }
+        sys::at_exit(release_all);
     });
     Ok(path)
 }

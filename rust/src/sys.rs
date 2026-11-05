@@ -80,10 +80,62 @@ pub(crate) fn alive(pid: i64) -> bool {
         let rc = unsafe { libc::kill(pid as libc::pid_t, 0) };
         rc == 0 || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
     }
-    #[cfg(not(unix))]
+    #[cfg(windows)]
+    {
+        // One that cannot be looked at (another user's) exists; only "no such process" is gone.
+        windows::running(pid as u32) != Some(false)
+    }
+    #[cfg(not(any(unix, windows)))]
     {
         // No cheap check: taken as alive, so nothing is reaped or taken over on a guess.
         true
+    }
+}
+
+/// Windows: whether a process is running, from its exit code; `None` when it cannot be looked at.
+#[cfg(windows)]
+mod windows {
+    use std::ffi::c_void;
+
+    const PROCESS_TERMINATE: u32 = 0x0001;
+    const PROCESS_QUERY_LIMITED_INFORMATION: u32 = 0x1000;
+    const STILL_ACTIVE: u32 = 259;
+    const ERROR_INVALID_PARAMETER: u32 = 87;
+
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn OpenProcess(access: u32, inherit: i32, pid: u32) -> *mut c_void;
+        fn GetExitCodeProcess(process: *mut c_void, code: *mut u32) -> i32;
+        fn TerminateProcess(process: *mut c_void, code: u32) -> i32;
+        fn CloseHandle(handle: *mut c_void) -> i32;
+        fn GetLastError() -> u32;
+    }
+
+    pub(super) fn running(pid: u32) -> Option<bool> {
+        // SAFETY: plain Win32 calls on a handle opened here and closed before returning.
+        unsafe {
+            let h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
+            if h.is_null() {
+                // No process has this id; anything else (access denied) is a process that exists.
+                return if GetLastError() == ERROR_INVALID_PARAMETER { Some(false) } else { None };
+            }
+            let mut code = 0u32;
+            let ok = GetExitCodeProcess(h, &mut code) != 0;
+            CloseHandle(h);
+            ok.then_some(code == STILL_ACTIVE)
+        }
+    }
+
+    /// Ends a process (nothing when it is gone or not ours to end).
+    pub(super) fn terminate(pid: u32) {
+        // SAFETY: plain Win32 calls on a handle opened here and closed before returning.
+        unsafe {
+            let h = OpenProcess(PROCESS_TERMINATE, 0, pid);
+            if !h.is_null() {
+                TerminateProcess(h, 1);
+                CloseHandle(h);
+            }
+        }
     }
 }
 
@@ -98,14 +150,18 @@ pub(crate) fn gone(pid: i64) -> bool {
         let rc = unsafe { libc::kill(pid as libc::pid_t, 0) };
         rc != 0 && std::io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH)
     }
-    #[cfg(not(unix))]
+    #[cfg(windows)]
+    {
+        pid <= 0 || pid > i64::from(u32::MAX) || windows::running(pid as u32) == Some(false)
+    }
+    #[cfg(not(any(unix, windows)))]
     {
         let _ = pid;
         false
     }
 }
 
-/// Send a signal (`TERM` or `KILL`) to a process; nothing on a platform without signals.
+/// Send a signal (`TERM` or `KILL`) to a process; on Windows, which has no signals, it is ended either way.
 pub(crate) fn signal(pid: i64, kill: bool) {
     #[cfg(unix)]
     {
@@ -116,9 +172,27 @@ pub(crate) fn signal(pid: i64, kill: bool) {
             }
         }
     }
-    #[cfg(not(unix))]
+    #[cfg(windows)]
+    {
+        let _ = kill;
+        if pid > 0 && pid <= i64::from(u32::MAX) {
+            windows::terminate(pid as u32);
+        }
+    }
+    #[cfg(not(any(unix, windows)))]
     {
         let _ = (pid, kill);
+    }
+}
+
+/// Run `f` when the process exits normally (the C runtime's `atexit`, on every platform).
+pub(crate) fn at_exit(f: extern "C" fn()) {
+    extern "C" {
+        fn atexit(f: extern "C" fn()) -> i32;
+    }
+    // SAFETY: registers a plain extern "C" function with the C runtime; it is called once, at exit.
+    unsafe {
+        atexit(f);
     }
 }
 
