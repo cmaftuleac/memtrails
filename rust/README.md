@@ -130,7 +130,9 @@ Importers in `memtrails::importers` stream records: `from_mbox`, `from_eml`, `fr
 
 ## Parity with the reference
 
-`cargo test` holds this port to the reference's answer key in `../conformance/fixtures`:
+`cargo test` holds this port to the reference's answer key in
+[`conformance/fixtures`](https://github.com/cmaftuleac/memtrails/tree/main/conformance/fixtures). It runs from a checkout
+of the repository; the published crate does not carry the fixtures.
 
 - **Text, dates, keys and records:** folding, keywords, children, BM25 terms, term ids, `cut`, concept keys, sentence
   spans, the secret filter, fingerprints, record uids, point ids, dates (including 54 forms that V8 reads), records and
@@ -144,7 +146,9 @@ Importers in `memtrails::importers` stream records: `from_mbox`, `from_eml`, `fr
   CPU kernels round differently, by up to about 0.003 a number (cosine above 0.999). This one runs with `--ignored`,
   because it needs the model.
 
-`conformance/generate-rust.ts` writes the fixtures that are only this port's.
+[`conformance/generate-rust.ts`](https://github.com/cmaftuleac/memtrails/blob/main/conformance/generate-rust.ts) writes
+the fixtures that are only this port's. The rules are in
+[`conformance/README.md`](https://github.com/cmaftuleac/memtrails/blob/main/conformance/README.md).
 
 ## Known differences
 
@@ -160,7 +164,8 @@ Importers in `memtrails::importers` stream records: `from_mbox`, `from_eml`, `fr
   comparison uses letters first, then accents, then lower case before upper case. Names that differ only in
   punctuation may order differently.
 - **Importers.**
-  - JSON Lines: a line that is not JSON is skipped with serde's wording. A field of the wrong type is skipped with a
+  - JSON Lines: a line longer than 64 MiB is skipped with a reason (the reference reads any length its strings hold).
+    A line that is not JSON is skipped with serde's wording. A field of the wrong type is skipped with a
     reason, where the reference would keep it or fail.
   - Slack: an export with no `channels.json` is read in folder-name order. A message whose `ts` is a number is
     accepted.
