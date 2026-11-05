@@ -478,8 +478,13 @@ fn tokens(s: &str) -> Option<Vec<Tok>> {
             while i < cs.len() && cs[i].is_ascii_digit() {
                 i += 1;
             }
-            let text: String = cs[start..i].iter().collect();
-            let n = if text.len() > 15 { i64::MAX } else { text.parse().ok()? };
+            // As V8 reads a number: leading zeros skipped, then nine significant digits at most — the rest counted in
+            // its length, not read. So no number here is large enough to overflow what is done with it.
+            let n = cs[start..i]
+                .iter()
+                .skip_while(|c| **c == '0')
+                .take(9)
+                .fold(0i64, |v, c| v * 10 + i64::from(c.to_digit(10).unwrap_or(0)));
             out.push(Tok::Num(n, i - start));
         } else if c.is_alphabetic() {
             let start = i;
@@ -524,7 +529,7 @@ fn parse_legacy(s: &str) -> Option<f64> {
     let mut time: Vec<i64> = Vec::new();
     let mut milli = 0i64;
     let mut pm: Option<bool> = None;
-    let mut tz: Option<i64> = None;
+    let mut tz: Option<i64> = None; // seconds east of UTC
     let mut seen_number = false;
     let mut i = 0;
     let at = |i: usize| toks.get(i);
@@ -546,7 +551,7 @@ fn parse_legacy(s: &str) -> Option<f64> {
                         if matches!(at(i), Some(Tok::Sym('.'))) && time.len() == 3 {
                             if let Some(Tok::Num(f, flen)) = at(i + 1) {
                                 let mut v = *f;
-                                let mut l = *flen;
+                                let mut l = (*flen).min(9); // the digits V8 read
                                 while l > 3 {
                                     v /= 10;
                                     l -= 1;
@@ -577,22 +582,28 @@ fn parse_legacy(s: &str) -> Option<f64> {
                 }
             }
             Tok::Sym(c @ ('+' | '-')) if !time.is_empty() || tz.is_some() => {
-                // An offset after the time: +hhmm, +hh:mm or +hh.
+                // An offset after the time: +hhmm, +hh:mm or +hh — and no other length.
                 let sign = if *c == '-' { -1 } else { 1 };
                 let Some(Tok::Num(n, len)) = at(i + 1) else { return None };
-                let minutes = if matches!(at(i + 2), Some(Tok::Sym(':'))) {
+                let (h, m) = if matches!(at(i + 2), Some(Tok::Sym(':'))) {
                     let Some(Tok::Num(m, _)) = at(i + 3) else { return None };
                     i += 4;
-                    n * 60 + m
+                    (*n, *m)
                 } else {
                     i += 2;
-                    if *len <= 2 {
-                        n * 60
-                    } else {
-                        n / 100 * 60 + n % 100
+                    match len {
+                        1 | 2 => (*n, 0),
+                        3 | 4 => (n / 100, n % 100),
+                        _ => return None,
                     }
                 };
-                tz = Some(tz.unwrap_or(0) + sign * minutes);
+                // In seconds, in 32 bits as V8 counts them: one past its small-integer range is no date, one within it
+                // that wrapped is the date V8 gives.
+                let secs = (h as u32).wrapping_mul(3600).wrapping_add((m as u32).wrapping_mul(60));
+                if secs > i32::MAX as u32 {
+                    return None;
+                }
+                tz = Some(tz.unwrap_or(0).checked_add(sign * i64::from(secs))?);
             }
             Tok::Sym('-' | '/' | ',' | '.') | Tok::Space => i += 1,
             Tok::Sym(_) => return None,
@@ -601,7 +612,7 @@ fn parse_legacy(s: &str) -> Option<f64> {
                 if w == "am" || w == "pm" {
                     pm = Some(w == "pm");
                 } else if let Some(z) = zone(w) {
-                    tz = Some(z);
+                    tz = Some(z * 60);
                 } else if w == "t" {
                     // Only between a date and its time.
                     let time_next = matches!((at(i), at(i + 1)), (Some(Tok::Num(..)), Some(Tok::Sym(':'))));
@@ -681,7 +692,7 @@ fn parse_legacy(s: &str) -> Option<f64> {
         return None;
     }
     match tz {
-        Some(off) => Some(date_utc(year, month0, day, h, mi, sec, milli) - off as f64 * 60_000.0),
+        Some(off) => Some(date_utc(year, month0, day, h, mi, sec, milli) - off as f64 * 1000.0),
         None => local_ms(year, month0, day, h, mi, sec, milli),
     }
 }
