@@ -102,8 +102,9 @@ impl<R: BufRead> Iterator for Lines<R> {
 }
 
 /// A record read from a JSON object the way the reference reads one: the keys a record has, an `id` given as a number
-/// written as text, `""` fields left out; what cannot be a record says why.
-pub(crate) fn record_of_object(obj: &serde_json::Map<String, Value>) -> std::result::Result<MemoryRecord, String> {
+/// written as text; what cannot be a record says why. A `""` field stays `Some("")` here — it is given, so no default
+/// fills it — and is left out when the record is finished.
+pub(crate) fn record_of_object(obj: &serde_json::Map<String, Value>) -> std::result::Result<Draft, String> {
     let id = match obj.get("id") {
         Some(Value::String(s)) => s.clone(),
         Some(Value::Number(n)) => js::number(n.as_f64().unwrap_or(f64::NAN)),
@@ -133,7 +134,7 @@ pub(crate) fn record_of_object(obj: &serde_json::Map<String, Value>) -> std::res
     };
     let (title, kind, source) = (field("title")?, field("kind")?, field("source")?);
     let (collection, thread, author, url) = (field("collection")?, field("thread")?, field("author")?, field("url")?);
-    Ok(Draft { id, text, title, kind, source, collection, thread, author, at, url, metadata }.finish())
+    Ok(Draft { id, text, title, kind, source, collection, thread, author, at, url, metadata })
 }
 
 struct Reader {
@@ -167,33 +168,39 @@ impl Reader {
             Ok(v) => v,
             Err(e) => return Some(Err(format!("not JSON: {e}"))),
         };
-        let r = if let Some(map) = &self.o.map {
+        let d = if let Some(map) = &self.o.map {
             match map(&obj, self.n) {
                 Err(e) => return Some(Err(format!("map failed: {e}"))),
                 Ok(None) => return Some(Err("left out by map".into())),
-                Ok(Some(r)) => r,
+                Ok(Some(r)) => Draft {
+                    id: r.id,
+                    text: r.text,
+                    title: r.title,
+                    kind: r.kind,
+                    source: r.source,
+                    collection: r.collection,
+                    thread: r.thread,
+                    author: r.author,
+                    at: r.at,
+                    url: r.url,
+                    metadata: r.metadata.unwrap_or_default().into_iter().map(|(k, v)| (k, Some(v))).collect(),
+                },
             }
         } else {
             match &obj {
                 Value::Object(m) => match record_of_object(m) {
-                    Ok(r) => r,
+                    Ok(d) => d,
                     Err(e) => return Some(Err(e)),
                 },
                 _ => return Some(Err("not an object".into())),
             }
         };
+        // Filled only where absent (`r.source ?? o.source`): a `""` given stays, and `finish` leaves it out.
         let filled = Draft {
-            source: r.source.clone().or_else(|| self.o.source.clone()),
-            collection: r.collection.clone().or_else(|| self.o.collection.clone()),
-            kind: r.kind.clone().or_else(|| self.o.kind.clone()),
-            id: r.id,
-            text: r.text,
-            title: r.title,
-            thread: r.thread,
-            author: r.author,
-            at: r.at,
-            url: r.url,
-            metadata: r.metadata.unwrap_or_default().into_iter().map(|(k, v)| (k, Some(v))).collect(),
+            source: d.source.clone().or_else(|| self.o.source.clone()),
+            collection: d.collection.clone().or_else(|| self.o.collection.clone()),
+            kind: d.kind.clone().or_else(|| self.o.kind.clone()),
+            ..d
         }
         .finish();
         if let Some(wrong) = invalid_record(&filled) {

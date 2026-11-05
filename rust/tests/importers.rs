@@ -79,6 +79,33 @@ async fn jsonl_reads_record_shaped_lines_in_any_language_and_skips_and_counts_th
 }
 
 #[tokio::test]
+async fn jsonl_an_empty_source_collection_or_kind_is_not_filled_with_the_default() {
+    // The reference fills only what is absent (`r.source ?? o.source`); `""` stays, and is then left out — so the
+    // record's id is the one it has without a source, not the default's.
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("records.jsonl");
+    let lines = [
+        json!({ "id": "a", "text": "x", "source": "", "collection": "", "kind": "" }).to_string(),
+        json!({ "id": "b", "text": "y" }).to_string(),
+    ];
+    fs::write(&path, lines.join("\n")).unwrap();
+    let o = JsonlOptions {
+        source: Some("notes".into()),
+        collection: Some("Ops".into()),
+        kind: Some("note".into()),
+        ..Default::default()
+    };
+    let records = all(from_jsonl(&path, o).await).await;
+    let a = &records[0];
+    assert_eq!((a.source.as_deref(), a.collection.as_deref(), a.kind.as_deref()), (None, None, None));
+    let b = &records[1];
+    assert_eq!(
+        (b.source.as_deref(), b.collection.as_deref(), b.kind.as_deref()),
+        (Some("notes"), Some("Ops"), Some("note"))
+    );
+}
+
+#[tokio::test]
 async fn jsonl_maps_any_object_shape_leaving_out_what_map_returns_none_for() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("chat.jsonl");
