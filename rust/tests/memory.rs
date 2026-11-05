@@ -552,3 +552,23 @@ async fn gathering_with_a_limit_of_zero_searches_as_wide_as_with_none() {
     assert_eq!(limits(before), wide);
     m.close().await.unwrap();
 }
+
+#[tokio::test]
+async fn the_search_tool_takes_a_whole_number_written_with_a_point_as_its_limit() {
+    // JSON's 100.0 is JavaScript's 100: the reference's schema takes it as an integer, and so does the handler.
+    let r = rig().await;
+    let m = r.open().await;
+    m.add(vec![mail("m-1", "Kept", "Something kept in the logs.")]).await.unwrap();
+    let tools = m.tools();
+    let search = tools.iter().find(|t| t.name == "memory_search").unwrap();
+    let before = r.fake.server.requests().len();
+    let out = (search.handler)(json!({ "query": "something kept", "limit": 100.0 })).await;
+    assert!(!out.is_error, "{}", out.content[0].text);
+    let limits: Vec<u64> = r.fake.server.requests()[before..]
+        .iter()
+        .filter(|q| q.path.contains("/points/query"))
+        .filter_map(|q| q.json()["limit"].as_u64())
+        .collect();
+    assert!(!limits.is_empty() && limits.iter().all(|l| *l == 100), "{limits:?}");
+    m.close().await.unwrap();
+}

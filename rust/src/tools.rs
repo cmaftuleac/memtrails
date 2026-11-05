@@ -320,6 +320,12 @@ fn expected(f: &Field) -> &'static str {
     }
 }
 
+/// A whole number however JSON writes it (`100` or `100.0`, the same number to JavaScript), as the checks above take
+/// it; `None` for anything else.
+fn whole(v: &Value) -> Option<usize> {
+    v.as_f64().filter(|n| n.fract() == 0.0 && *n >= 0.0 && *n <= usize::MAX as f64).map(|n| n as usize)
+}
+
 /// The input's JSON Schema, as zod writes it for the reference.
 fn json_schema(specs: &[Spec]) -> Value {
     let mut properties = serde_json::Map::new();
@@ -418,7 +424,7 @@ pub fn build_agent_tools(p: std::sync::Arc<dyn ToolProvider>) -> Vec<AgentTool> 
                 query: args["query"].as_str().unwrap_or("").to_string(),
                 collections: strings_of(&args["collections"]),
                 kinds: None,
-                limit: Some(args["limit"].as_u64().map_or(20, |n| n as usize)),
+                limit: Some(whole(&args["limit"]).unwrap_or(20)),
                 from: args["from"].as_str().map(str::to_string),
                 to: args["to"].as_str().map(str::to_string),
             };
@@ -503,7 +509,7 @@ pub fn build_agent_tools(p: std::sync::Arc<dyn ToolProvider>) -> Vec<AgentTool> 
                     topic,
                     from,
                     collections: strings_of(&args["collections"]),
-                    limit: Some(args["limit"].as_u64().map_or(10, |n| n as usize)),
+                    limit: Some(whole(&args["limit"]).unwrap_or(10)),
                 };
                 match p.explore(q).await {
                     None => text("Nothing in memory reaches that.", false),
