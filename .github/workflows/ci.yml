@@ -33,6 +33,7 @@ jobs:
         run: npx tsx conformance/generate.ts && git diff --exit-code conformance/fixtures
       - { name: The Python port's fixtures are what the library gives, if: "matrix.os == 'ubuntu-latest' && matrix.node == 24", run: npx tsx conformance/generate-python.ts && git diff --exit-code conformance/fixtures }
       - { name: The Python port's second fixtures are what the library gives, if: "matrix.os == 'ubuntu-latest' && matrix.node == 24", run: npx tsx conformance/generate-python-2.ts && git diff --exit-code conformance/fixtures }
+      - { name: The retrievers' documents are what the library gives, if: "matrix.os == 'ubuntu-latest' && matrix.node == 24", run: npx tsx conformance/generate-retriever.ts && git diff --exit-code conformance/fixtures }
       - { name: The MCP server's answers are what the library gives, if: "matrix.os == 'ubuntu-latest' && matrix.node == 24", run: npx tsx conformance/generate-mcp.ts && git diff --exit-code conformance/fixtures }
 
   # Run as root, as in most containers: a downloaded binary must still count as this user's own.

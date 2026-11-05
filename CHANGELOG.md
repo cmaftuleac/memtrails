@@ -5,6 +5,11 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+- LangChain and LlamaIndex retrievers: `memtrails/langchain` and `memtrails/llamaindex` (with `@langchain/core` or
+  `@llamaindex/core` beside it, optional peers), and in Python `memtrails.integrations.langchain` and
+  `memtrails.integrations.llama_index` (`pip install memtrails[langchain]` / `[llama-index]`). Each found item becomes
+  the framework's document with the same id, text and flat metadata in both languages (`conformance/fixtures/retriever.json`).
+
 ## [0.5.2] — 2026-11-05
 
 - Examples in Python and Rust, the same four as in TypeScript (a quick start, importing sources, the agent tools,

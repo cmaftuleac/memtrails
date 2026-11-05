@@ -41,6 +41,14 @@
       "types": "./dist/importers/index.d.ts",
       "import": "./dist/importers/index.js"
     },
+    "./langchain": {
+      "types": "./dist/langchain.d.ts",
+      "import": "./dist/langchain.js"
+    },
+    "./llamaindex": {
+      "types": "./dist/llamaindex.d.ts",
+      "import": "./dist/llamaindex.js"
+    },
     "./package.json": "./package.json"
   },
   "bin": {
@@ -71,6 +79,8 @@
     "onnxruntime-node": "1.23.2"
   },
   "devDependencies": {
+    "@langchain/core": "1.3.4",
+    "@llamaindex/core": "0.6.23",
     "@modelcontextprotocol/sdk": "1.32.2",
     "@types/node": "^22.10.0",
     "esbuild": "^0.25.12",
@@ -80,5 +90,17 @@
   },
   "publishConfig": {
     "access": "public"
+  },
+  "peerDependencies": {
+    "@langchain/core": ">=1.0.0 <2",
+    "@llamaindex/core": ">=0.6.0 <0.7"
+  },
+  "peerDependenciesMeta": {
+    "@langchain/core": {
+      "optional": true
+    },
+    "@llamaindex/core": {
+      "optional": true
+    }
   }
 }

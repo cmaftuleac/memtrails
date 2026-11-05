@@ -100,6 +100,24 @@ The memory lives in `~/.memtrails` (`--home` or `MEMTRAILS_HOME` for another). T
 call and closes it after five minutes without one (`--idle`), so `add` can run in between; `--read-only` leaves out
 `memory_save`. From code: `serveMcp({ open: () => openMemory({ home }), version })`.
 
+## LangChain and LlamaIndex
+
+A memory is a retriever in either framework (install the framework beside memtrails):
+
+```ts
+import { MemtrailsRetriever } from 'memtrails/langchain';     // @langchain/core
+const docs = await new MemtrailsRetriever({ memory, search: { limit: 8 } }).invoke('why did renewal stop?');
+
+import { MemtrailsRetriever } from 'memtrails/llamaindex';    // @llamaindex/core
+const nodes = await new MemtrailsRetriever({ memory }).retrieve('why did renewal stop?');
+```
+
+Each document is a found item: its summary (and the passage that matched) as the text, its id, and flat metadata
+(`id`, `kind`, `title`, `date`, `ts`, `score`, and when it has them `eventAt`/`startAt`/`endAt`, `recordId`, `source`,
+`author`, `url`); `memory.open(id)` gives all of it. `search` takes every search option but the query (`collections`,
+`kinds`, `limit`, `from`, `to`; `limit` counts dated observations and other memories each). The same in Python:
+`memtrails.integrations.langchain` and `memtrails.integrations.llama_index`.
+
 ## Adding data
 
 A **record** is anything with text. Only `id` and `text` are required.

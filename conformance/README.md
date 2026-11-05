@@ -8,6 +8,8 @@ read by the others. This folder holds what keeps them honest.
 - Each port's test suite reads the same fixtures and must give the same answers (floating-point values to 1e-6).
 - `generate-mcp.ts` records what the MCP server (`serveMcp`) answers to a fixed session (`fixtures/mcp.json`): a port's
   server must answer each message the same.
+- `generate-retriever.ts` records what each found item becomes as a LangChain or LlamaIndex document
+  (`fixtures/retriever.json`): a port's adapters must give the same id, text and metadata.
 - CI regenerates the fixtures and fails when they differ from what is committed: a change in the reference is a
   change every port must follow.
 

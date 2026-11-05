@@ -1,0 +1,181 @@
+[
+ {
+  "item": {
+   "where": "",
+   "project": "default",
+   "engine": "email",
+   "id": "stm:1",
+   "title": "Proxy certificate expired",
+   "summary": "Proxy certificate expired Ana: Renewal stopped.",
+   "ts": 1775121240000,
+   "kind": "email",
+   "score": 0.91,
+   "record": {
+    "id": "<CAF8w@mail.example>",
+    "source": "work-mailbox",
+    "author": "Ana Popescu",
+    "url": "https://mail.example/1",
+    "metadata": {
+     "to": "ops@example.com"
+    }
+   }
+  },
+  "document": {
+   "id": "stm:1",
+   "text": "Proxy certificate expired Ana: Renewal stopped.",
+   "metadata": {
+    "id": "stm:1",
+    "kind": "email",
+    "title": "Proxy certificate expired",
+    "date": "2026-04-02",
+    "ts": 1775121240000,
+    "score": 0.91,
+    "recordId": "<CAF8w@mail.example>",
+    "source": "work-mailbox",
+    "author": "Ana Popescu",
+    "url": "https://mail.example/1"
+   }
+  }
+ },
+ {
+  "item": {
+   "where": "",
+   "project": "default",
+   "engine": "conversation",
+   "id": "k:2",
+   "title": "Cron job removed",
+   "summary": "The renewal cron job was removed.",
+   "ts": 1775347200000,
+   "kind": "observation",
+   "eventAt": "2026-03",
+   "score": 0.5,
+   "match": "removed in March during the  server cleanup"
+  },
+  "document": {
+   "id": "k:2",
+   "text": "The renewal cron job was removed. … removed in March during the  server cleanup",
+   "metadata": {
+    "id": "k:2",
+    "kind": "observation",
+    "title": "Cron job removed",
+    "date": "2026-04-05",
+    "ts": 1775347200000,
+    "score": 0.5,
+    "eventAt": "2026-03"
+   }
+  }
+ },
+ {
+  "item": {
+   "where": "",
+   "project": "default",
+   "engine": "conversation",
+   "id": "k:3",
+   "title": "Deploy freeze",
+   "summary": "No deploys from the 20th to the 2nd.",
+   "ts": 1764547200000,
+   "kind": "observation",
+   "startAt": "2025-12-20",
+   "endAt": "2026-01-02",
+   "score": 0.25
+  },
+  "document": {
+   "id": "k:3",
+   "text": "No deploys from the 20th to the 2nd.",
+   "metadata": {
+    "id": "k:3",
+    "kind": "observation",
+    "title": "Deploy freeze",
+    "date": "2025-12-01",
+    "ts": 1764547200000,
+    "score": 0.25,
+    "startAt": "2025-12-20",
+    "endAt": "2026-01-02"
+   }
+  }
+ },
+ {
+  "item": {
+   "where": "",
+   "project": "default",
+   "engine": "conversation",
+   "id": "k:4",
+   "title": "Ana",
+   "summary": "Ana Popescu runs the proxy and the certificates; prefers Tuesday deploys.\nOn call in April.",
+   "ts": 1775433600000,
+   "kind": "profile",
+   "score": 0.125
+  },
+  "document": {
+   "id": "k:4",
+   "text": "Ana Popescu runs the proxy and the certificates; prefers Tuesday deploys.\nOn call in April.",
+   "metadata": {
+    "id": "k:4",
+    "kind": "profile",
+    "title": "Ana",
+    "date": "2026-04-06",
+    "ts": 1775433600000,
+    "score": 0.125
+   }
+  }
+ },
+ {
+  "item": {
+   "where": "",
+   "project": "default",
+   "engine": "conversation",
+   "id": "stm:5",
+   "title": "Note",
+   "summary": "Parola routerului este în caietul albastru.",
+   "ts": 0,
+   "kind": "note",
+   "score": 0,
+   "record": {
+    "id": "note-7",
+    "source": "",
+    "author": ""
+   }
+  },
+  "document": {
+   "id": "stm:5",
+   "text": "Parola routerului este în caietul albastru.",
+   "metadata": {
+    "id": "stm:5",
+    "kind": "note",
+    "title": "Note",
+    "ts": 0,
+    "score": 0,
+    "recordId": "note-7"
+   }
+  }
+ },
+ {
+  "item": {
+   "where": "",
+   "project": "default",
+   "engine": "conversation",
+   "id": "stm:6",
+   "title": "Lunch 🍝",
+   "summary": "At the small Italian place 🍝, at one.",
+   "ts": 946684799999,
+   "kind": "message",
+   "score": 1e-9,
+   "record": {
+    "id": "chat-1#2"
+   }
+  },
+  "document": {
+   "id": "stm:6",
+   "text": "At the small Italian place 🍝, at one.",
+   "metadata": {
+    "id": "stm:6",
+    "kind": "message",
+    "title": "Lunch 🍝",
+    "date": "1999-12-31",
+    "ts": 946684799999,
+    "score": 1e-9,
+    "recordId": "chat-1#2"
+   }
+  }
+ }
+]

@@ -172,6 +172,32 @@ minutes without one (`--idle`), so `add` can run in between; `--read-only` leave
 `await serve_mcp(lambda: open_memory(home), version=...)`, answering as the reference does
 ([`conformance/fixtures/mcp.json`](https://github.com/cmaftuleac/memtrails/blob/main/conformance/fixtures/mcp.json)).
 
+## LangChain and LlamaIndex
+
+A memory is a retriever in either framework, async like the memory (`ainvoke`, `aretrieve`, async chains and query
+engines):
+
+```bash
+pip install "memtrails[langchain]"      # or memtrails[llama-index]
+```
+
+```python
+from memtrails.integrations.langchain import MemtrailsRetriever
+
+docs = await MemtrailsRetriever(memory=memory, search={"limit": 8}).ainvoke("why did renewal stop?")
+
+from memtrails.integrations.llama_index import MemtrailsRetriever
+
+nodes = await MemtrailsRetriever(memory).aretrieve("why did renewal stop?")
+```
+
+Each document is a found item: its summary (and the passage that matched) as the text, its id, and flat metadata
+(`id`, `kind`, `title`, `date`, `ts`, `score`, and when it has them `eventAt`/`startAt`/`endAt`, `recordId`, `source`,
+`author`, `url`), the same as the TypeScript adapters give
+([`conformance/fixtures/retriever.json`](https://github.com/cmaftuleac/memtrails/blob/main/conformance/fixtures/retriever.json)).
+`search` takes every search option but the query. The sync calls (`invoke`, `retrieve`) say to use the async ones: the
+memory belongs to the event loop it was opened on.
+
 ## For agents
 
 ```python
